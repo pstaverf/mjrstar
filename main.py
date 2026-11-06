@@ -16,14 +16,16 @@ from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from html import escape as html_escape
 from types import SimpleNamespace
+from pathlib import Path
 
 import aiosqlite
+from complete_games import CompleteGamesBackend
 from aiohttp import web
 
 from aiogram import BaseMiddleware, Bot, Dispatcher, Router, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode, ChatMemberStatus, ChatType
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
@@ -36,6 +38,7 @@ from aiogram.types import (
     CopyTextButton,
 )
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+from aiogram.utils.web_app import safe_parse_webapp_init_data
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8861223578:AAEPy9SNIVtHHTiOvWJqjRbnkm4g_q_oLsg")
 CHANNEL_ID = "@mjrstars"
@@ -2652,6 +2655,63 @@ async def on_withdraw_all(call: CallbackQuery, state: FSMContext, bot: Bot) -> N
     await state.clear()
 
 
+@router.message(Command("ref", "реф", ignore_case=True))
+@router.message(F.text.regexp(r"(?i)^/?(?:ref|реф)\s*$"))
+async def cmd_ref(message: Message, state: FSMContext) -> None:
+    logging.info("Processing referral command for user %s", message.from_user.id)
+    await state.clear()
+
+    user_id = message.from_user.id
+    ref_data = await get_ref_data(user_id)
+
+    active = not await is_ref_frozen(user_id)
+
+    active_icon = (
+        '<tg-emoji emoji-id="5832229652805985405">✅</tg-emoji>'
+        if active
+        else '<tg-emoji emoji-id="5273914604752216432">❌</tg-emoji>'
+    )
+
+    balance = ref_data["signup_earned"] + ref_data["deposit_earned"]
+    ref_link = f"https://t.me/{BOT_USERNAME}?start=ref_{user_id}"
+
+    await message.answer(
+        '<tg-emoji emoji-id="5814662914442797254">👥</tg-emoji>'
+        '<b> Реферальная система</b> '
+        '<blockquote expandable>'
+        '<tg-emoji emoji-id="5055840333242303386">🤑</tg-emoji>'
+        ' Тут ты сможешь заработать Telegram Stars на приглашении своих друзей и знакомых. '
+        'За обычного друга награда — 2.5'
+        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>'
+        ', награда за друга с Telegram Premium — 5'
+        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>'
+        '. Также вы будете получать 10% от пополнения ваших рефералов.\n\n '
+        '<tg-emoji emoji-id="5271604874419647061">🔗</tg-emoji>'
+        f'<i> Ваша реферальная ссылка:</i><code> {ref_link}</code>\n'
+        '</blockquote>'
+        '<blockquote>'
+        f' Заработок с приглашений: {active_icon}\n'
+        '</blockquote>'
+        '<tg-emoji emoji-id="4965219701572503640">💰</tg-emoji>'
+        f'<i> Текущий реферальный баланс:</i> {round(balance, 2)}'
+        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>\n'
+        '<blockquote expandable>'
+        '<tg-emoji emoji-id="4994896443824145756">⭐️</tg-emoji>'
+        f' Заработано с рефералов: {round(balance, 2)}'
+        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>\n'
+        '<tg-emoji emoji-id="5431577498364158238">📊</tg-emoji>'
+        ' Статистика заработка:\n'
+        '<tg-emoji emoji-id="5308004189677330658">👤</tg-emoji>'
+        f' Заработано с приглашений: {round(ref_data["signup_earned"], 2)}'
+        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>\n'
+        '<tg-emoji emoji-id="5443127283888405358">📥</tg-emoji>'
+        f' Заработано с пополнений: {round(ref_data["deposit_earned"], 2)}'
+        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>'
+        '</blockquote>',
+        reply_markup=ref_markup(user_id),
+    )
+
+
 @router.message(WithdrawStates.waiting_amount, F.text)
 async def on_withdraw_amount(message: Message, state: FSMContext, bot: Bot) -> None:
     text = (message.text or "").strip()
@@ -2828,63 +2888,6 @@ async def on_get_bonus(call: CallbackQuery, bot: Bot) -> None:
         await call.message.answer(text, reply_markup=reply_markup)
 
     await process_bonus(call.from_user.id, call.from_user, bot, send)
-
-
-@router.message(
-    F.text.regexp(r"(?i)^/?ref$") | F.text.regexp(r"(?i)^/?реф$")
-)
-async def cmd_ref(message: Message, state: FSMContext) -> None:
-    await state.clear()
-
-    user_id = message.from_user.id
-    ref_data = await get_ref_data(user_id)
-
-    active = not await is_ref_frozen(user_id)
-
-    active_icon = (
-        '<tg-emoji emoji-id="5832229652805985405">✅</tg-emoji>'
-        if active
-        else '<tg-emoji emoji-id="5273914604752216432">❌</tg-emoji>'
-    )
-
-    balance = ref_data["signup_earned"] + ref_data["deposit_earned"]
-    ref_link = f"https://t.me/{BOT_USERNAME}?start=ref_{user_id}"
-
-    await message.answer(
-        '<tg-emoji emoji-id="5814662914442797254">👥</tg-emoji>'
-        '<b> Реферальная система</b> '
-        '<blockquote expandable>'
-        '<tg-emoji emoji-id="5055840333242303386">🤑</tg-emoji>'
-        ' Тут ты сможешь заработать Telegram Stars на приглашении своих друзей и знакомых. '
-        'За обычного друга награда — 2.5'
-        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>'
-        ', награда за друга с Telegram Premium — 5'
-        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>'
-        '. Также вы будете получать 10% от пополнения ваших рефералов.\n\n '
-        '<tg-emoji emoji-id="5271604874419647061">🔗</tg-emoji>'
-        f'<i> Ваша реферальная ссылка:</i><code> {ref_link}</code>\n'
-        '</blockquote>'
-        '<blockquote>'
-        f' Заработок с приглашений: {active_icon}\n'
-        '</blockquote>'
-        '<tg-emoji emoji-id="4965219701572503640">💰</tg-emoji>'
-        f'<i> Текущий реферальный баланс:</i> {round(balance, 2)}'
-        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>\n'
-        '<blockquote expandable>'
-        '<tg-emoji emoji-id="4994896443824145756">⭐️</tg-emoji>'
-        f' Заработано с рефералов: {round(balance, 2)}'
-        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>\n'
-        '<tg-emoji emoji-id="5431577498364158238">📊</tg-emoji>'
-        ' Статистика заработка:\n'
-        '<tg-emoji emoji-id="5308004189677330658">👤</tg-emoji>'
-        f' Заработано с приглашений: {round(ref_data["signup_earned"], 2)}'
-        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>\n'
-        '<tg-emoji emoji-id="5443127283888405358">📥</tg-emoji>'
-        f' Заработано с пополнений: {round(ref_data["deposit_earned"], 2)}'
-        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>'
-        '</blockquote>',
-        reply_markup=ref_markup(user_id),
-    )
 
 
 @router.message(
@@ -5940,6 +5943,150 @@ async def on_shutdown(bot: Bot) -> None:
     await db_close()
 
 
+WEBAPP_ROOT = Path(__file__).resolve().parent
+WEBAPP_FILES = {
+    "index.html", "app_shell.html", "app.js", "styles.css", "guard.js",
+    "game_names.js", "support.js", "support.css", "sw.js", "admin.js",
+    "gadmin.js", "srv_panel.js", "srv_panel.css",
+}
+WEBAPP_DIRECTORIES = {
+    "images", "lottie", "fonts", "ИграHiLo", "ИграКено", "ИграРулетка",
+    "Капча", "cryptobot", "tonkeeper", "xrocket",
+}
+
+
+async def webapp_index(request: web.Request) -> web.StreamResponse:
+    if request.path == "/app/":
+        raise web.HTTPPermanentRedirect(location="/app" + ("?" + request.query_string if request.query_string else ""))
+    return web.FileResponse(WEBAPP_ROOT / "index.html", headers={"Cache-Control": "no-cache"})
+
+
+def webapp_authenticated_user(request: web.Request, init_data: str | None = None):
+    raw = init_data if init_data is not None else request.headers.get("X-Telegram-Init-Data", "")
+    if not isinstance(raw, str) or not raw or len(raw) > 16384:
+        raise web.HTTPUnauthorized(
+            text='{"ok":false,"error":"Откройте приложение через Telegram."}',
+            content_type="application/json",
+            headers={"Cache-Control": "no-store"},
+        )
+    try:
+        data = safe_parse_webapp_init_data(BOT_TOKEN, raw)
+        age = time.time() - data.auth_date.timestamp()
+        if age < -60 or age > 86400 or data.user is None or data.user.id <= 0:
+            raise ValueError("Invalid Telegram authentication")
+    except (ValueError, TypeError, OverflowError):
+        raise web.HTTPUnauthorized(
+            text='{"ok":false,"error":"Вход устарел или недействителен. Перезапустите приложение в Telegram."}',
+            content_type="application/json",
+            headers={"Cache-Control": "no-store"},
+        ) from None
+    requested_user = request.query.get("uid")
+    if requested_user is not None and requested_user != str(data.user.id):
+        raise web.HTTPForbidden(
+            text='{"ok":false,"error":"Нет доступа к чужому аккаунту."}',
+            content_type="application/json",
+            headers={"Cache-Control": "no-store"},
+        )
+    return data.user
+
+
+@web.middleware
+async def webapp_api_guard(request: web.Request, handler):
+    if request.path == "/api" or request.path.startswith("/api/"):
+        try:
+            if request.path == "/api/auth/telegram" and request.method == "POST":
+                try:
+                    payload = await request.json()
+                except (ValueError, TypeError, UnicodeDecodeError):
+                    raise web.HTTPNotFound(headers={"Cache-Control": "no-store"}) from None
+                raw = payload.get("initData", "") if isinstance(payload, dict) else ""
+                webapp_authenticated_user(request, raw)
+            else:
+                webapp_authenticated_user(request)
+        except (web.HTTPUnauthorized, web.HTTPForbidden):
+            raise web.HTTPNotFound(headers={"Cache-Control": "no-store"}) from None
+    return await handler(request)
+
+
+async def webapp_auth(request: web.Request) -> web.Response:
+    try:
+        payload = await request.json()
+    except (ValueError, TypeError, UnicodeDecodeError):
+        return web.json_response({"ok": False, "error": "Некорректный запрос."}, status=400, headers={"Cache-Control": "no-store"})
+    if not isinstance(payload, dict):
+        return web.json_response({"ok": False, "error": "Некорректный запрос."}, status=400, headers={"Cache-Control": "no-store"})
+    user = webapp_authenticated_user(request, payload.get("initData", ""))
+    return web.json_response({"ok": True, "userId": user.id}, headers={"Cache-Control": "no-store"})
+
+
+async def webapp_state(request: web.Request) -> web.Response:
+    user = webapp_authenticated_user(request)
+    async with _db_lock:
+        async with db().execute(
+            "SELECT amount, created_at FROM balances WHERE user_id = ?", (user.id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+    display_name = " ".join(part for part in (user.first_name, user.last_name) if part)
+    return web.json_response(
+        {
+            "ok": True,
+            "id": user.id,
+            "balance": float(row[0]) if row else 0.0,
+            "registrationDate": row[1] if row else None,
+            "displayName": display_name or user.username or "Игрок",
+            "username": user.username,
+            "avatarUrl": user.photo_url or "",
+            "botUsername": BOT_USERNAME,
+            "isAdmin": user.id == ADMIN_ID,
+            "serverTz": 180,
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+async def webapp_referral(request: web.Request) -> web.Response:
+    user = webapp_authenticated_user(request)
+    referral = await get_ref_data(user.id)
+    count = await count_referrals(user.id)
+    return web.json_response(
+        {
+            "ok": True,
+            "link": f"https://t.me/{BOT_USERNAME}?start=ref_{user.id}",
+            "count": count,
+            "earnings": referral["signup_earned"] + referral["deposit_earned"],
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+async def webapp_api_unavailable(request: web.Request) -> web.Response:
+    return web.json_response(
+        {"ok": False, "error": "Этот раздел WebApp пока не подключён.", "code": "WEBAPP_BACKEND_UNAVAILABLE"},
+        status=503,
+        headers={"Cache-Control": "no-store", "Retry-After": "60"},
+    )
+
+
+async def webapp_asset(request: web.Request) -> web.StreamResponse:
+    relative = Path(request.match_info["path"])
+    if relative.is_absolute() or ".." in relative.parts or not relative.parts:
+        raise web.HTTPNotFound()
+    if relative.parts[0] not in WEBAPP_DIRECTORIES and str(relative) not in WEBAPP_FILES:
+        raise web.HTTPNotFound()
+    path = (WEBAPP_ROOT / relative).resolve()
+    if not path.is_relative_to(WEBAPP_ROOT):
+        raise web.HTTPNotFound()
+    if path.is_file():
+        headers = {"Cache-Control": "no-cache"} if path.suffix in {".js", ".css", ".html"} else {}
+        return web.FileResponse(path, headers=headers)
+    placeholders = {".png": "unavailable.png", ".jpg": "unavailable.png", ".jpeg": "unavailable.png", ".webp": "unavailable.png", ".gif": "unavailable.png", ".svg": "unavailable.svg", ".lottie": "unavailable.lottie"}
+    placeholder = placeholders.get(path.suffix.lower())
+    if placeholder:
+        logging.warning("WebApp resource missing: %s", relative)
+        return web.FileResponse(WEBAPP_ROOT / "placeholders" / placeholder, headers={"Cache-Control": "no-store", "X-MjrStar-Placeholder": "1"})
+    raise web.HTTPNotFound()
+
+
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -5978,7 +6125,16 @@ def main() -> None:
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
 
-    app = web.Application()
+    app = web.Application(middlewares=[webapp_api_guard])
+    app.router.add_get("/", webapp_index)
+    app.router.add_get("/app", webapp_index)
+    app.router.add_get("/app/", webapp_index)
+    app.router.add_post("/api/auth/telegram", webapp_auth)
+    app.router.add_get("/api/state", webapp_state)
+    app.router.add_get("/api/referral", webapp_referral)
+    games_backend = CompleteGamesBackend(db, _db_lock, webapp_authenticated_user, now_msk)
+    games_backend.register(app)
+    app.router.add_route("*", "/api/{path:.*}", webapp_api_unavailable)
 
     webhook_handler = SimpleRequestHandler(
         dispatcher=dp,
@@ -5987,7 +6143,10 @@ def main() -> None:
     )
     webhook_handler.register(app, path=WEBHOOK_PATH)
 
+    app.router.add_get("/{path:.*}", webapp_asset)
+
     setup_application(app, dp, bot=bot)
+    app.on_startup.append(games_backend.initialize)
 
     logging.info("Starting web server on %s:%s", WEBAPP_HOST, WEBAPP_PORT)
     web.run_app(app, host=WEBAPP_HOST, port=WEBAPP_PORT, access_log=None)
