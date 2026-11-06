@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <script>
+        window.addEventListener("pageshow", function(e) {
+            if (e.persisted) window.location.reload();
+        });
+    </script>
+    <meta charset="UTF-8">
+    <script src="/guard.js?v=4be0a7c119"></script>
+    <script src="/game_names.js?v=4be0a7c119"></script>
+    <script>
+        window.__GN0__ = {};
+    </script>
+    <script>
+        try {
+            if (localStorage.getItem("cryptogame_tg_bg") === "1") document.documentElement.classList.add("tg-bg");
+        } catch (e) {}
+    </script>
+    <script>
+        (function() {
+            var DEV_CODES = ['KeyI', 'KeyJ', 'KeyC', 'KeyM', 'KeyK', 'KeyE'];
+            var MAC_CODES = ['KeyI', 'KeyJ', 'KeyC', 'KeyU'];
+
+            function isStaff() {
+                try {
+                    return window.__ADM0__ === 1 || window.__staffUser === true || (window.parent !== window && (window.parent.__ADM0__ === 1 || window.parent.__staffUser === true));
+                } catch (e) {
+                    return false;
+                }
+            }
+
+            function isDevCombo(e) {
+                var code = e.code || '';
+                if (code === 'F12' || e.key === 'F12') return true;
+                if (!(e.ctrlKey || e.metaKey)) return false;
+                if (code === 'KeyU' && !e.shiftKey && !e.altKey) return true;
+                if (e.shiftKey && !e.altKey && DEV_CODES.indexOf(code) !== -1) return true;
+                if (e.metaKey && e.altKey && MAC_CODES.indexOf(code) !== -1) return true;
+                return false;
+            }
+            window.addEventListener('keydown', function(e) {
+                if (isStaff() || !isDevCombo(e)) return;
+                e.preventDefault();
+                e.stopPropagation();
+            }, true);
+            window.addEventListener('contextmenu', function(e) {
+                try {
+                    if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+                } catch (x) {
+                    return;
+                }
+                e.preventDefault();
+            }, true);
+        })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#050506">
+    <title>casinocgbot</title>
+    <link rel="icon" href="data:,">
+
+    <link rel="preload" as="font" type="font/woff2" href="/fonts/Unbounded-400.woff2" crossorigin>
+    <link rel="preload" as="font" type="font/woff2" href="/fonts/Montserrat-600.woff2" crossorigin>
+    <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/@lottiefiles/dotlottie-web@0.80.0/dist/index.js" crossorigin>
+    <link rel="preload" as="fetch" href="https://cdn.jsdelivr.net/npm/@lottiefiles/dotlottie-web@0.80.0/dist/dotlottie-player.wasm" crossorigin>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        @font-face{font-family:'Unbounded'; src:url('/fonts/Unbounded-400.woff2') format('woff2'), url('/fonts/Unbounded-400.ttf') format('truetype'); font-weight:400; font-style:normal; font-display:swap;}
+          @font-face{font-family:'Unbounded'; src:url('/fonts/Unbounded-600.woff2') format('woff2'), url('/fonts/Unbounded-600.ttf') format('truetype'); font-weight:600; font-style:normal; font-display:swap;}
+          @font-face{font-family:'Unbounded'; src:url('/fonts/Unbounded-800.woff2') format('woff2'), url('/fonts/Unbounded-800.ttf') format('truetype'); font-weight:800; font-style:normal; font-display:swap;}
+          @font-face{font-family:'Montserrat'; src:url('/fonts/Montserrat-600.woff2') format('woff2'), url('/fonts/Montserrat-600.ttf') format('truetype'); font-weight:400 900; font-style:normal; font-display:swap;}
+        
+          :root{
+            --bg-0:#020203;
+            --gold-0:#ffd9a0;
+            --gold-1:#f2b565;
+            --gold-2:#c97b3b;
+            --text-0:#f5f3ee;
+            --text-1:#b9bcc6;
+            --text-2:#6d7180;
+            --f-body:'Montserrat','Segoe UI',-apple-system,BlinkMacSystemFont,sans-serif;
+            --f-display:'Unbounded','Montserrat','Segoe UI',-apple-system,BlinkMacSystemFont,sans-serif;
+            --ease:cubic-bezier(.22,1,.36,1);
+          }
+          html{background:var(--bg-0);}
+          body{background:var(--bg-0); margin:0; font-family:var(--f-body);}
+          *{
+            -webkit-user-select:none;
+            -moz-user-select:none;
+            user-select:none;
+            -webkit-touch-callout:none;
+          }
+          img, svg{
+            -webkit-user-drag:none;
+            user-drag:none;
+            -khtml-user-drag:none;
+            -moz-user-drag:none;
+            -o-user-drag:none;
+          }
+          html.rs-lock-scroll, html.rs-lock-scroll body{overflow:hidden; position:fixed; inset:0; width:100%; height:100%;}
+        
+          .tg-gate{
+            display:none;
+            min-height:100vh;
+            min-height:100dvh;
+            align-items:center;
+            justify-content:center;
+            padding:24px;
+            box-sizing:border-box;
+            background:var(--bg-0);
+          }
+          .tg-gate-card{
+            width:100%;
+            max-width:380px;
+            background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+            border:1px solid rgba(255,255,255,.09);
+            border-radius:32px;
+            padding:34px 24px 26px;
+            text-align:center;
+            box-shadow:inset 0 1px 0 rgba(255,255,255,.08), 0 24px 60px rgba(0,0,0,.6);
+          }
+          .tg-gate-gif{display:block; width:132px; height:132px; object-fit:contain; margin:0 auto 6px;}
+          .tg-gate-title{
+            margin:10px 0 10px; font-size:19px; font-weight:400; color:var(--text-0); line-height:1.25;
+            font-family:var(--f-display);
+          }
+          .tg-gate-text{margin:0 0 26px; font-size:13.5px; line-height:1.6; color:var(--text-2); font-weight:500;}
+          .tg-gate-btn{
+            display:flex; align-items:center; justify-content:center; gap:10px;
+            padding:16px 20px;
+            border-radius:999px;
+            background:linear-gradient(180deg,#ffd08a 0%,#f2b565 42%,#d98a45 100%);
+            color:#1a1206;
+            font-family:inherit;
+            font-weight:800;
+            font-size:14.5px;
+            text-decoration:none;
+            box-shadow:inset 0 1px 0 rgba(255,255,255,.55), 0 14px 30px rgba(201,123,59,.35);
+            transition:transform .15s var(--ease), filter .15s var(--ease);
+          }
+          .tg-gate-btn:active{transform:scale(.97); filter:brightness(.95);}
+          .tg-gate-btn-icon{width:19px; height:19px; flex-shrink:0;}
+        
+          .rs-preloader{
+            position:fixed; inset:0;
+            display:flex; align-items:center; justify-content:center;
+            background:var(--bg-0);
+            z-index:9999;
+            overflow:hidden;
+            opacity:1;
+            transition:opacity .55s var(--ease), transform .55s var(--ease);
+          }
+          .rs-preloader.rs-hidden{opacity:0; transform:scale(1.035); pointer-events:none;}
+          html.tg-bg .rs-preloader::before{content:''; position:absolute; left:50%; top:0; bottom:0; width:min(100vw,430px); transform:translateX(-50%); pointer-events:none; background:rgba(242,181,101,.1); -webkit-mask:url(/lottie/ThemeSupport.svg) center top/125% auto repeat-y; mask:url(/lottie/ThemeSupport.svg) center top/125% auto repeat-y;}
+          .rs-pl-center{
+            position:relative; z-index:1;
+            display:flex; flex-direction:column; align-items:center;
+            animation:rs-pl-in .7s var(--ease) both;
+          }
+          @keyframes rs-pl-in{from{opacity:0; transform:translateY(14px) scale(.97);} to{opacity:1; transform:none;}}
+        
+          .rs-pl-pct{
+            display:inline-flex; align-items:flex-start; justify-content:center;
+            padding-left:.2em;
+            font-family:var(--f-display); font-weight:400; font-size:68px; line-height:1; letter-spacing:0;
+            color:transparent;
+            background:linear-gradient(105deg, #303037 0%, #303037 36%, #7d6039 43%, #ffe6b8 49.5%, #f2b565 53%, #7d6039 58%, #303037 65%, #303037 100%);
+            background-size:300% 100%;
+            -webkit-background-clip:text; background-clip:text;
+            -webkit-text-fill-color:transparent;
+            animation:rs-pl-shimmer 2.1s linear infinite;
+          }
+          @keyframes rs-pl-shimmer{from{background-position:100% 0;} to{background-position:0 0;}}
+          .rs-pl-pct .d{display:block; width:.86em; text-align:center;}
+          .rs-pl-pct .d.h{display:none;}
+          .rs-pl-pct.rs-hundred .d.h{display:block;}
+          .rs-pl-pct .sign{display:block; margin:.16em 0 0 .08em; font-size:.34em; line-height:1;}
+          .rs-preloader.rs-pl-done .rs-pl-pct{
+            animation:rs-pl-pop .5s var(--ease) both;
+            background:none; -webkit-text-fill-color:var(--gold-1); color:var(--gold-1);
+          }
+          @keyframes rs-pl-pop{from{transform:scale(1);} 45%{transform:scale(1.07);} to{transform:scale(1);}}
+        
+          .rs-pl-brand{
+            display:inline-flex; margin-top:18px; padding-left:.42em;
+            font-family:var(--f-display); font-weight:600; font-size:19px; line-height:1; letter-spacing:.42em;
+            color:transparent;
+            background:linear-gradient(105deg, #3c3c45 0%, #3c3c45 36%, #7d6039 43%, #ffe6b8 49.5%, #f2b565 53%, #7d6039 58%, #3c3c45 65%, #3c3c45 100%);
+            background-size:300% 100%;
+            -webkit-background-clip:text; background-clip:text;
+            -webkit-text-fill-color:transparent;
+            animation:rs-pl-shimmer 2.1s linear -.5s infinite;
+          }
+          .rs-pl-brand span{display:block; animation:rs-pl-letter .6s var(--ease) backwards; animation-delay:calc(var(--i) * 55ms + 150ms);}
+          @keyframes rs-pl-letter{from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:none;}}
+          .rs-preloader.rs-pl-done .rs-pl-brand{
+            animation:none; background:none; -webkit-text-fill-color:var(--gold-1); color:var(--gold-1);
+          }
+        
+          .rs-load-error{
+            display:none; position:fixed; inset:0; z-index:10000;
+            background:var(--bg-0); color:var(--text-0);
+            align-items:center; justify-content:center;
+            padding:24px; box-sizing:border-box;
+            font-family:var(--f-body);
+          }
+          .rs-load-error.rs-show{display:flex;}
+          .rs-err-card{
+            width:100%; max-width:380px;
+            background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+            border:1px solid rgba(255,255,255,.09);
+            border-radius:32px;
+            padding:34px 24px 26px;
+            text-align:center;
+            box-shadow:inset 0 1px 0 rgba(255,255,255,.08), 0 24px 60px rgba(0,0,0,.6);
+          }
+          .rs-err-art{position:relative; width:132px; height:132px; margin:0 auto 6px;}
+          .rs-err-art img, .rs-err-art canvas{position:absolute; left:0; top:0; width:100%; height:100%; object-fit:contain; transition:opacity .3s;}
+          .rs-err-art canvas{opacity:0;}
+          .rs-err-art.live canvas{opacity:1;}
+          .rs-err-art.live img{opacity:0;}
+          .rs-load-error h1{margin:10px 0 10px; font-size:19px; font-weight:400; line-height:1.25; font-family:var(--f-display);}
+          .rs-load-error p{margin:0 0 26px; font-size:13.5px; line-height:1.6; color:var(--text-2); font-weight:500;}
+          .rs-load-error button{
+            display:flex; align-items:center; justify-content:center; gap:10px; width:100%;
+            border:none; border-radius:999px; padding:16px 20px;
+            background:linear-gradient(180deg,#ffd08a 0%,#f2b565 42%,#d98a45 100%); color:#1a1206;
+            font-weight:800; font-size:14.5px; font-family:inherit; cursor:pointer;
+            box-shadow:inset 0 1px 0 rgba(255,255,255,.55), 0 14px 30px rgba(201,123,59,.35);
+            transition:transform .15s var(--ease), filter .15s var(--ease);
+          }
+          .rs-load-error button svg{width:19px; height:19px; flex-shrink:0;}
+          .rs-load-error button:active{transform:scale(.97); filter:brightness(.95);}
+        
+          html.adm-boot .rs-pl-pct{background:linear-gradient(105deg, #262d4a 0%, #262d4a 36%, #3a5db8 43%, #d6e4ff 49.5%, #4681ff 53%, #3a5db8 58%, #262d4a 65%, #262d4a 100%); background-size:300% 100%; -webkit-background-clip:text; background-clip:text;}
+          html.adm-boot .rs-pl-brand{background:linear-gradient(105deg, #2c3350 0%, #2c3350 36%, #3a5db8 43%, #d6e4ff 49.5%, #4681ff 53%, #3a5db8 58%, #2c3350 65%, #2c3350 100%); background-size:300% 100%; -webkit-background-clip:text; background-clip:text;}
+          html.adm-boot .rs-preloader.rs-pl-done .rs-pl-pct, html.adm-boot .rs-preloader.rs-pl-done .rs-pl-brand{background:none; -webkit-text-fill-color:#4681ff; color:#4681ff;}
+        
+          @media (prefers-reduced-motion: reduce){
+            .rs-pl-pct{animation:none; background-position:50% 0;}
+            .rs-pl-brand{animation:none; background-position:50% 0;}
+            .rs-pl-brand span{animation:none;}
+          }
+    </style>
+    <style id="rsPlTheme">
+        .rs-pl-pct{background:linear-gradient(105deg, #303037 0%, #303037 36%, #b9bcc6 43%, #ffffff 49.5%, #7b7f8e 53%, #b9bcc6 58%, #303037 65%, #303037 100%); background-size:300% 100%; -webkit-background-clip:text; background-clip:text; animation-duration:2.1s;}
+          .rs-pl-brand{background:linear-gradient(105deg, #3c3c45 0%, #3c3c45 36%, #b9bcc6 43%, #ffffff 49.5%, #7b7f8e 53%, #b9bcc6 58%, #3c3c45 65%, #3c3c45 100%); background-size:300% 100%; -webkit-background-clip:text; background-clip:text; animation-duration:2.1s;}
+          .rs-preloader.rs-pl-done .rs-pl-pct, .rs-preloader.rs-pl-done .rs-pl-brand{-webkit-text-fill-color:#ffffff; color:#ffffff;}
+    </style>
+    <style id="siteTheme" data-v="f8c62f0864">
+        html:root{--ac-16110a:#131315;--ac-17120a:#131416;--ac-1a1206:#121316;--ac-1a130c:#161719;--ac-1c1509:#151619;--ac-1c1809:#151519;--ac-241a10:#1e2023;--ac-2a1606:#1a1d22;--ac-2a2410:#212227;--ac-2c210f:#212328;--ac-3b2705:#22252e;--ac-3c1c06:#23292f;--ac-3c2a0c:#272a32;--ac-50280a:#303740;--ac-5a2d0a:#353d47;--ac-783c14:#4c5763;--ac-86501f:#5b6473;--ac-8a4e24:#616b78;--ac-8a5a00:#464d66;--ac-96560a:#535e74;--ac-966a0e:#565d76;--ac-99602d:#6f7988;--ac-a2601a:#657185;--ac-a2622d:#747f8e;--ac-b5791f:#747d94;--ac-b96f2f:#848e9d;--ac-c47c3c:#969ea9;--ac-c97b3b:#98a0ac;--ac-c98a4b:#a3aab4;--ac-cd7f32:#949caa;--ac-d68c50:#afb6bf;--ac-d8902a:#949bad;--ac-d98a45:#a9b0bb;--ac-e0900b:#8089a5;--ac-e39330:#9fa7b7;--ac-e3a26b:#cacfd6;--ac-e4b02e:#9ea2b7;--ac-e6a447:#b2b7c5;--ac-e8862f:#a2abba;--ac-e9a458:#c0c5d0;--ac-eaad68:#ccd0d9;--ac-f0b03f:#b2b7c7;--ac-f2b565:#cfd3dc;--ac-f2c04a:#bbbfce;--ac-f2c46d:#d1d4de;--ac-f2ece3:#f4f5f6;--ac-f5a524:#a1a8bc;--ac-ffaa00:#8d94b1;--ac-ffb74d:#c6cbd8;--ac-ffc766:#d2d5e0;--ac-ffc83c:#b9bdcf;--ac-ffd08a:#dde0e7;--ac-ffd23f:#bbbed1;--ac-ffd24d:#c6c8d8;--ac-ffd678:#d7d9e4;--ac-ffd68c:#dde0e8;--ac-ffd98a:#dddfe7;--ac-ffd9a0:#e3e5ec;--ac-ffe08a:#dddee7;--ac-ffe28c:#dddee8;--ac-ffe7a8:#e5e7ed;--ac-ffecb4:#e9eaf0;--ac-fffdf8:#fdfdfe;--acr-16110a:19,19,21;--acr-17120a:19,20,22;--acr-1a1206:18,19,22;--acr-1a130c:22,23,25;--acr-1c1509:21,22,25;--acr-1c1809:21,21,25;--acr-241a10:30,32,35;--acr-2a1606:26,29,34;--acr-2a2410:33,34,39;--acr-2c210f:33,35,40;--acr-3b2705:34,37,46;--acr-3c1c06:35,41,47;--acr-3c2a0c:39,42,50;--acr-50280a:48,55,64;--acr-5a2d0a:53,61,71;--acr-783c14:76,87,99;--acr-86501f:91,100,115;--acr-8a4e24:97,107,120;--acr-8a5a00:70,77,102;--acr-96560a:83,94,116;--acr-966a0e:86,93,118;--acr-99602d:111,121,136;--acr-a2601a:101,113,133;--acr-a2622d:116,127,142;--acr-b5791f:116,125,148;--acr-b96f2f:132,142,157;--acr-c47c3c:150,158,169;--acr-c97b3b:152,160,172;--acr-c98a4b:163,170,180;--acr-cd7f32:148,156,170;--acr-d68c50:175,182,191;--acr-d8902a:148,155,173;--acr-d98a45:169,176,187;--acr-e0900b:128,137,165;--acr-e39330:159,167,183;--acr-e3a26b:202,207,214;--acr-e4b02e:158,162,183;--acr-e6a447:178,183,197;--acr-e8862f:162,171,186;--acr-e9a458:192,197,208;--acr-eaad68:204,208,217;--acr-f0b03f:178,183,199;--acr-f2b565:207,211,220;--acr-f2c04a:187,191,206;--acr-f2c46d:209,212,222;--acr-f2ece3:244,245,246;--acr-f5a524:161,168,188;--acr-ffaa00:141,148,177;--acr-ffb74d:198,203,216;--acr-ffc766:210,213,224;--acr-ffc83c:185,189,207;--acr-ffd08a:221,224,231;--acr-ffd23f:187,190,209;--acr-ffd24d:198,200,216;--acr-ffd678:215,217,228;--acr-ffd68c:221,224,232;--acr-ffd98a:221,223,231;--acr-ffd9a0:227,229,236;--acr-ffe08a:221,222,231;--acr-ffe28c:221,222,232;--acr-ffe7a8:229,231,237;--acr-ffecb4:233,234,240;--acr-fffdf8:253,253,254;--sf-020203:#050506;--sf-040508:#09090a;--sf-050506:#08080a;--sf-06060c:#0c0c0e;--sf-070708:#0a0a0c;--sf-07070d:#0d0d10;--sf-07080b:#0c0c0e;--sf-08080a:#0c0c0e;--sf-08080b:#0d0d0f;--sf-08080c:#0d0d10;--sf-080a0e:#0e0e11;--sf-09090b:#0d0d10;--sf-0a0a0a:#0d0d10;--sf-0a0a0c:#0e0e11;--sf-0b0b0d:#0f0f12;--sf-0b0e15:#141417;--sf-0b130e:#131316;--sf-0c0c0f:#111114;--sf-0c0d11:#121215;--sf-0d0d0f:#121215;--sf-0d0e10:#121215;--sf-0d0e11:#131316;--sf-0d1217:#16161a;--sf-0e0a04:#0c0c0e;--sf-0e0e10:#131316;--sf-0e0e12:#141417;--sf-0e1016:#16161a;--sf-0f0f11:#141417;--sf-100c0c:#121215;--sf-101012:#151518;--sf-111111:#151518;--sf-111113:#16161a;--sf-111114:#16161a;--sf-111217:#18181c;--sf-121014:#16161a;--sf-121214:#17171b;--sf-121a15:#1a1a1e;--sf-130f0f:#151518;--sf-131315:#18181c;--sf-14100a:#131316;--sf-141416:#19191d;--sf-150b0b:#141417;--sf-151111:#17171b;--sf-151515:#19191d;--sf-151517:#1a1a1e;--sf-151518:#1a1a1f;--sf-15151a:#1b1b20;--sf-15151b:#1b1b20;--sf-15161a:#1b1b20;--sf-16161c:#1c1c21;--sf-16171b:#1c1c21;--sf-17171a:#1c1c21;--sf-17171b:#1c1c21;--sf-17181d:#1d1d22;--sf-18181b:#1d1d22;--sf-18181e:#1e1e23;--sf-1a1212:#1a1a1e;--sf-1a1a1d:#1f1f24;--sf-1a1a1e:#1f1f24;--sf-1a1a20:#202026;--sf-1b1b1f:#202026;--sf-1b1b20:#202026;--sf-1c1c1f:#202026;--sf-1c1d21:#212127;--sf-1d1e23:#232329;--sf-1d1e24:#232329;--sf-1e1e21:#222228;--sf-1f1f23:#24242a;--sf-232326:#27272d;--sf-26262b:#2a2a32;--sf-26272c:#2b2b32;--sf-27272b:#2b2b32;--sf-282a30:#2d2d35;--sf-2a2a2d:#2d2d35;--sf-2a2a31:#2f2f37;--sf-2a2c33:#303038;--sf-2b2d35:#31313a;--sf-2c2d31:#303038;--sf-303035:#33333c;--sf-34343a:#373741;--sf-34343d:#393942;--sf-34363b:#383841;--sfr-020203:5,5,6;--sfr-040508:9,9,10;--sfr-050506:8,8,10;--sfr-06060c:12,12,14;--sfr-070708:10,10,12;--sfr-07070d:13,13,16;--sfr-07080b:12,12,14;--sfr-08080a:12,12,14;--sfr-08080b:13,13,15;--sfr-08080c:13,13,16;--sfr-080a0e:14,14,17;--sfr-09090b:13,13,16;--sfr-0a0a0a:13,13,16;--sfr-0a0a0c:14,14,17;--sfr-0b0b0d:15,15,18;--sfr-0b0e15:20,20,23;--sfr-0b130e:19,19,22;--sfr-0c0c0f:17,17,20;--sfr-0c0d11:18,18,21;--sfr-0d0d0f:18,18,21;--sfr-0d0e10:18,18,21;--sfr-0d0e11:19,19,22;--sfr-0d1217:22,22,26;--sfr-0e0a04:12,12,14;--sfr-0e0e10:19,19,22;--sfr-0e0e12:20,20,23;--sfr-0e1016:22,22,26;--sfr-0f0f11:20,20,23;--sfr-100c0c:18,18,21;--sfr-101012:21,21,24;--sfr-111111:21,21,24;--sfr-111113:22,22,26;--sfr-111114:22,22,26;--sfr-111217:24,24,28;--sfr-121014:22,22,26;--sfr-121214:23,23,27;--sfr-121a15:26,26,30;--sfr-130f0f:21,21,24;--sfr-131315:24,24,28;--sfr-14100a:19,19,22;--sfr-141416:25,25,29;--sfr-150b0b:20,20,23;--sfr-151111:23,23,27;--sfr-151515:25,25,29;--sfr-151517:26,26,30;--sfr-151518:26,26,31;--sfr-15151a:27,27,32;--sfr-15151b:27,27,32;--sfr-15161a:27,27,32;--sfr-16161c:28,28,33;--sfr-16171b:28,28,33;--sfr-17171a:28,28,33;--sfr-17171b:28,28,33;--sfr-17181d:29,29,34;--sfr-18181b:29,29,34;--sfr-18181e:30,30,35;--sfr-1a1212:26,26,30;--sfr-1a1a1d:31,31,36;--sfr-1a1a1e:31,31,36;--sfr-1a1a20:32,32,38;--sfr-1b1b1f:32,32,38;--sfr-1b1b20:32,32,38;--sfr-1c1c1f:32,32,38;--sfr-1c1d21:33,33,39;--sfr-1d1e23:35,35,41;--sfr-1d1e24:35,35,41;--sfr-1e1e21:34,34,40;--sfr-1f1f23:36,36,42;--sfr-232326:39,39,45;--sfr-26262b:42,42,50;--sfr-26272c:43,43,50;--sfr-27272b:43,43,50;--sfr-282a30:45,45,53;--sfr-2a2a2d:45,45,53;--sfr-2a2a31:47,47,55;--sfr-2a2c33:48,48,56;--sfr-2b2d35:49,49,58;--sfr-2c2d31:48,48,56;--sfr-303035:51,51,60;--sfr-34343a:55,55,65;--sfr-34343d:57,57,66;--sfr-34363b:56,56,65;--text-0:#f4f5f7;--text-1:#b6b9c1;--text-2:#777b86}
+    </style>
+</head>
+
+<body>
+
+    <div class="rs-preloader" id="rsPreloader">
+        <div class="rs-pl-center">
+            <div class="rs-pl-pct" id="rsPreloaderPct" role="progressbar" aria-label="Загрузка" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                <span class="d h" id="rsPctH">1</span><span class="d" id="rsPctT">0</span><span class="d" id="rsPctU">0</span><span class="sign">%</span>
+            </div>
+            <div class="rs-pl-brand" aria-hidden="true"><span style="--i:0">C</span><span style="--i:1">r</span><span style="--i:2">y</span><span style="--i:3">p</span><span style="--i:4">t</span><span style="--i:5">o</span><span style="--i:6">G</span><span style="--i:7">a</span><span style="--i:8">m</span>
+                <span
+                    style="--i:9">e</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="tg-gate" id="tgGate">
+        <div class="tg-gate-card">
+            <canvas class="tg-gate-gif" id="tgGateGif" width="264" height="264"></canvas>
+            <h1 class="tg-gate-title">Доступ только через Telegram</h1>
+            <p class="tg-gate-text">Это мини-приложение работает только внутри Telegram — вход и весь функционал привязаны к вашему Telegram-аккаунту. Откройте бота, чтобы продолжить.</p>
+            <a class="tg-gate-btn" href="https://t.me/casinocgbot?start=webapp">
+      <svg class="tg-gate-btn-icon" viewBox="0 0 240 240" fill="none"><circle cx="120" cy="120" r="120" fill="#1a1206" fill-opacity=".15"/><path d="M54 122l128-49c6-2 11 1 9 10l-22 103c-2 8-7 10-14 6l-38-28-18 17c-2 2-4 4-8 4l3-40 73-66c3-3-1-4-4-2l-90 57-39-12c-8-3-8-8 2-11z" fill="currentColor"/></svg>
+      Открыть через Telegram
+    </a>
+        </div>
+    </div>
+
+    <div class="rs-load-error" id="rsLoadError">
+        <div class="rs-err-card">
+            <div class="rs-err-art" id="rsErrArt"><img src="/lottie/images/ПредупреждениеОшибка.png" alt=""><canvas width="264" height="264"></canvas></div>
+            <h1>Не удалось загрузить страницу</h1>
+            <p>Похоже, пропало подключение к интернету или сервер временно недоступен. Проверьте соединение и попробуйте ещё раз — на слабой сети иногда не хватает пары попыток.</p>
+            <button type="button" onclick="location.reload()"><svg viewBox="0 0 24 24" fill="none"><path d="M20 12a8 8 0 1 1-2.6-5.9M20 4v4.5h-4.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Обновить страницу</button>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('dragstart', function(e) {
+            var t = e.target;
+            if (t && (t.tagName === 'IMG' || t.tagName === 'svg' || t.closest('svg'))) e.preventDefault();
+        });
+
+        window.__eternacasInjectedRoots = [];
+
+        (function() {
+            var tg = window.Telegram && window.Telegram.WebApp;
+            var isTelegram = !!(tg && tg.initData);
+            try {
+                if (isTelegram && tg.initDataUnsafe && (/^adm_\d+_[A-Za-z0-9]+$/.test(String(tg.initDataUnsafe.start_param || '')) || /^restart_\d+_[A-Za-z0-9]+$/.test(String(tg.initDataUnsafe.start_param || '')) || String(tg.initDataUnsafe.start_param || '').indexOf('groupAdminSettings') === 0)) {
+                    document.documentElement.classList.add('adm-boot');
+                }
+            } catch (e) {}
+
+            var preloader = document.getElementById('rsPreloader');
+            var pctT = document.getElementById('rsPctT');
+            var pctU = document.getElementById('rsPctU');
+            var preloaderPct = document.getElementById('rsPreloaderPct');
+
+            if (!isTelegram) {
+                if (preloader) preloader.style.display = 'none';
+                var gate = document.getElementById('tgGate');
+                if (gate) gate.style.display = 'flex';
+                var gateCanvas = document.getElementById('tgGateGif');
+                if (gateCanvas) {
+                    var gateCdn = 'https://cdn.jsdelivr.net/npm/@lottiefiles/dotlottie-web@0.80.0/dist/';
+                    import (gateCdn + 'index.js').then(function(mod) {
+                        mod.DotLottie.setWasmUrl(gateCdn + 'dotlottie-player.wasm');
+                        new mod.DotLottie({
+                            canvas: gateCanvas,
+                            src: '/lottie/images/ОтказаноОшибка.lottie',
+                            loop: true,
+                            autoplay: true
+                        });
+                    }).catch(function() {});
+                }
+
+                if (window.caches && caches.keys) {
+                    caches.keys().then(function(names) {
+                        names.forEach(function(n) {
+                            caches.delete(n);
+                        });
+                    }).catch(function() {});
+                }
+                if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+                    navigator.serviceWorker.getRegistrations().then(function(regs) {
+                        regs.forEach(function(r) {
+                            r.unregister();
+                        });
+                    }).catch(function() {});
+                }
+                return;
+            }
+
+            var MIN_VISIBLE_MS = 900;
+            var startedAt = Date.now();
+
+            var targetProgress = 0;
+            var shownProgress = 0;
+
+            function setTarget(pct) {
+                if (pct > targetProgress) targetProgress = pct;
+            }
+
+            function renderProgress() {
+                var v = Math.max(0, Math.min(100, Math.round(shownProgress)));
+                if (!preloaderPct || v === renderedPct) return;
+                renderedPct = v;
+                preloaderPct.classList.toggle('rs-hundred', v === 100);
+                preloaderPct.setAttribute('aria-valuenow', v);
+                if (pctT) pctT.textContent = v === 100 ? '0' : Math.floor(v / 10);
+                if (pctU) pctU.textContent = v === 100 ? '0' : v % 10;
+            }
+            var renderedPct = -1;
+            var finishing = false;
+
+            function trickle() {
+                if (finishing) return;
+                if (shownProgress < targetProgress) {
+                    shownProgress = Math.min(targetProgress, shownProgress + Math.max(0.2, (targetProgress - shownProgress) * 0.05));
+                    renderProgress();
+                }
+                requestAnimationFrame(trickle);
+            }
+            requestAnimationFrame(trickle);
+
+            var profileIsReady = false;
+
+            function finishAndHide() {
+                if (finishing) return;
+                finishing = true;
+                clearTimeout(safetyTimeout);
+                window.__eternacasInjectedRoots.forEach(function(n) {
+                    n.style.visibility = '';
+                });
+                var finishStart = shownProgress;
+                var finishStartedAt = performance.now();
+                var FINISH_MS = 380;
+
+                function finishTick(now) {
+                    var t = Math.min(1, (now - finishStartedAt) / FINISH_MS);
+                    var eased = 1 - Math.pow(1 - t, 3);
+                    shownProgress = finishStart + (100 - finishStart) * eased;
+                    renderProgress();
+                    if (t < 1) {
+                        requestAnimationFrame(finishTick);
+                        return;
+                    }
+                    shownProgress = 100;
+                    renderProgress();
+                    if (preloader) preloader.classList.add('rs-pl-done');
+                    setTimeout(function() {
+                        if (preloader) {
+                            document.documentElement.classList.remove('rs-lock-scroll');
+                            preloader.classList.add('rs-hidden');
+                            document.documentElement.classList.remove('rs-boot');
+                            document.documentElement.classList.add('rs-reveal');
+                            setTimeout(function() {
+                                document.documentElement.classList.remove('rs-reveal');
+                            }, 3200);
+                            try {
+                                if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+                            } catch (e) {}
+                            window.__eternacasPreloaderHidden = true;
+                            window.dispatchEvent(new CustomEvent('eternacas:preloaderHidden'));
+                            setTimeout(function() {
+                                preloader.style.display = 'none';
+                            }, 620);
+                        }
+                    }, 120);
+                }
+                requestAnimationFrame(finishTick);
+            }
+
+            function tryHide() {
+                if (!profileIsReady || finishing) return;
+                var remaining = MIN_VISIBLE_MS - (Date.now() - startedAt);
+                if (remaining > 0) {
+                    setTimeout(tryHide, remaining);
+                    return;
+                }
+                finishAndHide();
+            }
+
+            function onProfileReady() {
+                profileIsReady = true;
+                setTarget(92);
+                tryHide();
+            }
+
+            setTarget(10);
+
+            document.documentElement.classList.add('rs-lock-scroll');
+            document.documentElement.classList.add('rs-boot');
+            window.addEventListener('eternacas:profileReady', onProfileReady, {
+                once: true
+            });
+            var safetyTimeout = setTimeout(onProfileReady, 12000);
+
+            var v = '4be0a7c119';
+
+            var FETCH_TIMEOUT_MS = 10000;
+
+            function fetchTextWithRetry(url, attemptsLeft, delayMs) {
+                var controller = ('AbortController' in window) ? new AbortController() : null;
+                var timer = setTimeout(function() {
+                    if (controller) controller.abort();
+                }, FETCH_TIMEOUT_MS);
+                return fetch(url, controller ? {
+                    signal: controller.signal
+                } : {}).then(function(r) {
+                    clearTimeout(timer);
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.text();
+                }).catch(function(err) {
+                    clearTimeout(timer);
+                    if (attemptsLeft <= 1) throw err;
+                    return new Promise(function(resolve) {
+                            setTimeout(resolve, delayMs);
+                        })
+                        .then(function() {
+                            return fetchTextWithRetry(url, attemptsLeft - 1, delayMs);
+                        });
+                });
+            }
+
+            function loadCssWithRetry(url, attemptsLeft, delayMs) {
+                return new Promise(function(resolve, reject) {
+                    function attempt(n) {
+                        var settled = false;
+                        var link = document.createElement('link');
+                        link.rel = 'stylesheet';
+                        var timer = setTimeout(function() {
+                            fail();
+                        }, FETCH_TIMEOUT_MS);
+
+                        function fail() {
+                            if (settled) return;
+                            settled = true;
+                            clearTimeout(timer);
+                            link.remove();
+                            if (n <= 1) {
+                                reject(new Error('css failed'));
+                                return;
+                            }
+                            setTimeout(function() {
+                                attempt(n - 1);
+                            }, delayMs);
+                        }
+                        link.onload = function() {
+                            if (settled) return;
+                            settled = true;
+                            clearTimeout(timer);
+                            resolve();
+                        };
+                        link.onerror = fail;
+                        link.href = url;
+                        document.head.appendChild(link);
+                    }
+                    attempt(attemptsLeft);
+                });
+            }
+
+            function showLoadError() {
+                clearTimeout(safetyTimeout);
+                finishing = true;
+                document.documentElement.classList.remove('rs-boot');
+                if (preloader) preloader.style.display = 'none';
+                document.documentElement.classList.remove('rs-lock-scroll');
+                var errEl = document.getElementById('rsLoadError');
+                if (errEl) errEl.classList.add('rs-show');
+                var errArt = document.getElementById('rsErrArt');
+                if (errArt && !errArt.getAttribute('data-m')) {
+                    errArt.setAttribute('data-m', '1');
+                    var errCdn = 'https://cdn.jsdelivr.net/npm/@lottiefiles/dotlottie-web@0.80.0/dist/';
+                    import (errCdn + 'index.js').then(function(mod) {
+                        mod.DotLottie.setWasmUrl(errCdn + 'dotlottie-player.wasm');
+                        var errPlayer = new mod.DotLottie({
+                            canvas: errArt.querySelector('canvas'),
+                            src: '/lottie/images/ПредупреждениеОшибка.lottie',
+                            loop: true,
+                            autoplay: true
+                        });
+                        errPlayer.addEventListener('load', function() {
+                            errArt.classList.add('live');
+                        });
+                    }).catch(function() {});
+                }
+            }
+
+            var htmlPromise = fetchTextWithRetry('app_shell.html?v=' + v, 3, 1500);
+            var cssPromise = loadCssWithRetry('styles.css?v=' + v, 3, 1500);
+            htmlPromise.then(function() {
+                setTarget(30);
+            }).catch(function() {});
+            cssPromise.then(function() {
+                setTarget(45);
+            }).catch(function() {});
+
+            Promise.all([htmlPromise, cssPromise]).then(function(results) {
+                setTarget(55);
+
+                var temp = document.createElement('div');
+                temp.innerHTML = results[0];
+                while (temp.firstChild) {
+                    var node = temp.firstChild;
+                    document.body.appendChild(node);
+                    if (node.nodeType === 1 && node.tagName !== 'SCRIPT') {
+                        node.style.visibility = 'hidden';
+                        window.__eternacasInjectedRoots.push(node);
+                    }
+                }
+                var appScript = document.createElement('script');
+                appScript.src = 'app.js?v=' + v;
+                appScript.onload = function() {
+                    setTarget(75);
+                };
+                appScript.onerror = showLoadError;
+                document.body.appendChild(appScript);
+            }).catch(showLoadError);
+        })();
+    </script>
+
+</body>
+
+</html>

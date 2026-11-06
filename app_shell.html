@@ -1,0 +1,2204 @@
+<div class="fs-native-bar" id="fsNativeBar">
+    <img class="fs-native-bar-avatar" src="/images/legacy_icons/cryptogame_avatar.jpg" alt="">
+    <span class="fs-native-bar-title">CryptoGame</span>
+</div>
+
+<div class="app">
+    <div class="skyline"></div>
+    <div class="glow-orb"></div>
+
+    <div class="content">
+
+        <div class="topbar">
+            <div class="balance-pill">
+                <span class="amount text-skel">$ 000.00</span>
+                <div class="coin-toggle">
+                    <img src="/images/legacy_icons/coin_toggle.png" alt="Баланс">
+                </div>
+            </div>
+            <div class="brand">
+                <div class="brand-text">
+                    <span class="brand-hello">Привет,</span>
+                    <span class="brand-name text-skel" id="brandName">Игрок</span>
+                </div>
+                <div class="brand-mark" id="brandMark">
+                    <div class="skel-box"></div>
+                </div>
+            </div>
+        </div>
+
+
+
+        <div class="search-row">
+            <div class="search-box">
+                <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                <input type="text" id="searchInput" placeholder="Найти игру">
+            </div>
+            <button class="search-btn" id="searchBtn" type="button" aria-label="Поиск">Поиск</button>
+        </div>
+
+        <div class="bw-promo" id="wheelPromo" hidden><button class="bw-hero" type="button"></button></div>
+
+        <div class="popular-wrap" id="popularWrap">
+            <h2 class="section-title"><canvas class="lazy-img lottie-canvas flame-gif" id="popularFlameIcon" width="512" height="512" data-lottie-src="/lottie/images/ОгоньЭмоджи.lottie"></canvas> Популярные игры за 24 часа</h2>
+            <div class="popular-skeleton" id="popularSkeleton">
+                <div class="skel-box"></div>
+                <div class="skel-box"></div>
+                <div class="skel-box"></div>
+            </div>
+            <div class="popular-scroll" id="popularScroll"></div>
+            <div class="popular-dots" id="popularDots"></div>
+        </div>
+
+        <div class="fair-check-row">
+            <div class="fair-check-section fair-check-section-half" id="kenoOpenSection">
+                <div class="fair-check-skeleton">
+                    <div class="skel-box"></div>
+                </div>
+                <button class="fair-check-btn" type="button" id="kenoOpenBtn">
+          <span class="fair-check-icon"><canvas class="lazy-img lottie-canvas" id="kenoIcon" width="512" height="512" data-lottie-src="/ИграКено/ИграКено.lottie"></canvas></span>
+          <span class="fair-check-text">
+            <b>Кено</b>
+          </span>
+          <span class="fair-check-arrow">›</span>
+        </button>
+            </div>
+
+            <div class="fair-check-section fair-check-section-half" id="hiloOpenSection">
+                <div class="fair-check-skeleton">
+                    <div class="skel-box"></div>
+                </div>
+                <button class="fair-check-btn" type="button" id="hiloOpenBtn">
+          <span class="fair-check-icon"><canvas class="lazy-img lottie-canvas" id="hiloIcon" width="512" height="512" data-lottie-src="/ИграHiLo/HiLo.lottie"></canvas></span>
+          <span class="fair-check-text">
+            <b>Hi-Lo</b>
+          </span>
+          <span class="fair-check-arrow">›</span>
+        </button>
+            </div>
+        </div>
+
+        <div class="fair-check-row">
+            <div class="fair-check-section fair-check-section-half" id="wheelOpenSection">
+                <div class="fair-check-skeleton">
+                    <div class="skel-box"></div>
+                </div>
+                <button class="fair-check-btn" type="button" id="wheelOpenBtn">
+          <span class="fair-check-icon"><canvas class="lazy-img lottie-canvas" id="wheelIcon" width="512" height="512" data-lottie-src="/lottie/ИграWheel/WheelLogoLast.lottie"></canvas></span>
+          <span class="fair-check-text">
+            <b>Wheel</b>
+          </span>
+          <span class="fair-check-arrow">›</span>
+        </button>
+            </div>
+
+            <div class="fair-check-section fair-check-section-half" id="redblackOpenSection">
+                <div class="fair-check-skeleton">
+                    <div class="skel-box"></div>
+                </div>
+                <button class="fair-check-btn" type="button" id="redblackOpenBtn">
+          <span class="fair-check-icon"><canvas class="lazy-img lottie-canvas" id="redblackIcon" width="512" height="512" data-lottie-src="/lottie/ИграRadOrBlack/RedBlackLogo.lottie"></canvas></span>
+          <span class="fair-check-text">
+            <b>R&amp;B</b>
+          </span>
+          <span class="fair-check-arrow">›</span>
+        </button>
+            </div>
+        </div>
+
+        <div class="fair-check-row">
+            <div class="fair-check-section fair-check-section-half" id="coinflipOpenSection">
+                <div class="fair-check-skeleton">
+                    <div class="skel-box"></div>
+                </div>
+                <button class="fair-check-btn" type="button" id="coinflipOpenBtn">
+          <span class="fair-check-icon"><canvas class="lazy-img lottie-canvas" id="coinflipIcon" width="512" height="512" data-lottie-src="/lottie/ИграОрелРешка/ОрелРешка.lottie"></canvas></span>
+          <span class="fair-check-text">
+            <b>Орёл-Решка</b>
+          </span>
+          <span class="fair-check-arrow">›</span>
+        </button>
+            </div>
+
+            <div class="fair-check-section fair-check-section-half" id="clawOpenSection">
+                <div class="fair-check-skeleton">
+                    <div class="skel-box"></div>
+                </div>
+                <button class="fair-check-btn" type="button" id="clawOpenBtn">
+          <span class="fair-check-icon"><canvas class="lazy-img lottie-canvas" id="clawIcon" width="512" height="512" data-lottie-src="/lottie/ИграАвтомат/ИграАвтомат.lottie"></canvas></span>
+          <span class="fair-check-text">
+            <b>Автомат</b>
+          </span>
+          <span class="fair-check-arrow">›</span>
+        </button>
+            </div>
+        </div>
+
+        <div class="exclusive-wrap" id="exclusiveWrap">
+            <h2 class="section-title"><canvas class="lazy-img lottie-canvas flame-gif exclusive-gif" id="exclusiveFlameIcon" width="512" height="512" data-lottie-src="/lottie/images/ЭксклюзивныеИгры.lottie"></canvas> Эксклюзивные игры</h2>
+            <div class="popular-skeleton" id="exclusiveSkeleton">
+                <div class="skel-box"></div>
+                <div class="skel-box"></div>
+                <div class="skel-box"></div>
+            </div>
+            <div class="popular-scroll" id="exclusiveScroll">
+
+                <div class="game-card popular-card" data-name="краш">
+                    <span class="badge">Fast</span>
+                    <div class="icon-emoji"><img class="icon-img" src="/images/legacy_icons/popular_crash.png" alt="Краш"></div>
+                    <div class="game-name">Краш</div>
+                    <div class="game-sub">Игра</div>
+                </div>
+
+                <div class="game-card popular-card" data-name="upgrader">
+                    <span class="badge">Luck</span>
+                    <div class="icon-emoji"><img class="icon-img" src="/images/legacy_icons/popular_upgrader.png" alt="Upgrader"></div>
+                    <div class="game-name">Upgrader</div>
+                    <div class="game-sub">Игра</div>
+                </div>
+
+                <div class="game-card popular-card" data-name="рулетка">
+                    <span class="badge">Fast</span>
+                    <div class="icon-emoji"><img class="icon-img" src="images/ruletka.png" alt="Рулетка"></div>
+                    <div class="game-name">Рулетка</div>
+                    <div class="game-sub">Игра</div>
+                </div>
+
+                <div class="game-card popular-card" data-name="мины">
+                    <span class="badge">Luck</span>
+                    <div class="icon-emoji"><img class="icon-img" src="/images/legacy_icons/popular_mines.png" alt="Мины"></div>
+                    <div class="game-name">Мины</div>
+                    <div class="game-sub">Игра</div>
+                </div>
+
+                <div class="game-card popular-card" data-name="лесенка">
+                    <span class="badge">Luck</span>
+                    <div class="icon-emoji"><img class="icon-img" src="/images/legacy_icons/popular_ladder.png" alt=""></div>
+                    <div class="game-name">Башня</div>
+                    <div class="game-sub">Игра</div>
+                </div>
+
+            </div>
+            <div class="popular-dots" id="exclusiveDots"></div>
+        </div>
+
+        <div class="fair-check-section" id="pvpEmojiSection">
+            <div class="fair-check-skeleton">
+                <div class="skel-box"></div>
+            </div>
+            <button class="fair-check-btn" type="button" id="pvpEmojiOpenBtn">
+        <span class="fair-check-icon"><canvas class="lazy-img lottie-canvas" id="pvpEmojiIcon" width="512" height="512" data-lottie-src="/lottie/images/PvpEmoji.lottie"></canvas></span>
+        <span class="fair-check-text">
+          <b>PvP - Дуэль на Emoji играх</b>
+          <span>Игры: Кости, Боулинг, Дартс, Баскетбол, Футбол и Слоты</span>
+        </span>
+        <span class="fair-check-arrow">›</span>
+      </button>
+        </div>
+
+        <div class="fair-check-row fc-cards-row" id="cardGamesRow">
+            <div class="fair-check-section fair-check-section-half" id="blackjackOpenSection">
+                <div class="fair-check-skeleton">
+                    <div class="skel-box"></div>
+                </div>
+                <button class="fair-check-btn" type="button" id="blackjackOpenBtn">
+          <span class="fair-check-icon fc-img-icon"><span class="skel-box"></span><img class="lazy-img" id="blackjackIcon" src="/lottie/ИграRadOrBlack/Пики.png" alt="Блэкджек" width="30" height="30" decoding="async"></span>
+          <span class="fair-check-text">
+            <b>Блэкджек</b>
+            <span>Классическая карточная игра против дилера — набери 21 и не перебери</span>
+          </span>
+          <span class="fair-check-arrow">›</span>
+        </button>
+            </div>
+
+            <div class="fair-check-section fair-check-section-half show" id="baccaratOpenSection">
+                <button class="fair-check-btn" type="button" id="baccaratOpenBtn">
+          <span class="fair-check-icon fc-img-icon"><span class="skel-box"></span><img class="lazy-img" id="baccaratIcon" src="/lottie/ИграRadOrBlack/Трефы.png" alt="Баккара" width="30" height="30" decoding="async"></span>
+          <span class="fair-check-text">
+            <b>Баккара</b>
+            <span>Игрок или Банкир — чья рука ближе к 9? Выплаты до x12</span>
+          </span>
+          <span class="fair-check-arrow">›</span>
+        </button>
+            </div>
+        </div>
+
+        <div class="fair-check-row">
+            <div class="fair-check-section fair-check-section-half show" id="dogHouseOpenSection">
+                <button class="fair-check-btn" type="button" id="dogHouseOpenBtn">
+          <span class="fair-check-icon fc-img-icon"><span class="skel-box"></span><img class="lazy-img" src="images/dogHouseBanner.webp" alt="DogHouse" width="30" height="30" decoding="async"></span>
+          <span class="fair-check-text">
+            <b>DogHouse</b>
+          </span>
+          <span class="fair-check-arrow">›</span>
+        </button>
+            </div>
+
+            <div class="fair-check-section fair-check-section-half show" id="arenaHubOpenSection">
+                <button class="fair-check-btn" type="button" id="arenaHubOpenBtn">
+          <span class="fair-check-icon fc-img-icon"><span class="skel-box"></span><canvas class="lazy-img lottie-canvas" id="arenaHubIcon" width="512" height="512" data-lottie-src="/lottie/ResultGame/ArenaHub.lottie"></canvas></span>
+          <span class="fair-check-text">
+            <b>ArenaHub</b>
+          </span>
+          <span class="fair-check-arrow">›</span>
+        </button>
+            </div>
+        </div>
+
+        <div class="fair-check-row">
+            <div class="fair-check-section fair-check-section-half show" id="escapeOpenSection">
+                <button class="fair-check-btn" type="button" id="escapeOpenBtn">
+          <span class="fair-check-icon fc-img-icon"><span class="skel-box"></span><canvas class="lazy-img lottie-canvas" id="escapeIcon" width="512" height="512" data-lottie-src="/lottie/ResultGame/Escape.lottie"></canvas></span>
+          <span class="fair-check-text">
+            <b>Escape</b>
+          </span>
+          <span class="fair-check-arrow">›</span>
+        </button>
+            </div>
+
+            <div class="fair-check-section fair-check-section-half show" id="raceOpenSection">
+                <button class="fair-check-btn" type="button" id="raceOpenBtn">
+          <span class="fair-check-icon fc-img-icon"><span class="skel-box"></span><canvas class="lazy-img lottie-canvas" id="raceIcon" width="512" height="512" data-lottie-src="/lottie/ResultGame/Race.lottie"></canvas></span>
+          <span class="fair-check-text">
+            <b>Race</b>
+          </span>
+          <span class="fair-check-arrow">›</span>
+        </button>
+            </div>
+        </div>
+
+        <div class="fair-check-row">
+            <div class="fair-check-section fair-check-section-half show" id="bombOpenSection">
+                <button class="fair-check-btn" type="button" id="bombOpenBtn">
+          <span class="fair-check-icon fc-img-icon"><span class="skel-box"></span><img class="lazy-img" id="bombIcon" src="images/Bomb.png" alt="Bomb" width="30" height="30" decoding="async"></span>
+          <span class="fair-check-text">
+            <b>Bomb</b>
+          </span>
+          <span class="fair-check-arrow">›</span>
+        </button>
+            </div>
+
+            <div class="fair-check-section fair-check-section-half show" id="sumoOpenSection">
+                <button class="fair-check-btn" type="button" id="sumoOpenBtn">
+          <span class="fair-check-icon fc-img-icon"><span class="skel-box"></span><canvas class="lazy-img lottie-canvas" id="sumoIcon" width="512" height="512" data-lottie-src="/images/Sumo.lottie"></canvas></span>
+          <span class="fair-check-text">
+            <b>Sumo</b>
+          </span>
+          <span class="fair-check-arrow">›</span>
+        </button>
+            </div>
+        </div>
+
+        <div class="games-wrap" id="gamesWrap">
+            <div class="games-skeleton" id="gamesSkeleton">
+                <div class="skel-box"></div>
+                <div class="skel-box"></div>
+                <div class="skel-box"></div>
+                <div class="skel-box"></div>
+                <div class="skel-box"></div>
+                <div class="skel-box"></div>
+            </div>
+            <div class="games-grid" id="gamesGrid">
+
+                <div class="game-card" data-name="кости">
+                    <span class="badge">Emoji</span>
+                    <div class="icon-emoji"><img class="icon-img" src="/images/legacy_icons/dice_kosti.png" alt="Кости"></div>
+                    <div class="game-name">Кости</div>
+                    <div class="game-sub">Игра</div>
+                </div>
+
+                <div class="game-card" data-name="боулинг">
+                    <span class="badge">Emoji</span>
+                    <div class="icon-emoji"><img class="icon-img" src="/images/legacy_icons/dice_bowling.png" alt="Боулинг"></div>
+                    <div class="game-name">Боулинг</div>
+                    <div class="game-sub">Игра</div>
+                </div>
+
+                <div class="game-card" data-name="дартс">
+                    <span class="badge">Emoji</span>
+                    <div class="icon-emoji"><img class="icon-img" src="/images/legacy_icons/dice_darts.png" alt="Дартс"></div>
+                    <div class="game-name">Дартс</div>
+                    <div class="game-sub">Игра</div>
+                </div>
+
+                <div class="game-card" data-name="баскетбол">
+                    <span class="badge">Emoji</span>
+                    <div class="icon-emoji"><img class="icon-img" src="/images/legacy_icons/dice_basketball.png" alt="Баскетбол"></div>
+                    <div class="game-name">Баскетбол</div>
+                    <div class="game-sub">Игра</div>
+                </div>
+
+                <div class="game-card" data-name="футбол">
+                    <span class="badge">Emoji</span>
+                    <div class="icon-emoji"><img class="icon-img" src="/images/legacy_icons/dice_football.png" alt="Футбол"></div>
+                    <div class="game-name">Футбол</div>
+                    <div class="game-sub">Игра</div>
+                </div>
+
+                <div class="game-card" data-name="слоты">
+                    <span class="badge">Emoji</span>
+                    <div class="icon-emoji"><img class="icon-img" src="/images/legacy_icons/dice_slots.png" alt="Слоты"></div>
+                    <div class="game-name">Слоты</div>
+                    <div class="game-sub">Игра</div>
+                </div>
+
+            </div>
+
+            <div class="empty-state" id="emptyState">
+                <canvas class="lazy-img lottie-canvas empty-state-gif" id="emptyStateSearchIcon" width="512" height="512" data-lottie-src="/lottie/images/ПоискИгрНеНайдено.lottie"></canvas>
+                <span>Ничего не найдено</span>
+            </div>
+        </div>
+
+        <div class="fair-check-section" id="fairCheckSection">
+            <div class="fair-check-skeleton">
+                <div class="skel-box"></div>
+            </div>
+            <button class="fair-check-btn" type="button" id="fairCheckOpenBtn">
+        <span class="fair-check-icon"><canvas class="lazy-img lottie-canvas" id="fairCheckMainIcon" width="512" height="512" data-lottie-src="/lottie/images/ПроверкиЧестностиВторой.lottie"></canvas></span>
+        <span class="fair-check-text">
+          <b>Проверить честность</b>
+          <span>Краш, Мины, Апгрейд — любая игра</span>
+        </span>
+        <span class="fair-check-arrow">›</span>
+      </button>
+        </div>
+
+    </div>
+
+    <nav class="bottom-nav" aria-label="Навигация">
+        <span class="nav-lens" aria-hidden="true"></span>
+        <div data-nav="лидеры" class="nav-item">
+            <div class="nav-icon"><canvas class="lazy-img lottie-canvas" id="navLeadersIcon" width="96" height="96" data-lottie-src="/lottie/NavBar/РазделЛидеры.lottie"></canvas></div>
+            <span class="nav-label">Лидеры</span>
+        </div>
+        <div data-nav="кошелек" class="nav-item">
+            <div class="nav-icon"><canvas class="lazy-img lottie-canvas" id="navBalanceIcon" width="96" height="96" data-lottie-src="/lottie/NavBar/РазделБаланс.lottie"></canvas></div>
+            <span class="nav-label">Кошелёк</span>
+        </div>
+        <div data-nav="играть" class="nav-item active">
+            <div class="nav-icon"><img src="images/РазделИграть.png" alt=""></div>
+            <span class="nav-label">Играть</span>
+        </div>
+        <div data-nav="профиль" class="nav-item">
+            <div class="nav-icon"><canvas class="lazy-img lottie-canvas" id="navProfileIcon" width="96" height="96" data-lottie-src="/lottie/NavBar/РазделПрофиль.lottie"></canvas></div>
+            <span class="nav-label">Профиль</span>
+        </div>
+        <div data-nav="помощь" class="nav-item">
+            <div class="nav-icon"><canvas class="lazy-img lottie-canvas" id="navHelpIcon" width="96" height="96" data-lottie-src="/lottie/NavBar/РазделПомощь.lottie"></canvas></div>
+            <span class="nav-label">Помощь</span>
+        </div>
+    </nav>
+
+    <div class="game-view" id="gameView">
+        <div class="gv-topbar">
+            <button class="back-pill" id="gvBack">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M15 6l-6 6 6 6" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Обратно
+      </button>
+            <div class="balance-pill">
+                <span class="amount text-skel">$ 000.00</span>
+                <div class="coin-toggle" id="gvCoinToggle"></div>
+            </div>
+        </div>
+
+        <h2 class="gv-title" id="gvTitle">Дартс</h2>
+
+        <div class="gv-body" id="gvBody"></div>
+    </div>
+
+    <div class="sub-view" id="profileView">
+        <div class="gv-topbar">
+            <button class="back-pill" data-action="sub-back">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M15 6l-6 6 6 6" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Обратно
+      </button>
+            <div class="balance-pill">
+                <span class="amount text-skel">$ 000.00</span>
+                <div class="coin-toggle" id="profileCoinToggle"></div>
+            </div>
+        </div>
+
+        <h2 class="sub-hello">Привет, <span class="sub-hello-name text-skel" id="subHelloName">Игрок</span>!</h2>
+
+        <div class="profile-card">
+            <div class="profile-card-top">
+                <div class="profile-avatar" id="profileAvatar">
+                    <div class="skel-box"></div>
+                </div>
+                <div class="profile-id">
+                    <div class="profile-name text-skel" id="profileName">Игрок</div>
+                    <div class="profile-uid text-skel" id="profileUid">ID </div>
+                    <div class="profile-date" id="profileDate">—</div>
+                </div>
+                <div class="haptics-group">
+                    <button class="haptics-toggle-btn" type="button" id="hapticsToggleBtn" data-action="haptics-toggle">
+            <div class="skel-box"></div>
+            <img class="haptics-toggle-icon lazy-img" id="hapticsToggleIcon" alt="">
+          </button>
+                    <button class="haptics-info-btn" type="button" id="hapticsInfoBtn" data-action="haptics-info">Что это?</button>
+                </div>
+            </div>
+            <div class="profile-btn-row">
+                <button class="profile-privacy-btn" type="button" id="profilePrivacyBtn">
+          <img class="lazy-img profile-privacy-icon" src="/lottie/images/Приватность.png" alt="">
+          Приватность
+        </button>
+                <button class="profile-privacy-btn" type="button" id="myGamesOpenBtn">
+          <img class="lazy-img profile-privacy-icon" src="/lottie/images/МоиИгрыРаздел.png" alt="">
+          Мои игры
+        </button>
+                <button class="profile-privacy-btn profile-bonus-btn" type="button" id="bonusOpenBtn">
+          <span class="bn-i" style="--s:22px"><span class="skel-box"></span><img class="lazy-img bn-i-img" src="/lottie/РазделБонусы/bonus_icon.png" alt=""></span>
+          Бонусы
+          <span class="profile-bonus-badge" id="bonusOpenBadge" hidden></span>
+        </button>
+                <button class="profile-privacy-btn" type="button" id="checksOpenBtn">
+          <img class="lazy-img profile-privacy-icon" src="/lottie/СистемаЧеков/СистемаЧеков.png" alt="">
+          Система чеков
+        </button>
+            </div>
+        </div>
+
+        <div class="profile-body" id="profileBody"></div>
+    </div>
+
+    <div class="modal-overlay" id="lbCalModal">
+        <div class="modal-card lb-cal-modal-card">
+            <button class="modal-close" id="lbCalClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Выберите дату</h3>
+            <div id="lbCalBody"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="refListModal">
+        <div class="modal-card ref-modal-card">
+            <button class="modal-close" id="refListClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Мои рефералы</h3>
+            <div class="ref-search-row" id="refListSearchRow">
+                <div class="search-box gv-history-search-box">
+                    <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                    <input type="text" id="refListSearchInput" placeholder="Поиск по нику или дате…" autocomplete="off" autocorrect="off" spellcheck="false" maxlength="64" enterkeyhint="search">
+                    <button class="ref-search-clear" type="button" id="refListSearchClear" aria-label="Очистить" hidden>
+            <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+          </button>
+                </div>
+                <div class="ref-search-count" id="refListSearchCount" hidden></div>
+            </div>
+            <div class="ref-modal-body" id="refListBody"></div>
+            <div class="wv-pagination">
+                <button class="wv-page-btn" type="button" id="refListPrev">‹</button>
+                <span class="wv-page-label" id="refListPageLabel">1 из 1</span>
+                <button class="wv-page-btn" type="button" id="refListNext">›</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="refHistoryModal">
+        <div class="modal-card ref-modal-card">
+            <button class="modal-close" id="refHistoryClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">История начислений</h3>
+            <div class="ref-period-tabs" id="refHistoryPeriodTabs">
+                <button class="ref-period-tab" type="button" data-ref-period="3days">3 дня</button>
+                <button class="ref-period-tab" type="button" data-ref-period="week">Неделя</button>
+                <button class="ref-period-tab" type="button" data-ref-period="month">Месяц</button>
+                <button class="ref-period-tab" type="button" data-ref-period="year">Год</button>
+                <button class="ref-period-tab active" type="button" data-ref-period="all">Все</button>
+            </div>
+            <div class="ref-modal-body" id="refHistoryBody"></div>
+            <div class="wv-pagination">
+                <button class="wv-page-btn" type="button" id="refHistoryPrev">‹</button>
+                <span class="wv-page-label" id="refHistoryPageLabel">1 из 1</span>
+                <button class="wv-page-btn" type="button" id="refHistoryNext">›</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="refStatsModal">
+        <div class="modal-card ref-modal-card">
+            <button class="modal-close" id="refStatsClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Статистика рефералов</h3>
+            <div class="ref-modal-body" id="refStatsBody"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="refTopModal">
+        <div class="modal-card ref-modal-card">
+            <button class="modal-close" id="refTopClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Топ 5 рефоводов</h3>
+            <div class="ref-modal-body" id="refTopBody"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="hapticsInfoModal">
+        <div class="modal-card">
+            <button class="modal-close" id="hapticsInfoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Вибрация</h3>
+            <p class="modal-text">Телефон слегка вибрирует, когда вы нажимаете на кнопки, переключаете вкладки или двигаете ползунок — так интерфейс ощущается живее.</p>
+            <p class="modal-text">При выигрыше или проигрыше вибрация отличается — на победу телефон отзывается иначе, чем на поражение, вы почувствуете разницу не глядя на экран.</p>
+            <p class="modal-text">Если вибрация мешает — выключите её переключателем рядом с этой кнопкой, включить обратно можно в любой момент.</p>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="projectRulesModal">
+        <div class="modal-card">
+            <button class="modal-close" id="projectRulesClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Условия проекта</h3>
+            <div class="modal-text" id="projectRulesText"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="liteUiInfoModal">
+        <div class="modal-card">
+            <button class="modal-close" id="liteUiInfoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Lite UI</h3>
+            <p class="modal-text">Lite UI заменяет анимации в играх на статичные картинки — интерфейс становится легче и меньше грузит телефон, особенно на слабом устройстве или медленном интернете.</p>
+            <p class="modal-text">Анимация остаётся только в сам момент результата — бросок, взрыв, финальный символ — а иконки, превью исхода и вся остальная графика вокруг показываются статично.</p>
+            <div class="ref-notif-row" style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line);">
+                <div class="ref-notif-text">
+                    <b id="liteUiInfoStatus">Lite UI: Выключено</b>
+                    <span>Можно включить и выключить в любой момент</span>
+                </div>
+                <button class="gv-toggle" type="button" id="liteUiInfoToggle"><span class="gv-toggle-knob"></span></button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="minesAutoInfoModal">
+        <div class="modal-card">
+            <button class="modal-close" id="minesAutoInfoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Случайный выбор</h3>
+            <p class="modal-text">Кнопка «Случайный выбор» сама открывает случайную клетку вместо вас — удобно, если не хотите выбирать вручную или просто доверяете удаче.</p>
+            <p class="modal-text">В Минах она открывает случайную ещё не открытую клетку — если там мина, раунд закончится подрывом, как и при обычном ручном выборе.</p>
+            <p class="modal-text">В Лесенке она выбирает случайный камень на текущем уровне — если наткнётесь на препятствие, ставка сгорает так же, как при ручном выборе.</p>
+            <p class="modal-text">Кнопка появляется только после начала игры и отключается, когда раунд завершён — например, если вы прошли игру полностью и забрали все алмазы.</p>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="kenoAutoInfoModal">
+        <div class="modal-card">
+            <button class="modal-close" id="kenoAutoInfoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Случайный выбор</h3>
+            <p class="modal-text">Кнопка «Случайный выбор» сама выбирает 10 случайных чисел на поле вместо вас — удобно, если не хотите отмечать числа вручную или просто доверяете удаче.</p>
+            <p class="modal-text">Например: нажали кнопку — система случайно отметила числа 3, 7, 12, 18, 21, 25, 29, 33, 36, 40. Дальше игра ничем не отличается от ручного выбора — жмёте «Играть», и сервер честно вытягивает 10 чисел.</p>
+            <p class="modal-text">Если до этого вы уже отмечали числа вручную — они будут заменены новым случайным набором из 10 чисел.</p>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="kenoHowtoModal">
+        <div class="modal-card">
+            <button class="modal-close" id="kenoHowtoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Как играть — Кено</h3>
+            <p class="modal-text">Выберите от 1 до 10 чисел на поле 1–40 (или нажмите «Случайный выбор», чтобы система отметила 10 чисел за вас) и сумму ставки, затем нажмите «Играть».</p>
+            <p class="modal-text">Сервер честно вытягивает 10 чисел из поля. Чем больше ваших чисел совпало с выпавшими — тем выше выигрыш.</p>
+            <div class="howto-example-box" id="kenoHowtoExample"></div>
+            <p class="modal-text">Выигрыш считается по таблице коэффициентов, которая зависит от того, сколько чисел вы выбрали (от 1 до 10) — она показана прямо над полем и обновляется при изменении выбора.</p>
+            <p class="modal-text">Уровень риска (низкий/средний/высокий) меняет форму выплат: низкий риск платит чаще, но меньше на максимум; высокий риск платит редко, но с гораздо большим потолком при удачном раунде — общая отдача у всех уровней примерно одинаковая.</p>
+            <p class="modal-text">Игра полностью честная: хэш раунда публикуется сразу при старте, а секретный сид раскрывается сразу после розыгрыша — проверить можно в разделе «Проверка честности».</p>
+            <button class="modal-ok" id="kenoHowtoOk">Понятно</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="crashHowtoModal">
+        <div class="modal-card">
+            <button class="modal-close" id="crashHowtoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Как играть — Краш</h3>
+            <p class="modal-text">Общий раунд на всех игроков: 10 секунд на ставки, затем ракета взлетает и множитель растёт в реальном времени.</p>
+            <div class="crash-howto-example" id="crashHowtoExample"></div>
+            <p class="modal-text">Нажми «Забрать», чтобы зафиксировать выигрыш до краха — чем позже заберёшь, тем выше коэффициент, но если не успел до краха — ставка сгорает.</p>
+            <p class="modal-text">Поставить можно и во время полёта — ставка попадёт в следующий раунд. Включи «Авто кэшаут» и задай множитель, чтобы вывод сработал автоматически.</p>
+            <p class="modal-text">Игра полностью честная: хэш краха публикуется ещё до начала раунда, а секретное значение раскрывается сразу после — проверить можно в разделе «Проверка честности».</p>
+            <button class="modal-ok" id="crashHowtoOk">Понятно</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="coinflipHowtoModal">
+        <div class="modal-card">
+            <button class="modal-close" id="coinflipHowtoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Как играть — Орёл-Решка</h3>
+            <p class="modal-text">Выберите сторону монеты — <b>Орёл</b> или <b>Решка</b>, укажите сумму ставки и нажмите «Играть». Монета подбросится и остановится на выпавшей стороне.</p>
+            <div class="howto-example-box cf-howto-box" id="coinflipHowtoExample"></div>
+            <p class="modal-text">Угадали — множитель растёт: каждый верный бросок умножает его на <b id="cfHowtoMult">x1.95</b> (x1.95 → x3.80 → x7.41…). Дальше выбирайте: бросить монету ещё раз, выбрав сторону, или нажать «Забрать» и получить ставку × множитель.</p>
+            <p class="modal-text">Не угадали — ставка сгорает целиком. «Забрать» доступно после первого верного броска. Максимальная серия — 15 бросков, на последнем выигрыш забирается автоматически.</p>
+            <p class="modal-text">Шанс каждой стороны ровно 50%, он не зависит ни от суммы ставки, ни от игрока. Пока монета в воздухе, действовать нельзя. Если закрыть игру посреди серии, она сохранится: вернитесь и продолжите или заберите выигрыш.</p>
+            <p class="modal-text">Игра полностью честная: хэш секретного сида раунда публикуется ещё до ставки, а сам сид раскрывается, когда раунд закончен — проверить можно под монетой, в «Последних играх» и в разделе «Проверка честности». За Орёл-Решку не начисляются рейкбек
+                и кэшбек, и она не засчитывается в вейджер.</p>
+            <button class="modal-ok" id="coinflipHowtoOk">Понятно</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="baccaratHowtoModal">
+        <div class="modal-card">
+            <button class="modal-close" id="baccaratHowtoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Как играть — Баккара</h3>
+            <p class="modal-text">Укажите сумму и нажимайте на поля стола, чтобы поставить её на выбранное поле (нажатие можно повторять — ставка на поле растёт). Затем нажмите «Играть»: сервер раздаёт карты, выигрывает рука, у которой очков ближе к 9.</p>
+            <p class="modal-text">Очки: туз = 1, карты 2–9 — по номиналу, 10, валет, дама и король = 0. Считается последняя цифра суммы (например, 7 + 8 = 15 → 5). Раздача: Игрок, Банкир, Игрок, Банкир. Если у кого-то 8 или 9 (Natural) — раздача заканчивается, иначе третья
+                карта берётся по правилам: Игрок берёт при 0–5 очках, Банкир — по таблице в зависимости от третьей карты Игрока.</p>
+            <div class="bc-howto-pay" id="baccaratHowtoPay"></div>
+            <p class="modal-text">При ничьей ставки на Игрока и Банкира возвращаются. «Пара» выигрывает, если две первые карты этой руки одного ранга. Игрока и Банкира в одном раунде ставить вместе нельзя; ничья и пары можно добавлять к любой из них.</p>
+            <p class="modal-text">Игра полностью честная: хэш секретного сида раунда публикуется ещё до ставки (значок # над панелью), а сам сид раскрывается после раунда — карты можно пересчитать в браузере по формуле.</p>
+            <button class="modal-ok" id="baccaratHowtoOk">Понятно</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="clawHowtoModal">
+        <div class="modal-card">
+            <button class="modal-close" id="clawHowtoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Как играть — Автомат</h3>
+            <p class="modal-text">Выберите игрушку, которую хотите достать, укажите сумму ставки и нажмите «Играть». У каждой игрушки свой множитель и свой шанс её достать — <b>чем выше множитель, тем меньше шанс</b>.</p>
+            <div class="claw-howto-toys" id="clawHowtoToys"></div>
+            <p class="modal-text">Достали игрушку — выигрыш равен ставке, умноженной на множитель. Не достали — ставка сгорает. Шанс показан в процентах под каждой игрушкой и не зависит ни от суммы ставки, ни от игрока.</p>
+            <p class="modal-text">Игра полностью честная: хэш секретного сида раунда публикуется ещё до ставки (значок # над панелью), а сам сид раскрывается после раунда — проверить результат можно в истории игры («Проверить честность») и в разделе «Проверка честности».</p>
+            <button class="modal-ok" id="clawHowtoOk">Понятно</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="hiloHowtoModal">
+        <div class="modal-card">
+            <button class="modal-close" id="hiloHowtoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Как играть — Hi-Lo</h3>
+            <p class="modal-text">Сделайте ставку и нажмите «Начать игру» — покажется одна карта. Дальше угадывайте: следующая карта будет «Больше», «Меньше» или «Так же» по рангу (масть роли не играет).</p>
+            <div class="howto-example-box" id="hiloHowtoExample"></div>
+            <p class="modal-text">Каждый вариант ответа имеет свой честный коэффициент — он тем выше, чем менее вероятен исход (например, «Так же» всегда самый редкий и самый прибыльный вариант). Коэффициент показан прямо на кнопке и пересчитывается под текущую карту.</p>
+            <p class="modal-text">Угадали — множитель к ставке умножается на коэффициент этого шага, показывается новая карта, можно продолжать или нажать «Забрать», чтобы зафиксировать выигрыш. Не угадали — ставка сгорает полностью.</p>
+            <p class="modal-text">Игра полностью честная: хэш раунда публикуется сразу при старте, а секретный сид раскрывается сразу после его окончания — проверить можно в разделе «Проверка честности».</p>
+            <button class="modal-ok" id="hiloHowtoOk">Понятно</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="redblackHowtoModal">
+        <div class="modal-card">
+            <button class="modal-close" id="redblackHowtoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Как играть — Red &amp; Black</h3>
+            <p class="modal-text">Сделайте ставку и нажмите «Начать игру» — сразу откроется выбор прогноза на первую карту. Есть два типа прогноза: <b>цвет</b> (Красное или Чёрное, шанс 50/50, как в рулетке, коэффициент x1.8) или <b>конкретная масть</b> (шанс 25%, честный
+                коэффициент x4).</p>
+            <div class="howto-example-box" id="redblackHowtoExample"></div>
+            <div class="rb-suit-legend" id="redblackSuitLegend"></div>
+            <p class="modal-text">Угадали — множитель к ставке умножается на коэффициент этого шага, карта остаётся в цепочке, и сразу открывается выбор прогноза на следующую карту — можно продолжать копить множитель или нажать «Забрать», чтобы зафиксировать выигрыш. Не угадали
+                — ставка сгорает полностью.</p>
+            <p class="modal-text">Ранг карты (2..Туз) чисто косметический — карта отрисовывается как настоящая игральная карта, но на результат влияет только её масть.</p>
+            <p class="modal-text">Игра полностью честная: хэш раунда публикуется сразу при старте, а секретный сид раскрывается сразу после его окончания — проверить можно в разделе «Проверка честности».</p>
+            <button class="modal-ok" id="redblackHowtoOk">Понятно</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="redblackPaytableModal">
+        <div class="modal-card">
+            <button class="modal-close" id="redblackPaytableClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Коэффициенты — Red &amp; Black</h3>
+            <p class="modal-text">Два независимых типа прогноза на каждую карту — коэффициенты фиксированные, не зависят от текущего множителя.</p>
+            <div class="gv-label">Прогноз на цвет</div>
+            <div class="rb-suit-legend" id="redblackPaytableColorRow"></div>
+            <div class="gv-label">Прогноз на масть</div>
+            <div class="rb-suit-legend" id="redblackPaytableSuitRow"></div>
+            <p class="modal-text">Коэффициенты шагов перемножаются: угадали цвет, потом масть — множитель станет x1.8 × x4 = x7.2, потом ещё раз масть — x28.8, и так далее. Полоска коэффициентов вверху экрана игры показывает, каким стал множитель после каждого угаданного шага.</p>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="minesHowtoModal">
+        <div class="modal-card">
+            <button class="modal-close" id="minesHowtoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Как играть — Мины</h3>
+            <p class="modal-text">Поле 5×5 — выберите количество мин (от 1 до 24) и сумму ставки, затем нажмите «Начать игру».</p>
+            <div class="howto-example-box" id="minesHowtoExample"></div>
+            <p class="modal-text">Открывайте клетки по одной: каждая безопасная клетка увеличивает множитель к ставке. Попадание на мину сжигает ставку полностью.</p>
+            <p class="modal-text">Забрать выигрыш можно в любой момент до подрыва — коэффициенты берутся из той же таблицы, что использует бот, и зависят от количества выбранных мин.</p>
+            <p class="modal-text">Игра полностью честная: хэш раунда публикуется сразу при старте, а секретный сид раскрывается сразу после его окончания — проверить можно в разделе «Проверка честности».</p>
+            <button class="modal-ok" id="minesHowtoOk">Понятно</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="ladderHowtoModal">
+        <div class="modal-card">
+            <button class="modal-close" id="ladderHowtoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Как играть — Башня</h3>
+            <p class="modal-text">6 уровней по 5 клеток — выберите количество камней на каждом уровне (от 1 до 4) и сумму ставки, затем нажмите «Начать игру».</p>
+            <div class="howto-example-box" id="ladderHowtoExample"></div>
+            <p class="modal-text">За один шаг открывается одна клетка текущего уровня: попали в камень — проигрыш, иначе поднимаетесь выше, а множитель к ставке растёт.</p>
+            <p class="modal-text">Забрать выигрыш можно после любого пройденного уровня — коэффициенты берутся из той же таблицы, что использует бот.</p>
+            <p class="modal-text">Игра полностью честная: хэш раунда публикуется сразу при старте, а секретный сид раскрывается сразу после его окончания — проверить можно в разделе «Проверка честности».</p>
+            <button class="modal-ok" id="ladderHowtoOk">Понятно</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="rouletteHowtoModal">
+        <div class="modal-card">
+            <button class="modal-close" id="rouletteHowtoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Как играть — Рулетка</h3>
+            <p class="modal-text">Общий раунд на всех игроков: 15 секунд на ставки, затем крутится лента и стрелка показывает выигравший цвет.</p>
+            <div class="howto-example-box" id="rouletteHowtoExample"></div>
+            <p class="modal-text">Выберите Красное, Чёрное или Зелёное и сумму ставки — если ваш цвет выпал, получаете ставку × коэффициент этого цвета.</p>
+            <p class="modal-text">Можно выбрать <b>сразу несколько цветов</b> — хоть все три. Сумма вводится на каждый цвет, общая сумма видна на кнопке. Каждая ставка считается отдельно, а пока идёт приём ставок, можно добавлять новые цвета.</p>
+            <p class="modal-text">Игра честная: хэш исхода публикуется ещё до начала приёма ставок, а секретный сид раскрывается сразу после — проверить можно самостоятельно.</p>
+            <button class="modal-ok" id="rouletteHowtoOk">Понятно</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="upgradeHowtoModal">
+        <div class="modal-card">
+            <button class="modal-close" id="upgradeHowtoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Как играть — Upgrader</h3>
+            <p class="modal-text">Выберите сумму ставки и процент выигрыша, затем нажмите «Начать игру».</p>
+            <div class="howto-example-box" id="upgradeHowtoExample"></div>
+            <p class="modal-text">Колесо крутится и останавливается на случайном значении от 0 до 100 — если оно попало в закрашенную зону (ваш шанс), ставка умножается на 100/шанс (за вычетом комиссии), иначе сгорает.</p>
+            <p class="modal-text">Игра полностью честная: хэш раунда публикуется сразу после розыгрыша вместе с секретным сидом — проверить можно в разделе «Проверка честности».</p>
+            <button class="modal-ok" id="upgradeHowtoOk">Понятно</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="wheelHowtoModal">
+        <div class="modal-card">
+            <button class="modal-close" id="wheelHowtoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Как играть — Wheel</h3>
+            <p class="modal-text">Wheel — это личная европейская рулетка на 37 ячеек (числа 0–36, один ноль). У каждого игрока свой раунд: ждать других не нужно, колесо крутится сразу, как вы нажмёте «Крутить».</p>
+            <p class="modal-text">Выберите <b>фишку</b> под столом (или впишите свою сумму ниже) и нажимайте на стол — каждое нажатие кладёт фишку на эту позицию (повторное нажатие увеличивает ставку). Ставить можно сколько угодно позиций за одно вращение. «Отмена» убирает
+                последнее действие, «Убрать» — весь стол, «Удвоить» увеличивает все ставки вдвое, «Повтор» возвращает ставки прошлого вращения. Во время вращения доска уходит вниз, а барабан выезжает вперёд — нажмите на него, чтобы пропустить анимацию.</p>
+            <p class="modal-text"><b>Ставки на стол:</b><br>• <b>Число</b> — нажмите на клетку, выигрыш x36;<br>• <b>Сплит</b> — нажмите на границу двух соседних клеток (в том числе 0 с 1, 2 или 3): выигрывает любое из двух чисел, x18;<br>• <b>Угол</b> — нажмите на пересечение
+                четырёх клеток, x9;<br>• <b>Колонна «2:1»</b> (кнопки под столом) и <b>дюжина</b> (1–12, 13–24, 25–36 — вторая колонка слева), x3;<br>• <b>Красное / чёрное, чёт / нечёт, 1–18 / 19–36</b> (крайняя левая колонка), x2.<br>Подробно про каждую
+                позицию с примерами — кнопка «Кэфы» рядом со ставкой и балансом.</p>
+            <p class="modal-text">Ноль не входит в колонны, дюжины и «шансы 1:1» — как и за настоящим столом. Коэффициент включает вашу ставку: поставили 10$ на число и угадали — получите 360$. Каждая позиция считается отдельно, а итог вращения — сумма всех выплат.</p>
+            <p class="modal-text">Игра честная: для каждого вращения заранее создаётся секретный сид. Выпавшее число вычисляется из него по формуле HMAC-SHA256, а сам сид раскрывается сразу после вращения — вы можете проверить результат в истории («Проверить честность») или
+                в разделе «Проверка честности».</p>
+            <button class="modal-ok" id="wheelHowtoOk">Понятно</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="wheelKefModal">
+        <div class="modal-card">
+            <button class="modal-close" id="wheelKefClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Коэффициенты Wheel</h3>
+            <div id="wheelKefBody"></div>
+            <button class="modal-ok" id="wheelKefOk">Понятно</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="arenaHowtoModal">
+        <div class="modal-card">
+            <button class="modal-close" id="arenaHowtoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Как играть — ArenaHub</h3>
+            <p class="modal-text">Общая PvP-арена на всех игроков комнаты. Ставь любую сумму — арена делится на цветные территории, и чем больше твоя ставка, тем больше твоя площадь.</p>
+            <div class="ah-howto-example" id="arenaHowtoExample"></div>
+            <p class="modal-text">Как только в комнате набралось 2 игрока, запускается 15 секунд на ставки — за это время можно докинуть сумму и расширить свою территорию. Затем шайба вылетает в случайную сторону, отскакивает от стен и останавливается.</p>
+            <p class="modal-text">Чья территория оказалась под шайбой — тот и победил и забирает весь банк за вычетом комиссии <b class="ah-fee">10%</b>. Например, при банке 20$ победитель получит <b class="ah-fee-prize">18$</b>.</p>
+            <p class="modal-text">Создал раунд и ждёшь соперников? Нажми «Отправить раунд» и позови друга прямо из Telegram. Комнат две, они независимые — выбирай любую.</p>
+            <p class="modal-text">Игра полностью честная: хэш раунда публикуется ещё до приёма ставок, а секретный сид раскрывается сразу после финиша — стартовую позицию шайбы, территории и выплату можно проверить в разделе «Проверка честности» или в карточке раунда.</p>
+            <button class="modal-ok" id="arenaHowtoOk">Понятно</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="escapeHowtoModal">
+        <div class="modal-card esc-howto-card">
+            <button class="modal-close" id="escapeHowtoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Как играть — Escape</h3>
+            <p class="modal-text">Escape — одиночная игра: ты против шарика. Шарик отскакивает внутри светящегося кольца, у которого есть <b>разрыв</b>, а кольцо постоянно вращается. Пока шарик внутри, <b>множитель растёт</b> каждые 0.5 секунды. Как только шарик попадает в
+                разрыв, он вылетает из кольца и по прямой падает на шкалу внизу.</p>
+            <div class="esc-howto-example" id="escapeHowtoExample"></div>
+            <div class="esc-legend" id="escapeHowtoLegend"></div>
+            <p class="modal-text"><b>Зелёная зона</b> шкалы с короной — победа: ты получаешь ставку × множитель на момент приземления. <b>Красная зона</b> с черепом — шарик «сгорел», ставка проиграна. Чем выше сложность, тем уже зелёная зона, но тем быстрее растёт множитель
+                и тем больше он в среднем.</p>
+            <div class="esc-example" id="escapeHowtoSample"></div>
+            <p class="modal-text"><b>Результат раунда известен заранее.</b> Победа, множитель и точка приземления вычисляются из секретного сида сразу при ставке — шарик лишь красиво это показывает. Разрыв вращается сам, кнопки «забрать» нет: ты выбираешь только сложность
+                и ставку.</p>
+            <p class="modal-text"><b>Честность.</b> Хэш секретного сида следующего раунда показывается ещё до ставки, а сам сид раскрывается сразу после приземления. В «Последних играх» у каждого раунда есть повтор и кнопка «Проверить честность»: браузер пересчитывает исход,
+                траекторию шарика и выплату прямо у тебя.</p>
+            <button class="modal-ok" id="escapeHowtoOk">Понятно</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="diceHowtoModal">
+        <div class="modal-card">
+            <button class="modal-close" id="diceHowtoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Как играть — Кости</h3>
+            <p class="modal-text">Выберите исход ставки, затем нажмите «Начать игру» — откроется окно ввода суммы ставки.</p>
+            <div class="howto-photo-slot" id="diceHowtoExample"></div>
+            <p class="modal-text">Кубик бросает бот прямо в игровом канале — результат честный (Telegram-анимация), баланс списывается и начисляется сразу после броска.</p>
+            <button class="modal-ok" id="diceHowtoOk">Понятно</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="bowlHowtoModal">
+        <div class="modal-card">
+            <button class="modal-close" id="bowlHowtoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Как играть — Боулинг</h3>
+            <p class="modal-text">Выберите исход ставки, затем нажмите «Начать игру» — откроется окно ввода суммы ставки.</p>
+            <div class="howto-photo-slot" id="bowlHowtoExample"></div>
+            <p class="modal-text">Шар бросает бот прямо в игровом канале — результат честный (Telegram-анимация), баланс списывается и начисляется сразу после броска.</p>
+            <button class="modal-ok" id="bowlHowtoOk">Понятно</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="dartsHowtoModal">
+        <div class="modal-card">
+            <button class="modal-close" id="dartsHowtoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Как играть — Дартс</h3>
+            <p class="modal-text">Выберите исход ставки, затем нажмите «Начать игру» — откроется окно ввода суммы ставки.</p>
+            <div class="howto-photo-slot" id="dartsHowtoExample"></div>
+            <p class="modal-text">Дротик бросает бот прямо в игровом канале — результат честный (Telegram-анимация), баланс списывается и начисляется сразу после броска.</p>
+            <button class="modal-ok" id="dartsHowtoOk">Понятно</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="basketHowtoModal">
+        <div class="modal-card">
+            <button class="modal-close" id="basketHowtoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Как играть — Баскетбол</h3>
+            <p class="modal-text">Выберите исход ставки, затем нажмите «Начать игру» — откроется окно ввода суммы ставки.</p>
+            <div class="howto-photo-slot" id="basketHowtoExample"></div>
+            <p class="modal-text">Мяч бросает бот прямо в игровом канале — результат честный (Telegram-анимация), баланс списывается и начисляется сразу после броска.</p>
+            <button class="modal-ok" id="basketHowtoOk">Понятно</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="footHowtoModal">
+        <div class="modal-card">
+            <button class="modal-close" id="footHowtoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Как играть — Футбол</h3>
+            <p class="modal-text">Выберите исход ставки, затем нажмите «Начать игру» — откроется окно ввода суммы ставки.</p>
+            <div class="howto-photo-slot" id="footHowtoExample"></div>
+            <p class="modal-text">Мяч бьёт бот прямо в игровом канале — результат честный (Telegram-анимация), баланс списывается и начисляется сразу после удара.</p>
+            <button class="modal-ok" id="footHowtoOk">Понятно</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="slotsHowtoModal">
+        <div class="modal-card">
+            <button class="modal-close" id="slotsHowtoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Как играть — Слоты</h3>
+            <p class="modal-text">Выберите исход ставки, затем нажмите «Начать игру» — откроется окно ввода суммы ставки.</p>
+            <div class="howto-photo-slot" id="slotsHowtoExample"></div>
+            <p class="modal-text">Барабан крутит бот прямо в игровом канале — результат честный (Telegram-анимация), баланс списывается и начисляется сразу после спина.</p>
+            <button class="modal-ok" id="slotsHowtoOk">Понятно</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="pvpDiceHowtoModal">
+        <div class="modal-card">
+            <button class="modal-close" id="pvpDiceHowtoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Как играть — PvP: Кости</h3>
+            <p class="modal-text">Укажите сумму ставки и нажмите «Создать PvP комнату» — деньги сразу замораживаются, а комната появляется в списке «Активные игры» для других игроков.</p>
+            <div class="howto-photo-slot" id="pvpDiceHowtoExample"></div>
+            <p class="modal-text" id="pvpDiceHowtoText"></p>
+            <button class="modal-ok" id="pvpDiceHowtoOk">Понятно</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="pvpGenHowtoModal">
+        <div class="modal-card">
+            <button class="modal-close" id="pvpGenHowtoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title" id="pvpGenHowtoTitle">Как играть — PvP</h3>
+            <p class="modal-text">Укажите сумму ставки и нажмите «Создать PvP комнату» — деньги сразу замораживаются, а комната появляется в списке «Активные игры» для других игроков.</p>
+            <div class="howto-photo-slot" id="pvpGenHowtoExample"></div>
+            <p class="modal-text" id="pvpGenHowtoText"></p>
+            <button class="modal-ok" id="pvpGenHowtoOk">Понятно</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="kenoPaytableModal">
+        <div class="modal-card">
+            <button class="modal-close" id="kenoPaytableClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Коэффициенты — Кено</h3>
+            <p class="modal-text">Выигрыш зависит от двух вещей: сколько чисел вы выбрали (1–10) и какой уровень риска включён. Чем больше совпадений с выпавшими числами — тем выше множитель к ставке.</p>
+            <div class="mines-bomb-row" id="kenoPaytableRiskTabs">
+                <button class="mines-bomb-btn" type="button" data-keno-paytable-risk="low"><img class="keno-risk-icon" src="/ИграКено/НизкийРиск.png" alt="">Низкий</button>
+                <button class="mines-bomb-btn selected" type="button" data-keno-paytable-risk="medium"><img class="keno-risk-icon" src="/ИграКено/СреднийРиск.png" alt="">Средний</button>
+                <button class="mines-bomb-btn" type="button" data-keno-paytable-risk="high"><img class="keno-risk-icon" src="/ИграКено/ВысокийРиск.png" alt="">Высокий</button>
+            </div>
+            <div class="gv-label" id="kenoPaytablePicksLabel">Если выбрано 10 чисел:</div>
+            <div class="gv-mult-row" id="kenoPaytableMultRow" style="position:static;"></div>
+            <p class="modal-text">Низкий риск платит чаще, но с меньшим потолком; высокий риск платит реже, зато с гораздо большим максимальным множителем — общая отдача у всех трёх уровней примерно одинаковая. Таблица выше пересчитывается под то количество чисел, которое
+                сейчас выбрано на поле (по умолчанию показано для 10).</p>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="privacyModal">
+        <div class="modal-card ref-modal-card privacy-modal-card">
+            <button class="modal-close" id="privacyClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title" id="privacyModalTitle">Приватность</h3>
+            <div class="ref-modal-body" id="privacyModalBody"></div>
+        </div>
+    </div>
+
+    <div class="sub-view" id="helpView">
+        <div class="help-content">
+            <div id="supRoot">
+                <div class="sup-top"><button class="back-pill" data-action="sub-back"><svg viewBox="0 0 24 24" fill="none"><path d="M15 6l-6 6 6 6" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg>Обратно</button></div>
+                <div class="skel-box" style="height:84px;border-radius:20px;margin:0 0 14px"></div>
+                <div class="skel-box" style="height:46px;border-radius:20px;margin:0 0 14px"></div>
+                <div class="skel-box" style="height:56px;border-radius:28px;margin:0 0 18px"></div>
+                <div class="skel-box" style="height:96px;border-radius:20px"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="sub-view" id="walletView">
+        <div class="wv-body" id="wvBody"></div>
+    </div>
+
+    <div class="sub-view" id="leadersView">
+        <div class="lb-body" id="lbBody"></div>
+    </div>
+
+    <div class="toast-stack" id="toastStack"></div>
+
+    <div class="modal-overlay" id="gvModal">
+        <div class="modal-card">
+            <button class="modal-close" id="gvModalClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title" id="gvModalTitle">Как играть</h3>
+            <p class="modal-text" id="gvModalText"></p>
+            <button class="modal-ok" id="gvModalOk">Понятно</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="gvFairModal">
+        <div class="modal-card">
+            <button class="modal-close" id="gvFairModalClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <div class="fair-head">
+                <div class="fair-head-icon"><canvas class="lazy-img lottie-canvas" width="96" height="96" data-lottie-src="/lottie/images/ПроверкиЧестностиВторой.lottie"></canvas></div>
+                <div>
+                    <div class="fair-head-eyebrow">Криптографическая проверка</div>
+                    <h3 class="modal-title">Проверка честности игры <span class="fair-id">#<span id="gvFairId"></span></span>
+                    </h3>
+                </div>
+            </div>
+
+            <div class="fair-steps" id="gvFairSteps">
+                <div class="fair-step f1"><i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.4 12.7l3.7 3.7 7.5-7.9"/></svg></i><span>Хэш опубликован</span></div>
+                <div class="fair-step f2"><i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.4 12.7l3.7 3.7 7.5-7.9"/></svg></i><span><b class="s-pend" style="font-weight:inherit">Раунд идёт</b><b class="s-done" style="font-weight:inherit">Раунд завершён</b></span></div>
+                <div class="fair-step f3"><i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.4 12.7l3.7 3.7 7.5-7.9"/></svg></i><span>Сид раскрыт</span></div>
+            </div>
+
+            <div class="fair-block">
+                <div class="fair-label">SHA-256 HASH</div>
+                <div class="fair-hash" id="gvFairHash">Вычисление…</div>
+            </div>
+
+            <div class="fair-block">
+                <div class="fair-label">Результат</div>
+                <div class="fair-result" id="gvFairResult">Игра не завершена</div>
+            </div>
+
+            <div class="modal-text" id="gvFairNote" style="display:none;">Для проверки скопируйте результат и вставьте на любом сайте, который поддерживает SHA-256. Сравните результат с хэшем выше — он будет совпадать.</div>
+
+            <a class="modal-ok" id="gvFairLink" href="#" target="_blank" rel="noopener" style="display:none; text-align:center; text-decoration:none;">Проверить на emn178.github.io</a>
+            <button class="modal-ok gv-fair-ok" id="gvFairOk">Понятно</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="fairCheckModal">
+        <div class="modal-card fair-check-modal-card">
+            <button class="modal-close" id="fairCheckClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title"><svg class="modal-title-icon" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Проверить честность</h3>
+            <p class="modal-text">Заполните минимум 2 поля из трёх — найдём раунд в Краше, Мины (бот и MiniApp) или Апгрейде. А если игра Emoji — выберите игру и потом введите ID игры.</p>
+
+            <div class="fair-check-game-label">Игра (необязательно, для точности)</div>
+            <div class="fair-check-games" id="fairCheckGames">
+                <button class="fair-check-game-chip" type="button" data-game="crash">
+          <span class="fair-check-game-icon"><span class="skel-box"></span><img class="lazy-img fair-check-game-icon-img" src="/images/legacy_icons/fair_crash.png" alt=""></span>
+          <span>Краш</span>
+        </button>
+                <button class="fair-check-game-chip" type="button" data-game="roulette">
+          <span class="fair-check-game-icon"><span class="skel-box"></span><img class="lazy-img fair-check-game-icon-img" src="images/ruletka.png" alt=""></span>
+          <span>Рулетка</span>
+        </button>
+
+                <button class="fair-check-game-chip" type="button" data-game="wheel">
+          <span class="fair-check-game-icon"><span class="skel-box"></span><img class="lazy-img fair-check-game-icon-img" src="/lottie/ИграWheel/WheelLogo.png" alt=""></span>
+          <span>Wheel</span>
+        </button>
+                <button class="fair-check-game-chip" type="button" data-game="arena">
+          <span class="fair-check-game-icon"><span class="skel-box"></span><canvas class="lazy-img lottie-canvas fair-check-game-icon-img" id="fcArenaIcon" width="512" height="512" data-lottie-src="/lottie/ResultGame/ArenaHub.lottie"></canvas></span>
+          <span>ArenaHub</span>
+        </button>
+                <button class="fair-check-game-chip" type="button" data-game="escape">
+          <span class="fair-check-game-icon"><span class="skel-box"></span><canvas class="lazy-img lottie-canvas fair-check-game-icon-img" id="fcEscapeIcon" width="512" height="512" data-lottie-src="/lottie/ResultGame/Escape.lottie"></canvas></span>
+          <span>Escape</span>
+        </button>
+                <button class="fair-check-game-chip" type="button" data-game="race">
+          <span class="fair-check-game-icon"><span class="skel-box"></span><canvas class="lazy-img lottie-canvas fair-check-game-icon-img" id="fcRaceIcon" width="512" height="512" data-lottie-src="/lottie/ResultGame/Race.lottie"></canvas></span>
+          <span>Race</span>
+        </button>
+                <button class="fair-check-game-chip" type="button" data-game="bomb">
+          <span class="fair-check-game-icon"><span class="skel-box"></span><img class="lazy-img fair-check-game-icon-img" src="/images/Bomb.png" alt=""></span>
+          <span>Bomb</span>
+        </button>
+                <button class="fair-check-game-chip" type="button" data-game="sumo">
+          <span class="fair-check-game-icon"><span class="skel-box"></span><canvas class="lazy-img lottie-canvas fair-check-game-icon-img" id="fcSumoIcon" width="512" height="512" data-lottie-src="/images/Sumo.lottie"></canvas></span>
+          <span>Sumo</span>
+        </button>
+                <button class="fair-check-game-chip" type="button" data-game="coinflip">
+          <span class="fair-check-game-icon"><span class="skel-box"></span><img class="lazy-img fair-check-game-icon-img" src="/lottie/ИграОрелРешка/ОрелРешка.png" alt=""></span>
+          <span>Орёл-Решка</span>
+        </button>
+                <button class="fair-check-game-chip" type="button" data-game="claw">
+          <span class="fair-check-game-icon"><span class="skel-box"></span><img class="lazy-img fair-check-game-icon-img" src="/lottie/ИграАвтомат/ИграАвтомат.png" alt=""></span>
+          <span>Автомат</span>
+        </button>
+                <button class="fair-check-game-chip" type="button" data-game="baccarat">
+          <span class="fair-check-game-icon"><span class="skel-box"></span><img class="lazy-img fair-check-game-icon-img" src="/lottie/ИграRadOrBlack/Трефы.png" alt=""></span>
+          <span>Баккара</span>
+        </button>
+                <button class="fair-check-game-chip" type="button" data-game="mines">
+          <span class="fair-check-game-icon"><span class="skel-box"></span><img class="lazy-img fair-check-game-icon-img" src="/images/legacy_icons/fair_mines.png" alt=""></span>
+          <span>Мины</span>
+        </button>
+
+                <button class="fair-check-game-chip" type="button" data-game="keno">
+          <span class="fair-check-game-icon"><span class="skel-box"></span><img class="lazy-img fair-check-game-icon-img" src="/ИграКено/KenoGame.png" alt=""></span>
+          <span>Кено</span>
+        </button>
+
+                <button class="fair-check-game-chip" type="button" data-game="hilo">
+          <span class="fair-check-game-icon"><span class="skel-box"></span><img class="lazy-img fair-check-game-icon-img" src="/ИграHiLo/HiLo.png" alt=""></span>
+          <span>Hi-Lo</span>
+        </button>
+                <button class="fair-check-game-chip" type="button" data-game="redblack">
+          <span class="fair-check-game-icon"><span class="skel-box"></span><img class="lazy-img fair-check-game-icon-img" src="/lottie/ИграRadOrBlack/RedBlackLogo.png" alt=""></span>
+          <span>R&amp;B</span>
+        </button>
+                <button class="fair-check-game-chip" type="button" data-game="ladder">
+          <span class="fair-check-game-icon"><span class="skel-box"></span><img class="lazy-img fair-check-game-icon-img" src="/images/legacy_icons/fair_ladder.png" alt=""></span>
+          <span>Лесенка</span>
+        </button>
+                <button class="fair-check-game-chip" type="button" data-game="upgrade">
+          <span class="fair-check-game-icon"><span class="skel-box"></span><img class="lazy-img fair-check-game-icon-img" src="/images/legacy_icons/fair_upgrade.png" alt=""></span>
+          <span>Upgrader</span>
+        </button>
+                <button class="fair-check-game-chip" type="button" data-game="pvp">
+          <span class="fair-check-game-icon"><span class="skel-box"></span><img class="lazy-img fair-check-game-icon-img" src="/images/legacy_icons/fair_pvp.png" alt=""></span>
+          <span>PvP</span>
+        </button>
+                <button class="fair-check-game-chip" type="button" data-game="кости">
+          <span class="fair-check-game-icon"><span class="skel-box"></span><img class="lazy-img fair-check-game-icon-img" src="/images/legacy_icons/fair_kosti.png" alt=""></span>
+          <span>Кости</span>
+        </button>
+                <button class="fair-check-game-chip" type="button" data-game="боулинг">
+          <span class="fair-check-game-icon"><span class="skel-box"></span><img class="lazy-img fair-check-game-icon-img" src="/images/legacy_icons/fair_bowling.png" alt=""></span>
+          <span>Боулинг</span>
+        </button>
+                <button class="fair-check-game-chip" type="button" data-game="дартс">
+          <span class="fair-check-game-icon"><span class="skel-box"></span><img class="lazy-img fair-check-game-icon-img" src="/images/legacy_icons/fair_darts.png" alt=""></span>
+          <span>Дартс</span>
+        </button>
+                <button class="fair-check-game-chip" type="button" data-game="баскетбол">
+          <span class="fair-check-game-icon"><span class="skel-box"></span><img class="lazy-img fair-check-game-icon-img" src="/images/legacy_icons/fair_basketball.png" alt=""></span>
+          <span>Баскетбол</span>
+        </button>
+                <button class="fair-check-game-chip" type="button" data-game="футбол">
+          <span class="fair-check-game-icon"><span class="skel-box"></span><img class="lazy-img fair-check-game-icon-img" src="/images/legacy_icons/fair_football.png" alt=""></span>
+          <span>Футбол</span>
+        </button>
+                <button class="fair-check-game-chip" type="button" data-game="blackjack">
+          <span class="fair-check-game-icon"><span class="skel-box"></span><img class="lazy-img fair-check-game-icon-img" src="/lottie/ИграRadOrBlack/Пики.png" alt=""></span>
+          <span>Блэкджек</span>
+        </button>
+                <button class="fair-check-game-chip" type="button" data-game="слоты">
+          <span class="fair-check-game-icon"><span class="skel-box"></span><img class="lazy-img fair-check-game-icon-img" src="/images/legacy_icons/fair_slots.png" alt=""></span>
+          <span>Слоты</span>
+        </button>
+            </div>
+
+            <div id="fairCheckPfFields">
+                <div class="fair-check-field">
+                    <label>UID раунда</label>
+                    <input type="text" id="fairCheckUid" placeholder="M60C3F652">
+                </div>
+                <div class="fair-check-field">
+                    <label>SHA-256 hash</label>
+                    <input type="text" id="fairCheckHash" placeholder="445f7951c665696a...">
+                </div>
+                <div class="fair-check-field">
+                    <label>Секретный сид</label>
+                    <input type="text" id="fairCheckSeed" placeholder="5498c5431ff6bb90...">
+                </div>
+            </div>
+
+            <div id="fairCheckEmojiFields" style="display:none;">
+                <div class="fair-check-field">
+                    <label>ID игры Emoji</label>
+                    <input type="text" id="fairCheckEmojiId" placeholder="915">
+                </div>
+            </div>
+
+            <div id="fairCheckPvpFields" style="display:none;">
+                <div class="fair-check-field">
+                    <label>UID раунда PvP</label>
+                    <input type="text" id="fairCheckPvpId" placeholder="PVPAC11A5C7">
+                </div>
+            </div>
+
+            <button class="modal-ok fair-check-submit-btn" type="button" id="fairCheckSubmitBtn" disabled>Проверить</button>
+
+            <div class="fair-check-result" id="fairCheckResult"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="balanceModal">
+        <div class="modal-card balance-modal-card">
+            <button class="modal-close" id="balanceModalClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Баланс</h3>
+            <div class="balance-modal-amount" id="balanceModalAmount">$ 000.00</div>
+            <p class="modal-text">Пополнение — прямо здесь, вывод — через бота.</p>
+            <div class="balance-modal-actions">
+                <button class="balance-modal-btn deposit" type="button" id="balanceModalDeposit">
+          <span class="balance-modal-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M12 4v13m0 0l-5-5m5 5l5-5M5 20h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          Пополнить
+        </button>
+                <button class="balance-modal-btn withdraw" type="button" id="balanceModalWithdraw">
+          <span class="balance-modal-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M12 20V7m0 0l-5 5m5-5l5 5M5 4h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          Вывести
+        </button>
+            </div>
+            <button class="balance-modal-history-btn" type="button" id="balanceModalHistory">
+        <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3.5 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        История транзакций
+      </button>
+        </div>
+    </div>
+
+
+
+
+    <div class="offline-overlay" id="offlineModal">
+        <div class="offline-card">
+            <span class="offline-icon-wrap">
+        <span class="skel-box"></span>
+            <canvas class="lazy-img lottie-canvas offline-icon" id="offlineIcon" width="512" height="512"></canvas>
+            </span>
+            <h3 class="offline-title">Нет подключения<br>к интернету</h3>
+            <p class="offline-text">Для работы сайта необходимо стабильное подключение к интернету. Пожалуйста, проверьте соединение и попробуйте снова.</p>
+            <div class="offline-status" id="offlineStatus">
+                <span class="offline-status-dot"></span>
+                <span class="offline-status-label">Статус:</span>
+                <span class="offline-status-value" id="offlineStatusValue">ОТКЛЮЧЕНО</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="subgate-overlay" id="subGateModal">
+        <div class="subgate-card">
+            <span class="subgate-icon-wrap">
+        <canvas class="lazy-img lottie-canvas subgate-icon" width="512" height="512" data-lottie-src="/lottie/images/ВыСНами.lottie"></canvas>
+      </span>
+            <h3 class="subgate-title" id="subGateTitle">Обязательная подписка</h3>
+            <p class="subgate-text" id="subGateText">Чтобы пользоваться приложением, подпишитесь на канал:</p>
+            <div id="subGateChannelsList"></div>
+            <button class="subgate-btn subgate-btn-secondary" id="subGateCheckBtn">Проверить подписку</button>
+        </div>
+    </div>
+
+    <div class="subgate-overlay" id="usernameGateModal">
+        <div class="subgate-card">
+            <span class="subgate-icon-wrap">
+        <canvas class="lazy-img lottie-canvas subgate-icon" width="512" height="512" data-lottie-src="/lottie/СистемаЧеков/КакаяТаОшибкаВЧеке.lottie"></canvas>
+      </span>
+            <h3 class="subgate-title">У вас не установлен юзернейм</h3>
+            <p class="subgate-text">Чтобы пользоваться ботом и MiniApp, необходимо установить @username в настройках Telegram (Настройки → Имя пользователя).</p>
+            <a class="subgate-btn subgate-btn-primary" id="usernameGateSettingsBtn" href="tg://settings/edit">Открыть настройки</a>
+            <button class="subgate-btn subgate-btn-secondary" id="usernameGateCheckBtn">Проверить ещё раз</button>
+        </div>
+    </div>
+
+
+    <div class="subgate-overlay" id="captchaGateModal">
+        <div class="subgate-card">
+            <span class="subgate-icon-wrap">
+        <canvas class="lazy-img lottie-canvas subgate-icon" width="512" height="512" data-lottie-src="/lottie/СистемаЧеков/КакаяТаОшибкаВЧеке.lottie"></canvas>
+      </span>
+            <h3 class="subgate-title">Вы не прошли капчу</h3>
+            <p class="subgate-text">Чтобы пользоваться MiniApp, необходимо пройти капчу в чате с ботом. Откройте чат, отправьте /start и пройдите проверку — после этого главное меню откроется.</p>
+            <a class="subgate-btn subgate-btn-primary" id="captchaGateBotBtn" href="#">Открыть чат с ботом</a>
+            <button class="subgate-btn subgate-btn-secondary" id="captchaGateCheckBtn">Проверить ещё раз</button>
+        </div>
+    </div>
+
+
+    <div class="subgate-overlay" id="captchaModal">
+        <div class="cap-app">
+            <div class="cap-glow"></div>
+            <div class="cap-glow-dark"></div>
+            <header class="cap-top">
+                <div class="cap-top-l">
+                    <div class="cap-eyebrow" id="captchaEyebrow">Moderator CryptoGame · защита чата</div>
+                    <h1 class="cap-page-title" id="captchaTitle">Проверка при входе</h1>
+                </div>
+                <button class="cap-pill" id="captchaTheme" type="button" aria-label="Сменить тему">
+          <span class="ind"></span>
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></span>
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></span>
+        </button>
+            </header>
+            <div class="cap-scroll">
+                <main class="cap-wrap" id="captchaBody"></main>
+            </div>
+        </div>
+        <div class="cap-anchor"></div>
+    </div>
+
+    <div class="modal-overlay" id="checksModal">
+        <div class="modal-card checks-modal-card">
+            <button class="modal-close" id="checksClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <button class="checks-back-btn" id="checksBackBtn" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M15 6l-6 6 6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+            <h3 class="modal-title" id="checksTitle">Система чеков</h3>
+            <div id="checksContent"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="bonusModal">
+        <div class="modal-card checks-modal-card bonus-modal-card">
+            <button class="modal-close" id="bonusClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <button class="checks-back-btn" id="bonusBackBtn" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M15 6l-6 6 6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+            <h3 class="modal-title" id="bonusTitle">Бонусы</h3>
+            <div id="bonusContent"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="bonusAlertModal">
+        <div class="modal-card bonus-alert-card">
+            <div id="bonusAlertBody"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="pvpGamesModal">
+        <div class="modal-card pvp-games-modal-card">
+            <button class="modal-close" id="pvpGamesClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">PvP Emoji игры</h3>
+            <div class="search-box gv-history-search-box" style="margin-bottom:14px;">
+                <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                <input type="text" id="pvpSearchByIdInput" placeholder="Поиск игры по UID">
+            </div>
+            <button class="pvp-active-inline-btn" type="button" id="pvpPickerActiveBtn" style="width:100%; margin-bottom:14px;"><canvas class="lazy-img lottie-canvas pvp-active-icon" id="pvpPickerActiveIcon" width="512" height="512" data-lottie-src="/lottie/images/PvpEmoji.lottie"></canvas>Активные игры</button>
+            <div id="pvpSearchByIdResult" style="display:none;"></div>
+            <div class="games-grid" id="pvpGamesGrid"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="pvpConfirmModal">
+        <div class="modal-card pvp-active-modal-card">
+            <h3 class="modal-title" id="pvpConfirmTitle">Подтвердите действие</h3>
+            <p class="modal-text" id="pvpConfirmText"></p>
+            <button class="gv-start-btn" type="button" id="pvpConfirmModalYes" style="margin-top:16px;">Да</button>
+            <button class="gv-outcome" type="button" id="pvpConfirmModalNo" style="display:block; width:100%; margin:10px 0 0;">Отмена</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="pvpDiceRoundModal">
+        <div class="modal-card pvp-active-modal-card emoji-round-card">
+            <button class="modal-close" id="pvpDiceRoundClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title" id="pvpDiceRoundTitle">Раунд PvP</h3>
+            <div id="pvpDiceRoundBody"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="pvpDeepLinkInfoModal">
+        <div class="modal-card pvp-active-modal-card">
+            <button class="modal-close" id="pvpDeepLinkInfoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <div class="gv-history-search-empty" style="padding-top:8px;">
+                <canvas class="lazy-img lottie-canvas empty-state-gif" id="pvpDeepLinkEmptyIcon" width="512" height="512" data-lottie-src="/lottie/images/ПоискИгрНеНайдено.lottie"></canvas>
+                <span id="pvpDeepLinkInfoText"></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="pvpActiveModal">
+        <div class="modal-card pvp-active-modal-card">
+            <button class="modal-close" id="pvpActiveClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Активные игры — Кости</h3>
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
+                <div class="gv-history-tabs" id="pvpActiveTabs" style="flex-shrink:0;">
+                    <button class="gv-history-tab active" type="button" data-pvp-active-scope="all">Все</button>
+                    <button class="gv-history-tab" type="button" data-pvp-active-scope="mine">Мои</button>
+                </div>
+                <div class="search-box gv-history-search-box" style="flex:1; margin:0; min-width:0;">
+                    <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                    <input type="text" id="pvpActiveSearchInput" placeholder="Поиск по UID">
+                </div>
+            </div>
+            <div id="pvpActiveSearchResult" style="display:none;"></div>
+            <div id="pvpActiveList"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="pvpInviteModal">
+        <div class="modal-card pvp-active-modal-card">
+            <button class="modal-close" id="pvpInviteClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Пригласить в игру</h3>
+            <p class="modal-text">Отправьте UID другу или пригласите его прямо в чат — он сразу увидит кнопку входа в комнату.</p>
+            <div class="pvp-invite-uid" id="pvpInviteUid">#UID</div>
+            <button class="gv-start-btn" type="button" id="pvpInviteCopyBtn">Скопировать</button>
+            <button class="gv-start-btn" type="button" id="pvpInviteShareBtn" style="margin-top:10px;">Пригласить</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="pvpMyRoomsModal">
+        <div class="modal-card pvp-active-modal-card">
+            <button class="modal-close" id="pvpMyRoomsClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Мои созданные комнаты</h3>
+            <div id="pvpMyRoomsList"></div>
+        </div>
+    </div>
+
+
+    <div class="modal-overlay" id="pvpGenRoundModal">
+        <div class="modal-card pvp-active-modal-card emoji-round-card">
+            <button class="modal-close" id="pvpGenRoundClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title" id="pvpGenRoundTitle">Раунд PvP</h3>
+            <div id="pvpGenRoundBody"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="pvpGenActiveModal">
+        <div class="modal-card pvp-active-modal-card">
+            <button class="modal-close" id="pvpGenActiveClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title" id="pvpGenActiveTitle">Активные игры</h3>
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
+                <div class="gv-history-tabs" id="pvpGenActiveTabs" style="flex-shrink:0;">
+                    <button class="gv-history-tab active" type="button" data-pvp-active-scope="all">Все</button>
+                    <button class="gv-history-tab" type="button" data-pvp-active-scope="mine">Мои</button>
+                </div>
+                <div class="search-box gv-history-search-box" style="flex:1; margin:0; min-width:0;">
+                    <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                    <input type="text" id="pvpGenActiveSearchInput" placeholder="Поиск по UID">
+                </div>
+            </div>
+            <div id="pvpGenActiveSearchResult" style="display:none;"></div>
+            <div id="pvpGenActiveList"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="blackjackPvpActiveModal">
+        <div class="modal-card pvp-active-modal-card">
+            <button class="modal-close" id="blackjackPvpActiveClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Активные игры — Блэкджек</h3>
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
+                <div class="gv-history-tabs" id="blackjackPvpActiveTabs" style="flex-shrink:0;">
+                    <button class="gv-history-tab active" type="button" data-pvp-active-scope="all">Все</button>
+                    <button class="gv-history-tab" type="button" data-pvp-active-scope="mine">Мои</button>
+                </div>
+                <div class="search-box gv-history-search-box" style="flex:1; margin:0; min-width:0;">
+                    <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                    <input type="text" id="blackjackPvpActiveSearchInput" placeholder="Поиск по UID">
+                </div>
+            </div>
+            <div id="blackjackPvpActiveSearchResult" style="display:none;"></div>
+            <div id="blackjackPvpActiveList"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="pvpGenMyRoomsModal">
+        <div class="modal-card pvp-active-modal-card">
+            <button class="modal-close" id="pvpGenMyRoomsClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Мои созданные комнаты</h3>
+            <div id="pvpGenMyRoomsList"></div>
+        </div>
+    </div>
+
+
+    <div class="modal-overlay" id="pvpAllActiveModal">
+        <div class="modal-card pvp-active-modal-card">
+            <button class="modal-close" id="pvpAllActiveClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Активные игры</h3>
+            <div class="privacy-mode-grid" id="pvpAllActiveFilter" style="margin-top:0; margin-bottom:14px;">
+                <button class="privacy-mode-btn wide active" type="button" data-pvp-filter-game="all">Все игры</button>
+                <button class="privacy-mode-btn" type="button" data-pvp-filter-game="dice" data-pvp-filter-name="кости"><img class="pvp-filter-icon" alt="">Кости</button>
+                <button class="privacy-mode-btn" type="button" data-pvp-filter-game="bowling" data-pvp-filter-name="боулинг"><img class="pvp-filter-icon" alt="">Боулинг</button>
+                <button class="privacy-mode-btn" type="button" data-pvp-filter-game="darts" data-pvp-filter-name="дартс"><img class="pvp-filter-icon" alt="">Дартс</button>
+                <button class="privacy-mode-btn" type="button" data-pvp-filter-game="basketball" data-pvp-filter-name="баскетбол"><img class="pvp-filter-icon" alt="">Баскетбол</button>
+                <button class="privacy-mode-btn" type="button" data-pvp-filter-game="football" data-pvp-filter-name="футбол"><img class="pvp-filter-icon" alt="">Футбол</button>
+                <button class="privacy-mode-btn" type="button" data-pvp-filter-game="slots" data-pvp-filter-name="слоты"><img class="pvp-filter-icon" alt="">Слоты</button>
+            </div>
+            <div id="pvpAllActiveList"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="adminModal">
+        <div class="adm-app" id="adminApp">
+            <div class="adm-glow"></div>
+            <div class="adm-glow-dark"></div>
+            <header class="adm-top">
+                <div class="adm-top-l">
+                    <button class="adm-iconbtn" id="adminBackBtn" type="button" aria-label="Назад" style="display:none;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+          </button>
+                    <button class="adm-iconbtn" id="adminClose" type="button" aria-label="Закрыть">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+                    <div class="adm-title-wrap">
+                        <div class="adm-eyebrow" id="adminCrumb"></div>
+                        <h3 class="adm-title" id="adminTitle">Админ-панель</h3>
+                    </div>
+                </div>
+                <button class="adm-pill" id="adminThemeBtn" type="button" aria-label="Тёмная тема">
+          <span class="ind"></span>
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg></span>
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg></span>
+        </button>
+            </header>
+            <div class="adm-scroll" id="adminScroll">
+                <div class="adm-wrap">
+                    <div class="admin-modal-body" id="adminContent"></div>
+                </div>
+            </div>
+            <div class="adm-toasts" id="adminToasts" aria-live="polite"></div>
+        </div>
+    </div>
+
+    <div class="subgate-overlay" id="checkActivateModal">
+        <div class="subgate-card checks-activate-card">
+            <span class="subgate-icon-wrap">
+        <canvas class="subgate-icon lazy-img lottie-canvas" id="checkActivateIcon" width="512" height="512"></canvas>
+      </span>
+            <div id="checkActivateContent"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="myGamesModal">
+        <div class="modal-card my-games-modal-card">
+            <button class="modal-close" id="myGamesClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Мои игры</h3>
+            <p class="modal-text">Вся ваша история сразу по всем играм — выберите игру, чтобы отфильтровать список.</p>
+            <div class="my-games-filter" id="myGamesFilter"></div>
+            <div class="search-box my-games-search-box">
+                <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                <input type="text" id="myGamesSearchInput" placeholder="Поиск по UID, дате, игре…">
+            </div>
+            <div class="my-games-list" id="myGamesList"></div>
+            <div class="wv-pagination" id="myGamesPagination">
+                <button class="wv-page-btn" type="button" id="myGamesPagePrev">‹</button>
+                <button class="wv-page-label wv-page-label-btn" type="button" id="myGamesPageLabel">1 из 1</button>
+                <button class="wv-page-btn" type="button" id="myGamesPageNext">›</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="myGamesPickModal">
+        <div class="modal-card my-games-pick-modal-card">
+            <button class="modal-close" id="myGamesPickClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Выберите игру</h3>
+            <div class="my-games-pick-grid" id="myGamesPickGrid"></div>
+            <button class="fair-check-btn my-games-pick-banner" type="button" id="myGamesPickBlackjackBtn">
+        <span class="fair-check-icon"><img src="/lottie/ИграRadOrBlack/Пики.png" alt=""></span>
+        <span class="fair-check-text">
+          <b>Блэкджек</b>
+          <span>Против дома или в PvP с другим игроком — вся ваша история сразу</span>
+        </span>
+        <span class="fair-check-arrow">›</span>
+      </button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="myGamesJumpModal">
+        <div class="modal-card mg-jump-modal-card">
+            <div class="mg-jump-handle"></div>
+            <button class="modal-close" id="myGamesJumpClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Перейти на страницу</h3>
+            <p class="mg-jump-sub" id="myGamesJumpSub">Стр. 1 из 1</p>
+
+            <div class="mg-jump-current" id="myGamesJumpCurrent"></div>
+
+            <div class="mg-jump-section-label">Быстрый переход</div>
+            <div class="mg-jump-quick" id="myGamesJumpQuick"></div>
+
+            <div class="mg-jump-section-label">Ввести номер страницы</div>
+            <div class="mg-jump-input-row">
+                <input type="number" min="1" class="mg-jump-input" id="myGamesJumpInput" placeholder="1">
+                <button class="mg-jump-go-btn" type="button" id="myGamesJumpGoBtn">Перейти</button>
+            </div>
+            <div class="mg-jump-error" id="myGamesJumpError"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="walletJumpModal">
+        <div class="modal-card mg-jump-modal-card">
+            <div class="mg-jump-handle"></div>
+            <button class="modal-close" id="walletJumpClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Перейти на страницу</h3>
+            <p class="mg-jump-sub" id="walletJumpSub">Стр. 1 из 1</p>
+
+            <div class="mg-jump-current" id="walletJumpCurrent"></div>
+
+            <div class="mg-jump-section-label">Быстрый переход</div>
+            <div class="mg-jump-quick" id="walletJumpQuick"></div>
+
+            <div class="mg-jump-section-label">Ввести номер страницы</div>
+            <div class="mg-jump-input-row">
+                <input type="number" min="1" class="mg-jump-input" id="walletJumpInput" placeholder="1">
+                <button class="mg-jump-go-btn" type="button" id="walletJumpGoBtn">Перейти</button>
+            </div>
+            <div class="mg-jump-error" id="walletJumpError"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="checksJumpModal">
+        <div class="modal-card mg-jump-modal-card">
+            <div class="mg-jump-handle"></div>
+            <button class="modal-close" id="checksJumpClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+            <h3 class="modal-title">Перейти на страницу</h3>
+            <p class="mg-jump-sub" id="checksJumpSub">Стр. 1 из 1</p>
+
+            <div class="mg-jump-section-label">Быстрый переход</div>
+            <div class="mg-jump-quick" id="checksJumpQuick"></div>
+
+            <div class="mg-jump-section-label">Ввести номер страницы</div>
+            <div class="mg-jump-input-row">
+                <input type="number" min="1" class="mg-jump-input" id="checksJumpInput" placeholder="1">
+                <button class="mg-jump-go-btn" type="button" id="checksJumpGoBtn">Перейти</button>
+            </div>
+            <div class="mg-jump-error" id="checksJumpError"></div>
+        </div>
+    </div>
+</div>
+</div>
+
+<div class="modal-overlay" id="diceSubModal">
+    <div class="modal-card">
+        <button class="modal-close" id="diceSubClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title" id="diceSubTitle">Выберите исход</h3>
+        <p class="modal-text" id="diceSubText"></p>
+        <div class="dice-modal-options" id="diceSubOptions"></div>
+        <div class="dice-picker-wrap" id="dicePickerWrap" style="display:none;"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="footSubModal">
+    <div class="modal-card">
+        <button class="modal-close" id="footSubClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title" id="footSubTitle">Выберите исход</h3>
+        <p class="modal-text" id="footSubText"></p>
+        <div class="dice-modal-options" id="footSubOptions"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="bowlSubModal">
+    <div class="modal-card">
+        <button class="modal-close" id="bowlSubClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title" id="bowlSubTitle">Выберите исход</h3>
+        <p class="modal-text" id="bowlSubText"></p>
+        <div class="dice-modal-options" id="bowlSubOptions"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="dartsSubModal">
+    <div class="modal-card">
+        <button class="modal-close" id="dartsSubClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title" id="dartsSubTitle">Выберите исход</h3>
+        <p class="modal-text" id="dartsSubText"></p>
+        <div class="dice-modal-options" id="dartsSubOptions"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="basketSubModal">
+    <div class="modal-card">
+        <button class="modal-close" id="basketSubClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title" id="basketSubTitle">Выберите исход</h3>
+        <p class="modal-text" id="basketSubText"></p>
+        <div class="dice-modal-options" id="basketSubOptions"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="slotsSubModal">
+    <div class="modal-card">
+        <button class="modal-close" id="slotsSubClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title" id="slotsSubTitle">Выберите исход</h3>
+        <p class="modal-text" id="slotsSubText"></p>
+        <div class="dice-modal-options" id="slotsSubOptions"></div>
+        <div class="dice-picker-wrap" id="slotsPickerWrap" style="display:none;"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="rouletteRoundModal">
+    <div class="modal-card crash-round-card">
+        <button class="modal-close" id="rouletteRoundClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title">Раунд <span id="rouletteRoundModalId">—</span></h3>
+        <div class="crash-round-replay" id="rouletteRoundReplay"></div>
+        <div class="crash-round-players" id="rouletteRoundPlayers"></div>
+        <button class="modal-ok crash-round-fair-btn" id="rouletteRoundFairBtn" type="button">Проверить честность</button>
+        <div class="crash-round-fair-block" id="rouletteRoundFairBlock" style="display:none;"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="wheelRoundModal">
+    <div class="modal-card crash-round-card">
+        <button class="modal-close" id="wheelRoundClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title">Раунд <span id="wheelRoundModalId">—</span></h3>
+        <div class="crash-round-replay" id="wheelRoundReplay"></div>
+        <div class="crash-round-players" id="wheelRoundPlayers"></div>
+        <button class="modal-ok crash-round-fair-btn" id="wheelRoundFairBtn" type="button">Проверить честность</button>
+        <div class="crash-round-fair-block" id="wheelRoundFairBlock" style="display:none;"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="arenaRoundModal">
+    <div class="modal-card crash-round-card ah-round-card">
+        <button class="modal-close" id="arenaRoundClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title">Игра <span id="arenaRoundId">—</span></h3>
+        <div class="ah-replay">
+            <canvas id="arenaReplayCanvas"></canvas>
+            <div class="ah-replay-bar">
+                <button class="ah-replay-btn" id="arenaReplayBtn" type="button"><span class="again-ico"></span>Повторить</button>
+                <span class="ah-replay-info" id="arenaReplayInfo"></span>
+            </div>
+        </div>
+        <div class="ah-round-summary" id="arenaRoundSummary"></div>
+        <div class="crash-round-players" id="arenaRoundPlayers"></div>
+        <button class="modal-ok crash-round-fair-btn" id="arenaRoundFairBtn" type="button">Проверить честность</button>
+        <div class="crash-round-fair-block" id="arenaRoundFairBlock" style="display:none;"></div>
+    </div>
+</div>
+
+<div class="ah-result" id="arenaResultModal" aria-hidden="true">
+    <div class="ah-result-card" id="arenaResultCard"></div>
+</div>
+
+<div class="modal-overlay" id="raceHowtoModal">
+    <div class="modal-card">
+        <button class="modal-close" id="raceHowtoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title">Как играть — Race</h3>
+        <p class="modal-text">Race — общая PvP-гонка шаров на всех игроков комнаты. Ставь любую сумму: <b>чем больше ставка, тем больше у тебя шаров</b> с твоей аватаркой.</p>
+        <div class="ah-howto-example" id="raceHowtoExample"></div>
+        <p class="modal-text">Как только в комнате набралось 2 игрока, запускается 15 секунд на ставки — за это время можно докинуть сумму и получить больше шаров. Пока идут ставки, шары катаются во вращающемся кольце, а разрыв закрыт голубыми воротами. На старте ворота открываются,
+            и шары вылетают на трассу: несколько случайных этапов, как в оригинале: плинко с красными телепортами по бокам, кирпичная стена, которая ломается с трёх ударов, ходячие стены и лабиринт со шторками, пушки с лазерным прицелом, клешни, двойные
+            кольца, всплывающие блоки, цепная реакция из костяшек, дорожки скорости, чаши с обратным отсчётом, пинбол с флипперами, зиппер, роторный перекрёсток, шестерни, кресты, качающаяся палка и прыгучая платформа, раскачивающийся треугольник с дугами,
+            сороконожка, «кратчайший путь» с магнитами, подвижный и фазовый телепорты, а ещё конвейеры, шторки, пропеллеры, клинья и другие. Финиш — воронка, чаша, корзины, раздвижные ворота или дыра, куда шар должен попасть мимо красных телепортов. Доски
+            бывают разных тем: студия, сад, океан, закат, лёд, вулкан и хром. Иногда посреди гонки срабатывает аномалия на несколько секунд: антигравитация, мини-шарики, прыгучие или быстрые шарики. Каждый раунд трасса собирается заново из хеша раунда,
+            так что одинаковых карт почти не бывает.</p>
+        <p class="modal-text"><b>Шар, первым пересёкший финишную черту, приносит владельцу весь банк</b> за вычетом комиссии <b class="rc-fee">10%</b>. Например, при банке 20$ победитель получит <b class="rc-fee-prize">18$</b>. Когда гонка стартует, у участников она сама открывается
+            на весь экран, а все остальные могут зайти по плашке Live. Камера следит за лидером; кнопка «Следить за лидером» переключает на ручной режим — тогда трассу можно листать пальцем. Шары продолжают падать до самого конца, даже когда победитель
+            уже определён, а в комнате сразу открывается следующий раунд.</p>
+        <p class="modal-text"><b>Честность.</b> Хэш раунда публикуется ещё до приёма ставок, а победитель выбирается по этому секретному сиду: шанс игрока ровно равен доле его ставки в банке, а число шаров лишь показывает эту долю. Сид раскрывается сразу после финиша — в «Последних
+            играх» у каждой гонки есть повтор и кнопка «Проверить честность», где браузер пересчитывает хеш, выбор победителя, шары и выплату.</p>
+        <button class="modal-ok" id="raceHowtoOk">Понятно</button>
+    </div>
+</div>
+
+<div class="modal-overlay" id="raceRoundModal">
+    <div class="modal-card crash-round-card ah-round-card rc-round-card">
+        <button class="modal-close" id="raceRoundClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title">Гонка <span id="raceRoundId">—</span></h3>
+        <div class="ah-replay rc-replay">
+            <div class="rc-replay-stage"><span class="skel-box rc-stage-skel" id="raceReplaySkel"></span><canvas id="raceReplayCanvas"></canvas></div>
+            <div class="ah-replay-bar">
+                <button class="ah-replay-btn" id="raceReplayBtn" type="button"><span class="again-ico"></span>Повторить</button>
+                <span class="ah-replay-info" id="raceReplayInfo"></span>
+            </div>
+        </div>
+        <div class="ah-round-summary" id="raceRoundSummary"></div>
+        <div class="crash-round-players" id="raceRoundPlayers"></div>
+        <button class="modal-ok crash-round-fair-btn" id="raceRoundFairBtn" type="button">Проверить честность</button>
+        <div class="crash-round-fair-block" id="raceRoundFairBlock" style="display:none;"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="escapeInfoModal">
+    <div class="modal-card esc-info-card">
+        <button class="modal-close" id="escapeInfoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title" id="escapeInfoTitle">Уровень</h3>
+        <div class="ah-stats esc-stats" id="escapeInfoStats"></div>
+        <p class="modal-text" id="escapeInfoText"></p>
+        <button class="modal-ok" id="escapeInfoOk">Понятно</button>
+    </div>
+</div>
+
+<div class="modal-overlay" id="escapeRoundModal">
+    <div class="modal-card crash-round-card ah-round-card esc-round-card">
+        <button class="modal-close" id="escapeRoundClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title">Игра <span id="escapeRoundId">—</span></h3>
+        <div class="ah-replay esc-replay">
+            <div class="esc-replay-stage"><span class="skel-box esc-stage-skel" id="escapeReplaySkel"></span><canvas id="escapeReplayCanvas"></canvas></div>
+            <div class="ah-replay-bar">
+                <button class="ah-replay-btn" id="escapeReplayBtn" type="button"><span class="again-ico"></span>Повторить</button>
+                <span class="ah-replay-info" id="escapeReplayInfo"></span>
+            </div>
+        </div>
+        <div class="ah-round-summary" id="escapeRoundSummary"></div>
+        <div class="crash-round-players" id="escapeRoundPlayers"></div>
+        <button class="modal-ok crash-round-fair-btn" id="escapeRoundFairBtn" type="button">Проверить честность</button>
+        <div class="crash-round-fair-block" id="escapeRoundFairBlock" style="display:none;"></div>
+    </div>
+</div>
+
+
+<div class="modal-overlay" id="escapeDuelHowtoModal">
+    <div class="modal-card esc-howto-card">
+        <button class="modal-close" id="escapeDuelHowtoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title">Как играть — Escape PvP</h3>
+        <p class="modal-text">Escape PvP — дуэль двух игроков: у каждого свой шарик с его аватаркой. Оба шарика отскакивают внутри светящегося кольца с вращающимся <b>разрывом</b>, как в Solo. Кто первым выбыл из кольца и упал в красную зону с <b>черепом</b> — тот проиграл,
+            и дуэль на этом сразу заканчивается. Второй игрок побеждает и забирает весь банк за вычетом комиссии: неважно, остался его шарик в кольце или уже летит в зелёную зону с <b>короной</b>.</p>
+        <div class="esc-howto-example" id="escapeDuelHowtoExample"></div>
+        <div class="esc-legend" id="escapeDuelHowtoLegend"></div>
+        <div class="esc-example" id="escapeDuelHowtoSample"></div>
+        <p class="modal-text"><b>Как начать.</b> Выбери уровень и ставку и нажми «Играть»: если в лобби уже ждёт дуэль с такой же ставкой на этом уровне, ты сразу в неё войдёшь, иначе создашь свою и подождёшь соперника. Любую открытую дуэль можно принять из списка «Открытые
+            дуэли». Ждёшь соперника? Нажми «Отправить» и позови друга прямо из Telegram. Хочешь играть только с другом? Переключи «Доступ» на «По ссылке»: такая дуэль не появится в списке открытых, а войти в неё можно только по твоей ссылке. Отменить
+            дуэль можно, пока никто не вошёл, а если соперник не пришёл за 10 минут, ставка вернётся сама.</p>
+        <p class="modal-text"><b>Сложность</b> влияет только на ширину разрыва и длину дуэли: Lite — широкий разрыв и быстрая дуэль, Epic — узкий разрыв и долгая. Шанс у каждого игрока всегда 50%, множителей в PvP нет.</p>
+        <p class="modal-text"><b>Честность.</b> Хэш секретного сида публикуется при создании дуэли — ещё до входа соперника, а сам сид раскрывается сразу после дуэли. Победитель, время падения каждого шарика и точки приземления вычисляются из сида до начала анимации, а траектории
+            шариков браузер строит из публичного pathSeed по тем же правилам, что и в Solo. Кнопка «Проверить честность» пересчитывает всё это прямо у тебя в браузере.</p>
+        <button class="modal-ok" id="escapeDuelHowtoOk">Понятно</button>
+    </div>
+</div>
+
+<div class="modal-overlay" id="escapeDuelInfoModal">
+    <div class="modal-card esc-info-card">
+        <button class="modal-close" id="escapeDuelInfoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title" id="escapeDuelInfoTitle">Дуэль</h3>
+        <div class="ah-stats esc-stats" id="escapeDuelInfoStats"></div>
+        <p class="modal-text" id="escapeDuelInfoText"></p>
+        <button class="modal-ok" id="escapeDuelInfoOk">Понятно</button>
+    </div>
+</div>
+
+<div class="modal-overlay" id="escapeDuelInviteModal">
+    <div class="modal-card esc-info-card esc-invite-card">
+        <button class="modal-close" id="escapeDuelInviteClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <div class="esc-inv-top" id="escapeDuelInviteHead"></div>
+        <div class="ah-stats esc-stats" id="escapeDuelInviteStats"></div>
+        <p class="modal-text" id="escapeDuelInviteText"></p>
+        <button class="modal-ok" id="escapeDuelInviteOk">Принять вызов</button>
+        <button class="esc-inv-no" id="escapeDuelInviteNo" type="button">Не сейчас</button>
+    </div>
+</div>
+
+<div class="ah-result" id="escapeDuelResultModal" aria-hidden="true">
+    <div class="ah-result-card" id="escapeDuelResultCard"></div>
+</div>
+
+<div class="modal-overlay" id="crashRoundModal">
+    <div class="modal-card crash-round-card">
+        <button class="modal-close" id="crashRoundClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title">Раунд <span id="crashRoundModalId">—</span></h3>
+        <div class="crash-round-replay" id="crashRoundReplay"></div>
+        <div class="crash-round-players" id="crashRoundPlayers"></div>
+        <button class="modal-ok crash-round-fair-btn" id="crashRoundFairBtn" type="button">Проверить честность</button>
+        <div class="crash-round-fair-block" id="crashRoundFairBlock" style="display:none;"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="crashSkinsModal">
+    <div class="modal-card crash-skins-modal-card">
+        <button class="modal-close" id="crashSkinsClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title">Скины ракеты</h3>
+        <div class="crash-skins-cooldown-note" id="crashSkinsCooldownNote" style="display:none;"></div>
+        <div class="crash-skins-grid" id="crashSkinsGrid"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="minesRoundModal">
+    <div class="modal-card crash-round-card">
+        <button class="modal-close" id="minesRoundClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title">Раунд <span id="minesRoundModalId">—</span></h3>
+        <div class="gv-mines-grid mines-round-board" id="minesRoundBoard"></div>
+        <div class="crash-round-players" id="minesRoundPlayerRow"></div>
+        <button class="modal-ok crash-round-fair-btn" id="minesRoundFairBtn" type="button">Проверить честность</button>
+        <div class="crash-round-fair-block" id="minesRoundFairBlock" style="display:none;"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="kenoRoundModal">
+    <div class="modal-card crash-round-card">
+        <button class="modal-close" id="kenoRoundClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title">Раунд <span id="kenoRoundModalId">—</span></h3>
+        <div class="gv-keno-grid keno-round-board" id="kenoRoundBoard"></div>
+        <div class="crash-round-players" id="kenoRoundPlayerRow"></div>
+        <button class="modal-ok crash-round-fair-btn" id="kenoRoundFairBtn" type="button">Проверить честность</button>
+        <div class="crash-round-fair-block" id="kenoRoundFairBlock" style="display:none;"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="coinflipRoundModal">
+    <div class="modal-card crash-round-card">
+        <button class="modal-close" id="coinflipRoundClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title">Раунд <span id="coinflipRoundModalId">—</span></h3>
+        <div id="coinflipRoundBoard"></div>
+        <div class="crash-round-players" id="coinflipRoundPlayerRow"></div>
+        <button class="modal-ok crash-round-fair-btn" id="coinflipRoundFairBtn" type="button">Проверить честность</button>
+        <div class="crash-round-fair-block" id="coinflipRoundFairBlock" style="display:none;"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="baccaratRoundModal">
+    <div class="modal-card crash-round-card">
+        <button class="modal-close" id="baccaratRoundClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title">Раунд <span id="baccaratRoundModalId">—</span></h3>
+        <div id="baccaratRoundBoard"></div>
+        <div class="crash-round-players" id="baccaratRoundPlayerRow"></div>
+        <button class="modal-ok crash-round-fair-btn" id="baccaratRoundFairBtn" type="button">Проверить честность</button>
+        <div class="crash-round-fair-block" id="baccaratRoundFairBlock" style="display:none;"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="clawRoundModal">
+    <div class="modal-card crash-round-card">
+        <button class="modal-close" id="clawRoundClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title">Раунд <span id="clawRoundModalId">—</span></h3>
+        <div id="clawRoundBoard"></div>
+        <div class="crash-round-players" id="clawRoundPlayerRow"></div>
+        <button class="modal-ok crash-round-fair-btn" id="clawRoundFairBtn" type="button">Проверить честность</button>
+        <div class="crash-round-fair-block" id="clawRoundFairBlock" style="display:none;"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="hiloRoundModal">
+    <div class="modal-card crash-round-card">
+        <button class="modal-close" id="hiloRoundClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title">Раунд <span id="hiloRoundModalId">—</span></h3>
+        <div class="hilo-card-row hilo-round-board" id="hiloRoundBoard"></div>
+        <div class="crash-round-players" id="hiloRoundPlayerRow"></div>
+        <button class="modal-ok crash-round-fair-btn" id="hiloRoundFairBtn" type="button">Проверить честность</button>
+        <div class="crash-round-fair-block" id="hiloRoundFairBlock" style="display:none;"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="redblackRoundModal">
+    <div class="modal-card crash-round-card">
+        <button class="modal-close" id="redblackRoundClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title">Раунд <span id="redblackRoundModalId">—</span></h3>
+        <div class="hilo-card-row hilo-round-board" id="redblackRoundBoard"></div>
+        <div class="crash-round-players" id="redblackRoundPlayerRow"></div>
+        <button class="modal-ok crash-round-fair-btn" id="redblackRoundFairBtn" type="button">Проверить честность</button>
+        <div class="crash-round-fair-block" id="redblackRoundFairBlock" style="display:none;"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="ladderRoundModal">
+    <div class="modal-card crash-round-card">
+        <button class="modal-close" id="ladderRoundClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title">Раунд <span id="ladderRoundModalId">—</span></h3>
+        <div class="gv-ladder-grid mines-round-board" id="ladderRoundBoard"></div>
+        <div class="crash-round-players" id="ladderRoundPlayerRow"></div>
+        <button class="modal-ok crash-round-fair-btn" id="ladderRoundFairBtn" type="button">Проверить честность</button>
+        <div class="crash-round-fair-block" id="ladderRoundFairBlock" style="display:none;"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="blackjackRoundModal">
+    <div class="modal-card crash-round-card blackjack-allcards-card">
+        <button class="modal-close" id="blackjackRoundClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title">Раунд <span id="blackjackRoundModalId">—</span></h3>
+        <div id="blackjackRoundBody"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="blackjackModeModal">
+    <div class="modal-card">
+        <button class="modal-close" id="blackjackModeModalClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title">Тип игры</h3>
+        <button class="blackjack-mode-option" type="button" data-mode="house">
+        <span class="blackjack-mode-option-icon"><img src="/lottie/ИграBlackJack/krupie.png" alt=""></span>
+        <span class="blackjack-mode-option-text"><b>Против дома</b><i>Обыграйте дилера, приблизившись к 21 очку</i></span>
+      </button>
+        <button class="blackjack-mode-option" type="button" data-mode="pvp">
+        <span class="blackjack-mode-option-icon"><img src="/lottie/images/PvpEmoji.png" alt=""></span>
+        <span class="blackjack-mode-option-text"><b>Дуэль на двоих</b><i>Сразитесь с другим игроком и определите сильнейшего</i></span>
+      </button>
+    </div>
+</div>
+
+<div class="modal-overlay" id="blackjackHowtoModal">
+    <div class="modal-card">
+        <button class="modal-close" id="blackjackHowtoClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <div id="blackjackHowtoHouseContent">
+            <h3 class="modal-title">Как играть — Блэкджек</h3>
+            <p class="modal-text">Цель — набрать сумму карт ближе к 21, чем у дилера, и не перебрать (не превысить 21).</p>
+            <p class="modal-text">Номинальные карты (2–10) стоят столько очков, сколько на них написано. Валет, Дама и Король — всегда 10 очков. Туз — 11 или 1 очко, смотря что выгоднее для руки в данный момент.</p>
+            <div class="blackjack-howto-example" id="blackjackHowtoExample"></div>
+            <p class="modal-text">Например, Король и Семёрка выше — это 10 + 7 = 17 очков.</p>
+            <p class="modal-text">После раздачи двух карт себе и дилеру (одна карта дилера скрыта) можно взять ещё карту («Ещё карту»), остановиться на своей сумме («Хватит»), удвоить ставку («Удвоить») или разделить пару («Разделить»). Удвоение доступно на руке из двух карт:
+                забираешь ровно одну карту, и рука закрывается. Как только у руки набралось 21 очко, она останавливается сама — «Хватит» нажимать не нужно.</p>
+            <p class="modal-text">Разделить можно две первые карты одинаковой стоимости (например, две восьмёрки или Король и Десятка): каждая карта становится отдельной рукой, на вторую руку списывается ещё одна ставка такого же размера, обе руки получают по новой карте и
+                играются по очереди. Рук может быть до четырёх. Разделённые тузы получают по одной карте и сразу закрываются. 21 очко после разделения — обычная победа 1 к 1, а не блэкджек.</p>
+            <p class="modal-text">Блэкджек — 21 очко первыми двумя картами — платит 3 к 2 (полторы ставки сверху). Дилер обязан брать карты, пока его сумма меньше 17. Ничья — ставка возвращается полностью.</p>
+            <p class="modal-text">Игра полностью честная: хэш раздачи публикуется сразу при старте раунда, а секретный сид раскрывается сразу после конца игры — проверить можно в разделе «Проверка честности».</p>
+        </div>
+        <div id="blackjackHowtoPvpContent" style="display:none;">
+            <h3 class="modal-title">Как играть — PvP Блэкджек</h3>
+            <p class="modal-text">В режиме PvP вы играете не против дилера, а против другого живого игрока — оба получают по 2 карты из одной честно перемешанной колоды и играют свои руки независимо.</p>
+            <p class="modal-text">Каждый сам решает: взять ещё карту, остановиться или удвоить ставку (доступно только первым ходом). Как только оба игрока закончили ход (кто-то сказал «Хватит» или у обоих перебор) — суммы сравниваются.</p>
+            <div class="blackjack-howto-example" id="blackjackHowtoPvpExample"></div>
+            <p class="modal-text">Побеждает тот, чья сумма ближе к 21 без перебора. Если у одного перебор, а у другого нет — выигрывает тот, у кого нет перебора. Если суммы равны или оба перебрали — ничья, и каждому возвращается именно та сумма, которую он вложил.</p>
+            <p class="modal-text">Победитель забирает общий банк (обе ставки) за вычетом комиссии платформы 10%. При ничьей комиссия не берётся — ставки возвращаются полностью.</p>
+            <p class="modal-text">Чтобы начать игру — нажмите «Создать PvP комнату», укажите ставку и пригласите друга кнопкой «Пригласить в игру» (ссылку можно отправить прямо в чат) — как только он зайдёт, обе руки раздаются мгновенно.</p>
+            <p class="modal-text">Честность гарантирована той же схемой HMAC-SHA256, что и в обычном режиме — хэш публикуется сразу при старте раздачи, а секретный сид раскрывается сразу после конца игры, карты обоих игроков можно проверить в «Проверить честность».</p>
+        </div>
+        <button class="modal-ok" id="blackjackHowtoOk">Понятно</button>
+    </div>
+</div>
+
+<div class="modal-overlay" id="blackjackOddsModal">
+    <div class="modal-card">
+        <button class="modal-close" id="blackjackOddsClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title">Коэффициенты — Блэкджек</h3>
+        <p class="modal-text">Обычная победа (ваша сумма ближе к 21, чем у дилера, без перебора) — выплата 1 к 1: ставка возвращается вместе с таким же выигрышем, то есть х2 от суммы ставки.</p>
+        <p class="modal-text">Блэкджек — 21 очко первыми двумя картами — платит 3 к 2: ставка возвращается вместе с полутора ставками сверху, то есть х2.5 от суммы ставки.</p>
+        <div class="blackjack-howto-example" id="blackjackOddsExample"></div>
+        <p class="modal-text">Ничья (пуш) — у вас и у дилера одинаковая сумма — ставка просто возвращается полностью, х1, без выигрыша и без проигрыша.</p>
+        <p class="modal-text">Проигрыш или перебор (сумма больше 21) — ставка сгорает полностью, х0.</p>
+        <p class="modal-text">Удвоение считается по тем же правилам, но с удвоенной ставкой — доступно, пока на руке ровно 2 карты. При разделении пары каждая рука считается отдельно со своей ставкой; 21 очко на разделённой руке платит 1 к 1.</p>
+        <button class="modal-ok" id="blackjackOddsOk">Понятно</button>
+    </div>
+</div>
+
+<div class="modal-overlay" id="blackjackAllCardsModal">
+    <div class="modal-card crash-round-card blackjack-allcards-card">
+        <button class="modal-close" id="blackjackAllCardsClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title">Все карты колоды</h3>
+        <p class="modal-text">Стандартная колода 52 карты — 4 масти по 13 номиналов. Валет, Дама и Король всегда стоят 10 очков, Туз — 11 или 1 (смотря что выгоднее для руки).</p>
+        <div class="blackjack-allcards-grid" id="blackjackAllCardsGrid"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="upgradeRoundModal">
+    <div class="modal-card crash-round-card">
+        <button class="modal-close" id="upgradeRoundClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title">Раунд <span id="upgradeRoundModalId">—</span></h3>
+        <div class="upgrade-ring-box small" id="upgradeRoundRing"></div>
+        <div class="crash-round-players" id="upgradeRoundPlayerRow"></div>
+        <button class="modal-ok crash-round-fair-btn" id="upgradeRoundFairBtn" type="button">Проверить честность</button>
+        <div class="crash-round-fair-block" id="upgradeRoundFairBlock" style="display:none;"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="emojiRoundModal">
+    <div class="modal-card crash-round-card emoji-round-card">
+        <button class="modal-close" id="emojiRoundClose">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+        <h3 class="modal-title" id="emojiRoundTitle">Раунд</h3>
+        <div class="emoji-round-status" id="emojiRoundStatus"></div>
+        <div class="emoji-round-coef" id="emojiRoundCoef"></div>
+        <div class="emoji-round-media" id="emojiRoundMedia"></div>
+        <div class="emoji-round-infogrid">
+            <div class="emoji-round-info-item">
+                <div class="emoji-round-info-label">Ставка</div>
+                <div class="emoji-round-info-value" id="emojiRoundBetValue">—</div>
+            </div>
+            <div class="emoji-round-info-item">
+                <div class="emoji-round-info-label">Исход ставки</div>
+                <div class="emoji-round-info-value" id="emojiRoundOutcomeValue">—</div>
+            </div>
+            <div class="emoji-round-info-item">
+                <div class="emoji-round-info-label">Игрок</div>
+                <div class="emoji-round-info-value" id="emojiRoundPlayerValue">—</div>
+            </div>
+            <div class="emoji-round-info-item">
+                <div class="emoji-round-info-label">Результат</div>
+                <div class="emoji-round-info-value" id="emojiRoundResultValue">—</div>
+            </div>
+            <div class="emoji-round-info-item emoji-round-info-item-wide">
+                <div class="emoji-round-info-label">Дата и время</div>
+                <div class="emoji-round-info-value" id="emojiRoundTimeValue">—</div>
+            </div>
+            <div class="emoji-round-info-item emoji-round-info-item-wide">
+                <div class="emoji-round-info-label">Откуда сыграно</div>
+                <div class="emoji-round-info-value" id="emojiRoundSourceValue">—</div>
+            </div>
+        </div>
+        <div class="fair-block">
+            <div class="fair-label">UID игры (ID сообщения)</div>
+            <div class="fair-hash" id="emojiRoundUid"></div>
+        </div>
+        <a class="emoji-round-tg-link" id="emojiRoundTgLink" href="#" target="_blank" rel="noopener">
+        <span class="emoji-round-tg-icon"><span class="skel-box"></span><canvas class="lazy-img lottie-canvas" width="512" height="512" data-lottie-src="/lottie/images/TelegramLogo.lottie"></canvas></span>
+        Открыть бросок в Telegram
+      </a>
+        <div class="emoji-round-note">
+            <div class="emoji-round-note-title">
+                <span class="emoji-round-note-icon"><span class="skel-box"></span><canvas class="lazy-img lottie-canvas" width="512" height="512" data-lottie-src="/lottie/images/ДатаРегистрации.lottie"></canvas></span>
+                Результат нельзя подкрутить
+            </div>
+            <p>Все результаты игр определяют алгоритмы Telegram — Emoji Telegram подкрутить нельзя.</p>
+            <p><b>Почему результат нельзя подкрутить в реальном времени.</b> Когда вы нажимаете на кнопку «Начать играть», происходит следующее:</p>
+            <ul>
+                <li>Бот отправляет кубик в канал, и тот результат, который выпадет, будет вашим — в MiniApp покажет тот же результат, который был в канале. Подкрутить это никак нельзя, а проверить, перейдя по ссылке, можно.</li>
+                <li>Сервер Telegram с помощью генератора случайных чисел (RNG) мгновенно определяет результат (например, выпало число 5).</li>
+                <li>Сервер отправляет команду анимации обратно в наш игровой канал, где происходят и обрабатываются все игры!</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+</div>
+
+<div class="dh-overlay" id="dogHouseOverlay" aria-hidden="true"><iframe class="dh-frame" id="dogHouseFrame" title="DogHouse" allow="autoplay; fullscreen" referrerpolicy="same-origin"></iframe></div>
