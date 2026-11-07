@@ -1928,7 +1928,7 @@ def football_markup_disabled(amount: float, range_name: str) -> InlineKeyboardMa
                 InlineKeyboardButton(
                     text="Пополнить",
                     url=f"https://t.me/{BOT_USERNAME}?start=toreplenish",
-                    icon_custom_emoji_id="5443127283888405358",
+                    icon_custom_emoji_id="5443127283898405358",
                     style="success",
                 ),
             ],
@@ -1970,7 +1970,7 @@ def basketball_markup_disabled(amount: float, range_name: str) -> InlineKeyboard
                 InlineKeyboardButton(
                     text="Пополнить",
                     url=f"https://t.me/{BOT_USERNAME}?start=toreplenish",
-                    icon_custom_emoji_id="5443127283888405358",
+                    icon_custom_emoji_id="5443127283898405358",
                     style="success",
                 ),
             ],
@@ -2012,7 +2012,7 @@ def slot_markup_disabled(amount: float) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text="Пополнить",
                     url=f"https://t.me/{BOT_USERNAME}?start=toreplenish",
-                    icon_custom_emoji_id="5443127283888405358",
+                    icon_custom_emoji_id="5443127283898405358",
                     style="success",
                 ),
             ],
@@ -2750,7 +2750,7 @@ def referral_text(user_id: int, ref_data: dict, active: bool) -> str:
         '<tg-emoji emoji-id="5308004189677330658">👤</tg-emoji>'
         f' Заработано с приглашений: {round(ref_data["signup_earned"], 2)}'
         '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>\n'
-        '<tg-emoji emoji-id="5443127283888405358">📥</tg-emoji>'
+        '<tg-emoji emoji-id="5443127283898405358">📥</tg-emoji>'
         f' Заработано с пополнений: {round(ref_data["deposit_earned"], 2)}'
         '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>'
         '</blockquote>'
@@ -5136,7 +5136,7 @@ def dice_markup_disabled(amount: float, label: str) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text="Пополнить",
                     url=f"https://t.me/{BOT_USERNAME}?start=toreplenish",
-                    icon_custom_emoji_id="5443127283888405358",
+                    icon_custom_emoji_id="5443127283898405358",
                     style="success",
                 ),
             ],
