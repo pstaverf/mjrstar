@@ -1,6 +1,15 @@
-const STATIC_CACHE = 'mjrstar-static-v32';
-const MEDIA_EXT_RE = /\.(gif|png|jpe?g|webp|svg|ico|woff2?|ttf|otf|lottie)(\?.*)?$/i;
+const STATIC_CACHE = 'mjrstar-static-v33';
+// Independent of shell releases. Bump this epoch if an existing media URL changes bytes.
+const MEDIA_CACHE = 'mjrstar-media-v1';
+const MEDIA_MAX_ENTRIES = 256;
+const MEDIA_MAX_ENTRY_BYTES = 6 * 1024 * 1024;
+const MEDIA_EXT_RE = /\.(gif|png|jpe?g|webp|avif|svg|ico|woff2?|ttf|otf|lottie|json|tgs|mp4|webm|mp3|ogg|wav)$/i;
 const NETWORK_TIMEOUT_MS = 10000;
+const PLAYER_CDN = 'https://cdn.jsdelivr.net/npm/@lottiefiles/dotlottie-web@0.80.0/dist/';
+const PUBLIC_ROOTS = ['/lottie/', '/images/', '/fonts/', '/ИграHiLo/', '/ИграКено/', '/ИграРулетка/', '/Капча/', '/cryptobot/', '/tonkeeper/', '/xrocket/'];
+const SHELL_PATHS = new Set(['/', '/index.html', '/app', '/app/', '/app_shell.html', '/app.js', '/styles.css', '/guard.js', '/game_names.js', '/support.js', '/support.css', '/admin.js', '/gadmin.js', '/srv_panel.js', '/srv_panel.css']);
+const mediaPending = new Map();
+let mediaWrites = Promise.resolve();
 
 const OFFLINE_FALLBACK_HTML = `<!doctype html>
 <html lang="ru">
@@ -55,96 +64,125 @@ const PRELOADER_ROCKET_GIFS = [
     'lottie/images/ПредупреждениеОшибка.png'
 ];
 
-self.addEventListener('install', (event) => {
-    event.waitUntil(
-        caches.open(STATIC_CACHE).then((cache) =>
-            Promise.all(PRELOADER_ROCKET_GIFS.map((path) =>
-                fetch(path, {
-                    cache: 'reload'
-                }).then((res) => {
-                    if (res && res.ok && !res.headers.has("X-MjrStar-Placeholder")) return cache.put(path, res);
-                }).catch(() => {})
-            ))
-        ).then(() => self.skipWaiting())
-    );
-});
-
-self.addEventListener('activate', (event) => {
-    event.waitUntil(
-        caches.keys()
-        .then((keys) => Promise.all(keys.filter((k) => k !== STATIC_CACHE).map((k) => caches.delete(k))))
-        .then(() => self.clients.claim())
-    );
-});
-
-function fetchWithTimeout(req, ms, opts) {
-
-
-
-
-
-    return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('sw fetch timeout')), ms);
-        fetch(req, opts).then(
-            (res) => {
-                clearTimeout(timer);
-                resolve(res);
-            },
-            (err) => {
-                clearTimeout(timer);
-                reject(err);
-            }
-        );
-    });
+function isPublicMedia(url) {
+    if (url.href.startsWith(PLAYER_CDN)) return /\.(js|wasm)$/i.test(url.pathname);
+    if (url.origin !== self.location.origin) return false;
+    try {
+        const path = decodeURIComponent(url.pathname);
+        return MEDIA_EXT_RE.test(path) && PUBLIC_ROOTS.some(root => path.startsWith(root));
+    } catch (error) { return false; }
 }
 
-self.addEventListener('fetch', (event) => {
-    const req = event.request;
-    if (req.method !== 'GET') return;
+function publicCacheKey(url) {
+    const clean = new URL(url);
+    clean.hash = '';
+    // Static assets are not personalised. Keep their explicit version only;
+    // never persist Telegram initData, cookies or auth headers in a cache key.
+    const version = clean.searchParams.get('v');
+    clean.search = '';
+    if (version !== null) clean.searchParams.set('v', version);
+    return new Request(clean.href, {credentials: 'omit'});
+}
 
-    const url = new URL(req.url);
-    if (url.origin !== self.location.origin) return;
-    if (url.pathname.startsWith('/api/')) return;
-    if (req.mode === 'navigate' && url.pathname !== '/' && url.pathname !== '/index.html' && url.pathname !== '/app' && url.pathname !== '/app/') return;
+function cacheable(response) {
+    return response && response.status === 200 && !response.redirected &&
+        !response.headers.has('X-MjrStar-Placeholder') &&
+        !/no-store|private/i.test(response.headers.get('Cache-Control') || '');
+}
 
-    if (MEDIA_EXT_RE.test(url.pathname)) {
-        event.respondWith(
-            caches.open(STATIC_CACHE).then((cache) =>
-                cache.match(req).then((cached) => {
-                    if (cached) return cached;
-                    return fetchWithTimeout(req, NETWORK_TIMEOUT_MS, {
-                        cache: 'reload'
-                    }).then((res) => {
-                        if (res && res.ok && !res.headers.has("X-MjrStar-Placeholder")) cache.put(req, res.clone());
-                        return res;
-                    }).catch(() => cached);
-                })
-            )
-        );
-        return;
+function fetchWithTimeout(req, ms, opts) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    return fetch(req, Object.assign({}, opts, {signal: controller.signal})).finally(() => clearTimeout(timer));
+}
+
+async function saveMedia(cache, key, response) {
+    try {
+        // A slow stream for one asset must not block writes for every other game.
+        await cache.put(key, response);
+        // Serialize eviction only; completed writes converge on the entry bound.
+        mediaWrites = mediaWrites.then(async () => {
+            const keys = await cache.keys();
+            for (let index = 0; index < keys.length - MEDIA_MAX_ENTRIES; index++) await cache.delete(keys[index]);
+        }).catch(() => {});
+        await mediaWrites;
+    } catch (error) {} // Quota/disabled storage must not break successful loading.
+}
+
+async function mediaResponse(req) {
+    const key = publicCacheKey(req.url);
+    let cache;
+    try {
+        cache = await caches.open(MEDIA_CACHE);
+        const cached = await cache.match(key);
+        if (cached) return cached;
+    } catch (error) {} // Network fallback also works with CacheStorage disabled.
+    let task = mediaPending.get(key.url);
+    if (!task) {
+        task = (async () => {
+            const response = await fetchWithTimeout(key, NETWORK_TIMEOUT_MS);
+            if (cache && cacheable(response) && !/text\/html/i.test(response.headers.get('Content-Type') || '') &&
+                Number(response.headers.get('Content-Length') || 0) <= MEDIA_MAX_ENTRY_BYTES) {
+                await saveMedia(cache, key, response.clone());
+            }
+            return response;
+        })();
+        mediaPending.set(key.url, task);
     }
+    try {
+        return (await task).clone();
+    } finally {
+        if (mediaPending.get(key.url) === task) mediaPending.delete(key.url);
+    }
+}
 
-    event.respondWith(
-        fetchWithTimeout(req, NETWORK_TIMEOUT_MS).then((res) => {
-            if (res && res.ok) {
-                const clone = res.clone();
-                caches.open(STATIC_CACHE).then((cache) => cache.put(req, clone));
-            }
-            return res;
-        }).catch(() => caches.match(req).then((cached) => {
+self.addEventListener('install', event => {
+    event.waitUntil(Promise.all(PRELOADER_ROCKET_GIFS.map(path =>
+        mediaResponse(new Request(new URL(path, self.location.origin + '/').href)).catch(() => {})
+    )).then(() => self.skipWaiting()));
+});
+
+self.addEventListener('activate', event => {
+    event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key =>
+        (key.startsWith('mjrstar-static-') && key !== STATIC_CACHE) ||
+        (key.startsWith('mjrstar-media-') && key !== MEDIA_CACHE)
+    ).map(key => caches.delete(key)))).catch(() => {}).then(() => self.clients.claim()));
+});
+
+async function shellResponse(req) {
+    const key = publicCacheKey(req.url);
+    try {
+        const response = await fetchWithTimeout(req, NETWORK_TIMEOUT_MS);
+        if (cacheable(response)) {
+            try {
+                const cache = await caches.open(STATIC_CACHE);
+                await cache.put(key, response.clone());
+            } catch (error) {}
+        }
+        return response;
+    } catch (error) {
+        try {
+            const cache = await caches.open(STATIC_CACHE);
+            const cached = await cache.match(key);
             if (cached) return cached;
-            if (req.mode === 'navigate' || (req.headers.get('accept') || '').indexOf('text/html') !== -1) {
-                return new Response(OFFLINE_FALLBACK_HTML, {
-                    status: 200,
-                    headers: {
-                        'Content-Type': 'text/html; charset=utf-8'
-                    }
-                });
-            }
-            return new Response('', {
-                status: 503,
-                statusText: 'Offline'
-            });
-        }))
-    );
+        } catch (cacheError) {}
+        if (req.mode === 'navigate') {
+            return new Response(OFFLINE_FALLBACK_HTML, {status: 200, headers: {'Content-Type': 'text/html; charset=utf-8'}});
+        }
+        return new Response('', {status: 503, statusText: 'Offline'});
+    }
+}
+
+self.addEventListener('fetch', event => {
+    const req = event.request;
+    if (req.method !== 'GET' || req.headers.has('Range')) return;
+    const url = new URL(req.url);
+    // Never intercept payments, balances, game state, WebSocket handshakes,
+    // private support photos or any other API, even if its URL ends in .png.
+    if (url.origin === self.location.origin && (url.pathname === '/api' || url.pathname.startsWith('/api/'))) return;
+    if (isPublicMedia(url)) {
+        event.respondWith(mediaResponse(req).catch(() => new Response('', {status: 503, statusText: 'Offline'})));
+    } else if (url.origin === self.location.origin && SHELL_PATHS.has(url.pathname)) {
+        event.respondWith(shellResponse(req));
+    }
 });

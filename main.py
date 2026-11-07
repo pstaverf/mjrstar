@@ -28,6 +28,7 @@ from static_assets import static_response
 from aiogram import BaseMiddleware, Bot, Dispatcher, Router, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode, ChatMemberStatus, ChatType
+from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError, TelegramRetryAfter
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -1830,6 +1831,24 @@ def ref_markup(user_id: int) -> InlineKeyboardMarkup:
     )
 
 
+async def answer_referral(message: Message, text: str, reply_markup: InlineKeyboardMarkup):
+    """A rejected custom-emoji document must not disable the referral command."""
+    try:
+        return await message.answer(text, reply_markup=reply_markup)
+    except TelegramBadRequest as error:
+        if not re.search(r"\bDOCUMENT_INVALID\b", error.message):
+            raise
+        # Telegram rejected this send, so one plain-emoji retry cannot duplicate
+        # an accepted message. Do not retry timeouts or unrelated API failures.
+        plain_text = re.sub(r"</?tg-emoji\b[^>]*>", "", text, flags=re.IGNORECASE)
+        plain_markup = reply_markup.model_copy(update={"inline_keyboard": [
+            [button.model_copy(update={"icon_custom_emoji_id": None}) for button in row]
+            for row in reply_markup.inline_keyboard
+        ]})
+        logging.warning("Referral message: DOCUMENT_INVALID; retrying without custom emoji")
+        return await message.answer(plain_text, reply_markup=plain_markup)
+
+
 def topup_markup() -> InlineKeyboardMarkup:
     amounts = ["5", "10", "15", "25", "50", "100", "250", "500", "1000", "2000", "10000"]
     rows = [amounts[i:i + 3] for i in range(0, len(amounts), 3)]
@@ -2692,17 +2711,7 @@ async def on_withdraw_all(call: CallbackQuery, state: FSMContext, bot: Bot) -> N
     await state.clear()
 
 
-@router.message(Command("ref", "реф", ignore_case=True))
-@router.message(F.text.regexp(r"(?i)^/?(?:ref|реф)\s*$"))
-async def cmd_ref(message: Message, state: FSMContext) -> None:
-    logging.info("Processing referral command for user %s", message.from_user.id)
-    await state.clear()
-
-    user_id = message.from_user.id
-    ref_data = await get_ref_data(user_id)
-
-    active = not await is_ref_frozen(user_id)
-
+def referral_text(user_id: int, ref_data: dict, active: bool) -> str:
     active_icon = (
         '<tg-emoji emoji-id="5832229652805985405">✅</tg-emoji>'
         if active
@@ -2712,7 +2721,7 @@ async def cmd_ref(message: Message, state: FSMContext) -> None:
     balance = ref_data["signup_earned"] + ref_data["deposit_earned"]
     ref_link = f"https://t.me/{BOT_USERNAME}?start=ref_{user_id}"
 
-    await message.answer(
+    return (
         '<tg-emoji emoji-id="5814662914442797254">👥</tg-emoji>'
         '<b> Реферальная система</b> '
         '<blockquote expandable>'
@@ -2744,9 +2753,131 @@ async def cmd_ref(message: Message, state: FSMContext) -> None:
         '<tg-emoji emoji-id="5443127283888405358">📥</tg-emoji>'
         f' Заработано с пополнений: {round(ref_data["deposit_earned"], 2)}'
         '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>'
-        '</blockquote>',
+        '</blockquote>'
+    )
+
+
+@router.message(Command("ref", "реф", ignore_case=True))
+@router.message(F.text.regexp(r"(?i)^/?(?:ref|реф)\s*$"))
+async def cmd_ref(message: Message, state: FSMContext) -> None:
+    logging.info("Processing referral command for user %s", message.from_user.id)
+    await state.clear()
+
+    user_id = message.from_user.id
+    ref_data = await get_ref_data(user_id)
+
+    active = not await is_ref_frozen(user_id)
+
+    await answer_referral(
+        message,
+        referral_text(user_id, ref_data, active),
         reply_markup=ref_markup(user_id),
     )
+
+
+CHECKR_RUNNING = set()
+CHECKR_PAUSE_SECONDS = 1.1
+
+
+def referral_emoji_probes(user_id: int):
+    """Derive probes from the actual referral text and keyboard, not a second ID list."""
+    probes = []
+    seen = set()
+    for active in (True, False):
+        text = referral_text(user_id, {"signup_earned": 0, "deposit_earned": 0}, active)
+        for emoji_id, fallback in re.findall(r'<tg-emoji\s+emoji-id="([0-9]+)">(.*?)</tg-emoji>', text, flags=re.DOTALL):
+            key = ("text", emoji_id)
+            if key not in seen:
+                seen.add(key)
+                probes.append(("text", emoji_id, fallback))
+    for row in ref_markup(user_id).inline_keyboard:
+        for button in row:
+            emoji_id = button.icon_custom_emoji_id
+            key = ("button", emoji_id)
+            if emoji_id and key not in seen:
+                seen.add(key)
+                probes.append(("button", emoji_id, button.text))
+    return probes
+
+
+@router.message(Command("checkr", ignore_case=True))
+async def cmd_checkr(message: Message) -> None:
+    if message.from_user is None or message.from_user.id != ADMIN_ID:
+        return
+    if message.chat.type != ChatType.PRIVATE:
+        await message.answer("Запустите /checkr в личном чате с ботом.", parse_mode=None)
+        return
+    if ADMIN_ID in CHECKR_RUNNING:
+        # Do not introduce extra messages/rate-limit pressure into an active run.
+        return
+    CHECKR_RUNNING.add(ADMIN_ID)
+    next_send = 0.0
+
+    async def send(text, reply_markup=None):
+        nonlocal next_send
+        for attempt in range(3):
+            await asyncio.sleep(max(0, next_send - time.monotonic()))
+            next_send = time.monotonic() + CHECKR_PAUSE_SECONDS
+            try:
+                return await message.answer(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
+            except TelegramRetryAfter as error:
+                if attempt == 2:
+                    raise
+                # A 429 is a definite rejection, not a network-ambiguous send.
+                next_send = time.monotonic() + max(CHECKR_PAUSE_SECONDS, error.retry_after + 0.2)
+
+    try:
+        probes = referral_emoji_probes(message.from_user.id)
+        total = len(probes)
+        await send(f"Проверка /ref: {total} уникальных эмодзи по контекстам. Отправляю по одному, включая иконки кнопок. ID принятого эмодзи виден в сообщении; при ошибке будет отдельная отметка. Пауза между отправками — 1,1 с.")
+        invalid = []
+        unconfirmed = []
+        accepted = 0
+        for index, (kind, emoji_id, label) in enumerate(probes, 1):
+            context = "текст" if kind == "text" else "кнопка"
+            prefix = f"<b>{index}/{total} · {context}</b>\nID: <code>{emoji_id}</code>"
+            markup = None
+            if kind == "text":
+                text = prefix + f'\n<tg-emoji emoji-id="{emoji_id}">{html_escape(label)}</tg-emoji>'
+            else:
+                text = prefix
+                markup = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+                    text="Проверка: " + label,
+                    callback_data="checkr_probe",
+                    icon_custom_emoji_id=emoji_id,
+                )]])
+            try:
+                # Deliberately bypass answer_referral: its Unicode fallback would
+                # hide the very invalid document that this command diagnoses.
+                await send(text, reply_markup=markup)
+                accepted += 1
+            except TelegramBadRequest as error:
+                if re.search(r"\bDOCUMENT_INVALID\b", error.message):
+                    invalid.append(f"{context}: <code>{emoji_id}</code>")
+                    await send(prefix + "\n❌ DOCUMENT_INVALID — Telegram отклонил этот эмодзи.")
+                else:
+                    unconfirmed.append(f"{context}: <code>{emoji_id}</code>")
+                    await send(prefix + "\n⚠️ Другая ошибка Telegram, не DOCUMENT_INVALID: " + html_escape(error.message[:180]))
+            except (TelegramNetworkError, asyncio.TimeoutError):
+                # A timeout does not prove an invalid ID and must not resend it.
+                unconfirmed.extend(f"{'текст' if item[0] == 'text' else 'кнопка'}: <code>{item[1]}</code>" for item in probes[index - 1:])
+                break
+        summary = f"<b>Итог /checkr</b>\nПринято Telegram: {accepted}/{total}."
+        summary += "\n\nНевалидные (DOCUMENT_INVALID):\n" + ("\n".join(invalid) if invalid else "Не обнаружены среди проверенных.")
+        if unconfirmed:
+            summary += "\n\nНе подтверждены / не проверены:\n" + "\n".join(unconfirmed)
+        summary += "\n\nПринято Telegram не гарантирует анимацию на каждом клиенте. Начисления и настройки не менялись."
+        await send(summary)
+    finally:
+        CHECKR_RUNNING.discard(ADMIN_ID)
+
+
+@router.callback_query(F.data == "checkr_probe")
+async def on_checkr_probe(call: CallbackQuery) -> None:
+    if call.from_user.id != ADMIN_ID:
+        await call.answer("Это диагностическая кнопка администратора.")
+        return
+    await call.answer("Тест иконки. Никакие операции не выполняются.")
 
 
 @router.message(WithdrawStates.waiting_amount, F.text)

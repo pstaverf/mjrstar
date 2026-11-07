@@ -69,3 +69,13 @@ PYTHONDONTWRITEBYTECODE=1 python tools/benchmark_runtime.py
 Сервер должен иметь право создавать `.cache/http-static` для кеширования сжатых файлов; без этого сохранится обычная раздача. Старые варианты после нескольких обновлений можно удалить из **этой кеш-папки**, они восстановятся автоматически. **Не удалять `bot.db`, `bot.db-wal` и `bot.db-shm`.**
 
 152 Python-теста и семь JS-наборов проходят, включая игровые выплаты/откаты, поддержку, безопасность WebSocket, gzip/ETag/Range/обновление исходника/одновременные запросы и постоянное количество SQL-запросов. Новые проверки не используют реальные платежи и Telegram броски. Production-сервер, его Nginx/Cloudflare, фактические сетевые задержки и браузерный E2E в этом сеансе не проверялись. Изменения локальные; автоматического deploy, commit или push нет.
+
+## Follow-up: shared game media / Crash positioning
+
+See [MEDIA_CACHE.md](MEDIA_CACHE.md) for the corrected media-extension matcher,
+separate persistent cache, shared bounded Lottie byte cache, public-only exclusions,
+cache invalidation rules and immediate low-multiplier Crash movement. Current
+frontend bootstrap is `majorstars-media-flight-20261107-9`, shell cache
+`mjrstar-static-v33`, and independent media cache `mjrstar-media-v1`.
+These changes do not alter the historical benchmark numbers above or establish
+production loading-time / browser FPS improvements.

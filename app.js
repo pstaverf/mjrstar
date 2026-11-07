@@ -1845,9 +1845,78 @@ function loadDotLottie() {
             import (DOTLOTTIE_CDN + "index.js").then(mod => {
                 mod.DotLottie.setWasmUrl(DOTLOTTIE_CDN + "dotlottie-player.wasm");
                 return mod.DotLottie;
+            }).catch(error => {
+                _dotLottieModulePromise = null;
+                throw error;
             });
     }
     return _dotLottieModulePromise;
+}
+
+// Share immutable animation bytes, never canvas/player instances or game state.
+const LOTTIE_BINARY_MAX_BYTES = 8 * 1024 * 1024;
+const LOTTIE_BINARY_MAX_ENTRY = 2 * 1024 * 1024;
+const LOTTIE_BINARY_MAX_ENTRIES = 128;
+const lottieBinaryCache = new Map();
+const lottieBinaryPending = new Map();
+let lottieBinaryBytes = 0;
+
+function lottieBinaryUrl(src) {
+    try {
+        const url = new URL(src, window.location.href);
+        const path = decodeURIComponent(url.pathname);
+        const roots = ["/lottie/", "/images/", "/ИграHiLo/", "/ИграКено/", "/ИграРулетка/"];
+        return url.origin === window.location.origin && /\.lottie$/i.test(path) && roots.some(root => path.startsWith(root)) ? url.href : null;
+    } catch (error) { return null; }
+}
+
+function getLottieBinary(src) {
+    const url = lottieBinaryUrl(src);
+    if (!url) return Promise.resolve(null);
+    if (lottieBinaryCache.has(url)) {
+        const data = lottieBinaryCache.get(url);
+        lottieBinaryCache.delete(url);
+        lottieBinaryCache.set(url, data);
+        return Promise.resolve(data);
+    }
+    if (lottieBinaryPending.has(url)) return lottieBinaryPending.get(url);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+    const task = fetch(url, {credentials: "omit", cache: "default", signal: controller.signal}).then(async response => {
+        if (!response.ok || response.status !== 200 || response.headers.has("X-MjrStar-Placeholder") || /text\/html/i.test(response.headers.get("Content-Type") || "")) {
+            throw new Error("Animation asset unavailable");
+        }
+        if (Number(response.headers.get("Content-Length")) > LOTTIE_BINARY_MAX_ENTRY) return null;
+        const data = await response.arrayBuffer();
+        if (!data.byteLength) throw new Error("Empty animation asset");
+        if (data.byteLength > LOTTIE_BINARY_MAX_ENTRY) return null;
+        lottieBinaryCache.set(url, data);
+        lottieBinaryBytes += data.byteLength;
+        while (lottieBinaryBytes > LOTTIE_BINARY_MAX_BYTES || lottieBinaryCache.size > LOTTIE_BINARY_MAX_ENTRIES) {
+            const oldest = lottieBinaryCache.keys().next().value;
+            lottieBinaryBytes -= lottieBinaryCache.get(oldest).byteLength;
+            lottieBinaryCache.delete(oldest);
+        }
+        return data;
+    }).finally(() => {
+        clearTimeout(timer);
+        lottieBinaryPending.delete(url);
+    });
+    lottieBinaryPending.set(url, task);
+    return task;
+}
+
+function loadCachedDotLottie(src) {
+    // If the byte fetch fails, let the native player handle loading/error events.
+    return Promise.all([loadDotLottie(), getLottieBinary(src).catch(() => null)]).then(([DotLottie, data]) => {
+        if (!data) return DotLottie;
+        return class CachedDotLottie extends DotLottie {
+            constructor(options) {
+                // The decoder may transfer/mutate its buffer: each player owns a copy.
+                super(options.src === src ? Object.assign({}, options, {src: undefined, data: data.slice(0)}) : options);
+            }
+        };
+    });
 }
 
 const LOTTIE_DPR = Math.min(window.devicePixelRatio || 1, 2);
@@ -2002,7 +2071,7 @@ function mountLottieCanvas(canvas) {
     if (decodeURIComponent(src).indexOf("/ИграКости/") !== -1) dotLottieOpts.layout = {
         align: [.5, .35]
     };
-    loadDotLottie().then(DotLottie => {
+    loadCachedDotLottie(src).then(DotLottie => {
         if (!canvas.isConnected) return;
         const dl = new DotLottie(dotLottieOpts);
         canvas._dotLottie = dl;
@@ -5341,7 +5410,7 @@ function ckcLock(wait, text) {
 
 function ckcMakePlayer(cv, src, onReady) {
     const mine = ckc;
-    loadDotLottie().then(DotLottie => {
+    loadCachedDotLottie(src).then(DotLottie => {
         if (ckc !== mine || !cv.isConnected) return;
         const dl = new DotLottie({
             canvas: cv,
@@ -25099,7 +25168,7 @@ function cfCreatePlayer(id, alive) {
     const load = side => {
         const canvas = cfById(id + (side === "heads" ? "Heads" : "Tails"));
         if (!canvas) return Promise.resolve(null);
-        return loadDotLottie().then(DotLottie => new Promise(resolve => {
+        return loadCachedDotLottie(CF_LOTTIE[side]).then(DotLottie => new Promise(resolve => {
             if (!alive() || !canvas.isConnected) {
                 resolve(null);
                 return;
@@ -26383,7 +26452,7 @@ function clawLoadInto(ctx, src, loop, slow) {
     const canvas = clawEl(ctx.pre + target);
     if (!canvas) return Promise.resolve(null);
     clawDestroySlot(ctx, target);
-    return loadDotLottie().then(DotLottie => new Promise(resolve => {
+    return loadCachedDotLottie(src).then(DotLottie => new Promise(resolve => {
         if (token !== ctx.token() || !canvas.isConnected) {
             resolve(null);
             return;
@@ -34043,7 +34112,7 @@ function loadCrashSkinsState() {
         if (data && data.ok) {
             crashSkinsState = data;
             const found = (data.skins || []).find(s => s.id === data.current);
-            crashSkinArtAngle = found ? found.artAngle : 42;
+            crashSkinArtAngle = found && Number.isFinite(found.artAngle) ? found.artAngle : 42;
         }
         return crashSkinsState;
     }).catch(() => null);
@@ -34069,14 +34138,16 @@ const CRASH_POLL_MS = 500;
 
 const CRASH_TICK_MS = 100;
 
+// Start inside the visible rocket margins. Previously the (3,97) point
+// was clamped to (20,70), freezing the rocket until approximately x3.
 const CRASH_PATH_START = {
-    left: 3,
-    top: 97
+    left: 20,
+    top: 70
 };
 
 const CRASH_PATH_SPAN = {
-    left: 82,
-    top: 79
+    left: 65,
+    top: 52
 };
 
 const CRASH_ROCKET_MARGIN = {
@@ -35056,7 +35127,7 @@ function crashComputeRocketAngle(stageEl) {
     const dxPx = CRASH_PATH_SPAN.left / 100 * w;
     const dyPx = CRASH_PATH_SPAN.top / 100 * h;
     const lineAngle = Math.atan2(dyPx, dxPx) * 180 / Math.PI;
-    return crashSkinArtAngle - lineAngle;
+    return (Number.isFinite(crashSkinArtAngle) ? crashSkinArtAngle : 42) - lineAngle;
 }
 
 function updateCrashFlightVisual(state) {
@@ -38014,7 +38085,7 @@ function selectCrashSkin(skinId) {
         }
         crashSkinsState = data;
         const found = (data.skins || []).find(s => s.id === data.current);
-        crashSkinArtAngle = found ? found.artAngle : 42;
+        crashSkinArtAngle = found && Number.isFinite(found.artAngle) ? found.artAngle : 42;
         renderCrashSkinsGrid();
         showToast("Скин ракеты выбран", "success");
     }).catch(() => {
@@ -42101,7 +42172,7 @@ crashRoundFairBtn.addEventListener("click", () => {
             playing: true
         };
         sprites.balls[v] = rec;
-        loadDotLottie().then(DotLottie => {
+        loadCachedDotLottie(v === 2 ? BALL2_LOTTIE_URL : BALL_LOTTIE_URL).then(DotLottie => {
             if (sprites.balls[v] !== rec) return;
             const dl = new DotLottie({
                 canvas: cv,
@@ -59305,7 +59376,7 @@ crashRoundFairBtn.addEventListener("click", () => {
             document.body.appendChild(holder);
             st.holder = holder;
             st.cv = cv;
-            loadDotLottie().then(function(DotLottie) {
+            loadCachedDotLottie(LOTTIE_URL).then(function(DotLottie) {
                 if (st.cv !== cv) return;
                 const dl = new DotLottie({
                     canvas: cv,
