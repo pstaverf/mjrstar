@@ -3,7 +3,6 @@ import hashlib
 import hmac
 import json
 import logging
-import os
 import re
 import secrets
 import time
@@ -20,7 +19,7 @@ from payment_errors import PaymentProviderError, rocket_token_problem, provider_
 STAR_USD = Decimal("0.022")
 PAYMENT_LIFETIME = 1800
 CRYPTOBOT_API_TOKEN = '670149:AAXxMq9ZqH1wddhRrFi2WG6abLgvQHh8GKu'
-XROCKET_API_TOKEN = 'eyJhbGci0iJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBJZCI6IjMWODI20CIsImpOaS161mFwcDozMDgyNjg6ZTIOMmYyMDAtZTgz0C00Y2ExLTg2NTYtZDNkYzU4ZDZKMmUO1iwiaWFOIjoxNzkOMDA4Nzk1fQ.CLQ-B6fyiBbZYk_eEAfFHs0p0oB6H7SZ5nn9TW1XXIs'
+XROCKET_API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBJZCI6IjMwODI2OCIsImp0aSI6ImFwcDozMDgyNjg6YTYxZjNlMDItNDNkZS00NDNhLTlhYjgtM2MzOTdiMjgwZGQ5IiwiaWF0IjoxNzk0MDU2OTc1fQ.jCniaBQGV9KgL0khf_Qey6n1hbyP2GSWFAzh5abgTbI'
 XROCKET_WEBHOOK_SECRET = '7dffd69477299e2783f6cfee665149d19bcc23393ae4a02829f52050070acdd7'
 
 
@@ -92,13 +91,11 @@ class PaymentsMixin:
 
     def payment_token(self, provider):
         defaults = {"cryptobot": CRYPTOBOT_API_TOKEN, "xrocket": XROCKET_API_TOKEN}
-        env_name = {"cryptobot": "CRYPTOBOT_API_TOKEN", "xrocket": "XROCKET_API_TOKEN"}.get(provider)
-        default = os.environ.get(env_name, defaults.get(provider)) if env_name else None
-        token = getattr(self, "payment_tokens", {}).get(provider, default)
+        token = getattr(self, "payment_tokens", {}).get(provider, defaults.get(provider))
         return token.strip() if isinstance(token, str) else None
 
     def rocket_secret(self):
-        secret = getattr(self, "xrocket_webhook_secret", os.environ.get("XROCKET_WEBHOOK_SECRET", XROCKET_WEBHOOK_SECRET))
+        secret = getattr(self, "xrocket_webhook_secret", XROCKET_WEBHOOK_SECRET)
         return secret.strip() if isinstance(secret, str) else None
 
     async def payment_api(self, provider, method, path, data=None):

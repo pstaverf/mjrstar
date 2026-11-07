@@ -229,21 +229,98 @@ class CompleteGamesTests(legacy_tests.GamesBackendTests):
         self.assertEqual(settled["myBets"][0]["winAmount"], 18)
         self.assertEqual((await self.state("roulette"))["balance"], 1008)
 
-    async def test_crash_persistent_queue_moves_without_second_debit(self):
+    async def test_crash_legacy_prepaid_queue_moves_without_second_debit(self):
         state = await self.state("crash")
+        status, accepted = await self.action("crash", "bet", {"roundId": state["roundId"], "bet": 10})
+        self.assertEqual(status, 200, accepted)
+        # Simulate a queue created by the previous release. Its already-debited
+        # funds must not disappear just because new in-flight bets are forbidden.
+        async with self.runtime._db_lock:
+            connection = self.runtime.db()
+            await connection.execute("INSERT INTO webapp_live_queue(user_id,game,data) SELECT user_id,'crash',data FROM webapp_live_bets WHERE round_id=?", (state["roundId"],))
+            await connection.execute("DELETE FROM webapp_live_bets WHERE round_id=?", (state["roundId"],))
+            await connection.commit()
         await self.change_live("crash", {"status": "flying", "flyingStartedAt": int(time.time() * 1000), "_crashPoint": 2})
-        status, queued = await self.action("crash", "bet", {"roundId": state["roundId"], "bet": 10})
-        self.assertEqual(status, 200, queued)
+        queued = await self.state("crash")
         self.assertEqual(queued["balance"], 990)
         self.assertEqual(queued["myQueued"]["bet"], 10)
         self.assertIsNone(queued["myBet"])
-        self.assertEqual((await self.action("crash", "bet", {"roundId": state["roundId"], "bet": 10}))[0], 409)
         await self.change_live("crash", {"status": "crashed", "crashPoint": 2, "_nextAt": 0})
         started = await self.state("crash")
         self.assertNotEqual(started["roundId"], state["roundId"])
         self.assertEqual(started["myBet"]["bet"], 10)
         self.assertIsNone(started["myQueued"])
         self.assertEqual(started["balance"], 990)
+
+    async def test_crash_rejects_flying_and_crashed_bets_without_debit_or_queue(self):
+        state = await self.state("crash")
+        for phase in ("flying", "crashed"):
+            await self.change_live("crash", {"status": phase, "flyingStartedAt": int(time.time() * 1000), "_crashPoint": 1000, "crashPoint": 2, "_nextAt": int(time.time() * 1000) + 60000})
+            status, data = await self.action("crash", "bet", {"roundId": state["roundId"], "bet": 10})
+            self.assertEqual(status, 409, data)
+            self.assertEqual(await self.runtime.get_balance(42), 1000)
+            async with self.runtime.db().execute("SELECT COUNT(*) FROM webapp_live_queue WHERE game='crash'") as cursor:
+                self.assertEqual((await cursor.fetchone())[0], 0)
+            async with self.runtime.db().execute("SELECT COUNT(*) FROM webapp_live_bets WHERE round_id=?", (state["roundId"],)) as cursor:
+                self.assertEqual((await cursor.fetchone())[0], 0)
+
+    async def test_crash_bet_at_launch_is_rejected_before_debit(self):
+        state = await self.state("crash")
+        await self.change_live("crash", {"waitingStartedAt": int(time.time() * 1000) - 10001, "_crashPoint": 1000})
+        status, data = await self.action("crash", "bet", {"roundId": state["roundId"], "bet": 10})
+        self.assertEqual(status, 409, data)
+        self.assertEqual(await self.runtime.get_balance(42), 1000)
+
+    async def test_crash_empty_round_full_lifecycle(self):
+        self.backend.live_task.cancel()
+        await asyncio.gather(self.backend.live_task, return_exceptions=True)
+        async with self.runtime._db_lock:
+            connection = self.runtime.db()
+            with patch("live_games.time.time", return_value=2000000000):
+                state = await self.backend.advance_live(connection, "crash")
+            state["_crashPoint"] = 2
+            await connection.execute("UPDATE webapp_live_rounds SET data=? WHERE id=?", (json.dumps(state), state["roundId"]))
+            start = state["waitingStartedAt"] + state["waitSeconds"] * 1000
+            with patch("live_games.time.time", return_value=(start - 1) / 1000):
+                self.assertEqual((await self.backend.advance_live(connection, "crash"))["status"], "waiting")
+            with patch("live_games.time.time", return_value=start / 1000):
+                flying = await self.backend.advance_live(connection, "crash")
+            self.assertEqual(flying["status"], "flying")
+            self.assertEqual(flying["flyingStartedAt"], start)
+            with patch("live_games.time.time", return_value=(start + 8000) / 1000):
+                crashed = await self.backend.advance_live(connection, "crash")
+            self.assertEqual(crashed["status"], "crashed")
+            self.assertIn("serverSeed", crashed)
+            with patch("live_games.time.time", return_value=crashed["_nextAt"] / 1000):
+                following = await self.backend.advance_live(connection, "crash")
+            self.assertEqual(following["status"], "waiting")
+            self.assertNotEqual(following["roundId"], state["roundId"])
+            async with connection.execute("SELECT COUNT(*) FROM webapp_live_bets") as cursor:
+                self.assertEqual((await cursor.fetchone())[0], 0)
+            await connection.commit()
+        self.assertEqual(await self.runtime.get_balance(42), 1000)
+
+    async def test_crash_background_launches_without_further_state_requests(self):
+        await self.state("crash")
+        launched = asyncio.Event()
+        original = self.backend.advance_live
+        async def observe(connection, game):
+            state = await original(connection, game)
+            if game == "crash" and state["status"] == "flying":
+                launched.set()
+            return state
+        with patch.object(self.backend, "advance_live", observe):
+            await self.change_live("crash", {"waitingStartedAt": int(time.time() * 1000) - 11000, "_crashPoint": 1000})
+            await asyncio.wait_for(launched.wait(), 5)
+        self.assertEqual(await self.runtime.get_balance(42), 1000)
+
+    async def test_private_payment_configuration_is_not_a_public_asset(self):
+        from aiohttp import web
+        from aiohttp.test_utils import make_mocked_request
+        for path in (".payment-secrets.json", "payments_backend.py"):
+            request = make_mocked_request("GET", "/" + path, match_info={"path": path})
+            with self.assertRaises(web.HTTPNotFound):
+                await self.runtime.webapp_asset(request)
 
     async def test_crash_manual_cashout_is_atomic(self):
         state = await self.state("crash")

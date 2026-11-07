@@ -116,4 +116,4 @@ Inline-режим отправляет уже созданные активны�
 
 ## Диагностика создания счетов
 
-См. [PAYMENT_DIAGNOSTICS.md](PAYMENT_DIAGNOSTICS.md): безопасная проверка API без создания счетов, повреждённый fallback JWT xRocket, переменные окружения и ограничения локальных тестов. При деплое обязательно включить новый `payment_errors.py`.
+См. [PAYMENT_DIAGNOSTICS.md](PAYMENT_DIAGNOSTICS.md): безопасная проверка API без создания счетов, проверка JWT xRocket, константы конфигурации в `payments_backend.py` и ограничения локальных тестов. При деплое обязательно включить `payment_errors.py`.

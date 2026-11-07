@@ -59,7 +59,7 @@ if ("serviceWorker" in navigator) {
                 const liveAction = target.pathname.match(/^\/api\/(crash|roulette)\/(bet|cashout)$/);
                 if (liveAction && init && typeof init.body === "string" && liveRounds.has(liveAction[1])) {
                     const body = JSON.parse(init.body);
-                    body.roundId = liveRounds.get(liveAction[1]);
+                    if (!body.roundId) body.roundId = liveRounds.get(liveAction[1]);
                     init = Object.assign({}, init, {body: JSON.stringify(body)});
                 }
                 init = Object.assign({}, init, {headers: headers});
@@ -8670,7 +8670,7 @@ const gamesData = {
     "краш": {
         title: "Краш",
         type: "crash",
-        howto: "Общий раунд на всех игроков: 10 секунд на ставки, затем ракета взлетает и множитель растёт в реальном времени. Нажми «Забрать», чтобы зафиксировать выигрыш до краха — чем позже заберёшь, тем выше коэффициент, но если не успел до краха — ставка сгорает. Поставить можно и во время полёта — ставка попадёт в следующий раунд. Включи «Авто кэшаут» и задай множитель, чтобы вывод сработал автоматически. Игра полностью честная: хэш краха публикуется ещё до начала раунда, а секретное значение раскрывается сразу после — проверить можно в разделе «Проверка честности»."
+        howto: "Общий раунд на всех игроков: 10 секунд на ставки, затем ракета взлетает и множитель растёт в реальном времени. Нажми «Забрать», чтобы зафиксировать выигрыш до краха — чем позже заберёшь, тем выше коэффициент, но если не успел до краха — ставка сгорает. Раунды запускаются автоматически, даже без ставок. Новую ставку можно сделать только во время отсчёта перед взлётом; во время полёта и после краха приём закрыт. Включи «Авто кэшаут» и задай множитель, чтобы вывод сработал автоматически. Игра полностью честная: хэш краха публикуется ещё до начала раунда, а секретное значение раскрывается сразу после — проверить можно в разделе «Проверка честности»."
     },
     "мины": {
         title: "Мины",
@@ -35198,8 +35198,8 @@ function crashBetBtnState(state) {
         };
     }
     return {
-        text: "Ставка на след. раунд",
-        mode: "bet"
+        text: "Ожидаем следующий раунд",
+        mode: "off"
     };
 }
 
@@ -35211,7 +35211,7 @@ function crashControlsFrozen(state) {
     if (state.status === "waiting") {
         return crashCountdownSeconds(state) <= Math.min(state.freezeSeconds || CRASH_FREEZE_SECONDS, CRASH_FREEZE_SECONDS);
     }
-    return false;
+    return true;
 }
 
 function updateCrashBetBtn() {
@@ -35219,6 +35219,7 @@ function updateCrashBetBtn() {
     if (!btn || !crashState) return;
     const st = crashBetBtnState(crashState);
     btn.textContent = st.text;
+    btn.disabled = st.mode.startsWith("off");
     btn.classList.toggle("dim", st.mode === "off");
     btn.classList.toggle("crash-cashout-btn", st.mode === "cashout");
     btn.classList.toggle("crash-done-btn", st.mode === "off done");
@@ -35458,6 +35459,10 @@ function crashBetBtnClick() {
 }
 
 function crashDoBet() {
+    if (crashBusy || !crashState || crashState.status !== "waiting" || crashControlsFrozen(crashState)) {
+        showToast("Приём ставок закрыт. Дождитесь следующего раунда.", "warning");
+        return;
+    }
     if (!betsAccepted) {
         showToast(BETS_PAUSED_TOAST, "warning");
         return;
@@ -35494,6 +35499,7 @@ function crashDoBet() {
         },
         body: JSON.stringify({
             uid: CURRENT_UID,
+            roundId: crashState.roundId,
             bet: bet,
             autoCashout: autoCashout
         })
@@ -35507,7 +35513,7 @@ function crashDoBet() {
         applyBalance(data.balance);
         crashState = data;
         renderCrashDynamic(false);
-        showToast(data.myQueued ? "Ставка встанет в следующий раунд" : "Ставка принята", "success");
+        showToast("Ставка принята", "success");
     }).catch(() => {
         crashBusy = false;
         showToast("Не удалось связаться с сервером", "error");

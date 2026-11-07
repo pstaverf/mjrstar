@@ -96,7 +96,7 @@ class LiveGamesMixin:
         bets = await self.live_bets(connection, state["roundId"])
         start = state["waitingStartedAt"] + state["waitSeconds"] * 1000
         if state["status"] == "waiting" and now >= start:
-            if not bets:
+            if not bets and game != "crash":
                 state["waitingStartedAt"] = now
             elif game == "crash":
                 state.update({"status": "flying", "flyingStartedAt": start})
@@ -212,7 +212,7 @@ class LiveGamesMixin:
                             raise GameError("Раунд уже завершён.", 409)
                         await self.settle_live_bet(connection, game, state, user.id, bet, multiplier)
                     else:
-                        if state["status"] != "waiting" and game != "crash":
+                        if state["status"] != "waiting":
                             raise GameError("Дождитесь следующего раунда.", 409)
                         if game == "crash":
                             async with connection.execute("SELECT 1 FROM webapp_live_queue WHERE game = ? AND user_id = ?", (game, user.id)) as cursor:
@@ -248,10 +248,7 @@ class LiveGamesMixin:
                             bet = {"bet": (cents + (existing["_betCents"] if existing else 0)) / 100, "_betCents": cents + (existing["_betCents"] if existing else 0), "items": previous + valid, "settled": False, "winAmount": 0}
                         await self.debit(connection, user.id, cents)
                         bet["username"] = " ".join(part for part in (user.first_name, user.last_name) if part)
-                        if game == "crash" and state["status"] != "waiting":
-                            await connection.execute("INSERT INTO webapp_live_queue(user_id,game,data) VALUES (?,?,?)", (user.id, game, serialize(bet)))
-                        else:
-                            await connection.execute("INSERT INTO webapp_live_bets(round_id,user_id,data) VALUES (?,?,?) ON CONFLICT(round_id,user_id) DO UPDATE SET data=excluded.data", (state["roundId"], user.id, serialize(bet)))
+                        await connection.execute("INSERT INTO webapp_live_bets(round_id,user_id,data) VALUES (?,?,?) ON CONFLICT(round_id,user_id) DO UPDATE SET data=excluded.data", (state["roundId"], user.id, serialize(bet)))
                     response = await self.live_public(connection, game, state, user.id)
                     await self.save_receipt(connection, user.id, key, signature, response)
                     await connection.commit()

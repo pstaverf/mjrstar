@@ -1,4 +1,4 @@
-const STATIC_CACHE = 'mjrstar-static-v31';
+const STATIC_CACHE = 'mjrstar-static-v32';
 const MEDIA_EXT_RE = /\.(gif|png|jpe?g|webp|svg|ico|woff2?|ttf|otf|lottie)(\?.*)?$/i;
 const NETWORK_TIMEOUT_MS = 10000;
 
