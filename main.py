@@ -16,26 +16,32 @@ from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from html import escape as html_escape
 from types import SimpleNamespace
+from pathlib import Path
 
 import aiosqlite
+from complete_games import CompleteGamesBackend
+from games_backend import GameError
+from privacy_rules import TELEGRAM_NAMES, player_identity
 from aiohttp import web
 
 from aiogram import BaseMiddleware, Bot, Dispatcher, Router, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode, ChatMemberStatus, ChatType
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
     Message,
     CallbackQuery,
     InlineKeyboardMarkup,
+    InlineQuery,
     InlineKeyboardButton,
     LabeledPrice,
     PreCheckoutQuery,
     CopyTextButton,
 )
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+from aiogram.utils.web_app import safe_parse_webapp_init_data
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8861223578:AAEPy9SNIVtHHTiOvWJqjRbnkm4g_q_oLsg")
 CHANNEL_ID = "@mjrstars"
@@ -653,6 +659,8 @@ async def init_db() -> None:
             "user_id INTEGER PRIMARY KEY"
             ")"
         )
+        await conn.execute("CREATE TABLE IF NOT EXISTS webapp_wallet_events(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,kind TEXT NOT NULL,amount_cents INTEGER NOT NULL,source TEXT NOT NULL UNIQUE,created_at TEXT NOT NULL)")
+        await conn.execute("CREATE TABLE IF NOT EXISTS webapp_ref_events(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,referral_id INTEGER NOT NULL,kind TEXT NOT NULL,amount_cents INTEGER NOT NULL,source TEXT NOT NULL UNIQUE,created_at TEXT NOT NULL)")
         await conn.execute(
             "CREATE TABLE IF NOT EXISTS bonus ("
             "user_id INTEGER PRIMARY KEY, "
@@ -941,7 +949,11 @@ async def get_weekly_deposit(user_id: int) -> float:
             (user_id, since),
         ) as cursor:
             row = await cursor.fetchone()
-            return float(row[0]) if row else 0.0
+            total = float(row[0]) if row else 0.0
+        if _wallet_backend is not None:
+            async with db().execute("SELECT COALESCE(SUM(stars_cents),0) FROM webapp_deposits WHERE user_id = ? AND provider != 'stars' AND status = 'paid' AND COALESCE(paid_at,created_at) >= ?", (user_id, since)) as cursor:
+                total += (await cursor.fetchone())[0] / 100
+        return total
 
 
 async def create_withdrawal(user_id: int, amount: float) -> int:
@@ -960,6 +972,12 @@ async def create_withdrawal_atomic(user_id: int, amount: float) -> tuple[bool, f
     async with _db_lock:
         conn = db()
         try:
+            if _wallet_backend is not None:
+                try:
+                    await _wallet_backend.ensure_check_wager(conn, user_id)
+                except GameError:
+                    await conn.rollback()
+                    return False, await _wallet_backend.balance(conn, user_id), None
             cursor = await conn.execute(
                 "UPDATE balances SET amount = ROUND(amount - ?, 2) "
                 "WHERE user_id = ? AND amount + 1e-9 >= ?",
@@ -1054,6 +1072,8 @@ async def credit_payment(charge_id: str, user_id: int, amount: int) -> float | N
                 "SELECT amount FROM balances WHERE user_id = ?", (user_id,)
             ) as c:
                 row = await c.fetchone()
+            if _wallet_backend is not None:
+                await _wallet_backend.referral_credit(conn, user_id, amount * 100, "telegram:" + charge_id)
             await conn.commit()
             return float(row[0]) if row else float(amount)
         except BaseException:
@@ -1069,8 +1089,8 @@ async def claim_bonus(user_id: int, streak: int, total: float) -> bool:
         try:
             cursor = await conn.execute(
                 "UPDATE bonus SET queued_at = NULL, streak = ?, last_claim = ? "
-                "WHERE user_id = ? AND queued_at IS NOT NULL",
-                (streak, now_iso, user_id),
+                "WHERE user_id = ? AND queued_at IS NOT NULL AND julianday(queued_at) <= julianday(?)",
+                (streak, now_iso, user_id, (now_msk() - BONUS_COOLDOWN).isoformat()),
             )
             if cursor.rowcount != 1:
                 await conn.rollback()
@@ -1080,6 +1100,7 @@ async def claim_bonus(user_id: int, streak: int, total: float) -> bool:
                 "ON CONFLICT(user_id) DO UPDATE SET amount = ROUND(amount + ?, 2)",
                 (user_id, total, now_iso, total),
             )
+            await conn.execute("INSERT INTO webapp_wallet_events(user_id,kind,amount_cents,source,created_at) VALUES (?,'bonus',?,?,?)", (user_id, round(total * 100), "bonus:" + str(user_id) + ":" + now_iso, now_iso))
             await conn.commit()
             return True
         except BaseException:
@@ -1311,6 +1332,7 @@ async def process_referral_signup(referral_id: int, is_premium: bool) -> bool:
                 "ON CONFLICT(user_id) DO UPDATE SET signup_earned = signup_earned + ?",
                 (referrer_id, bonus, bonus),
             )
+            await conn.execute("INSERT OR IGNORE INTO webapp_ref_events(user_id,referral_id,kind,amount_cents,source,created_at) VALUES (?,?,'signup',?,?,?)", (referrer_id, referral_id, round(bonus * 100), "signup:" + str(referral_id), now_msk().isoformat()))
             await conn.commit()
         except BaseException:
             await conn.rollback()
@@ -1359,6 +1381,12 @@ async def try_pay_referral_signup(user_id: int, user, bot: Bot) -> bool:
     if not paid:
         return False
 
+    if _wallet_backend is not None:
+        async with _db_lock:
+            async with db().execute("SELECT ref_notifications FROM webapp_preferences WHERE user_id = ?", (ref["referrer_id"],)) as cursor:
+                preference = await cursor.fetchone()
+        if preference is not None and not preference[0]:
+            return True
     try:
         await bot.send_message(
             ref["referrer_id"],
@@ -1682,7 +1710,8 @@ async def is_subscribed(bot: Bot, user_id: int) -> bool:
 
 
 def user_link(user) -> str:
-    return f'<a href="tg://user?id={user.id}">{html_escape(user.full_name)}</a>'
+    name, clickable = player_identity(user.id, user.full_name)
+    return f'<a href="tg://user?id={user.id}">{html_escape(name)}</a>' if clickable else html_escape(name)
 
 
 def check_markup() -> InlineKeyboardMarkup:
@@ -2521,6 +2550,16 @@ async def process_bonus(user_id: int, user, bot: Bot, send) -> None:
 
 
 async def show_withdraw_menu(user_id: int, user, send) -> bool:
+    if _wallet_backend is not None:
+        wager_error = None
+        async with _db_lock:
+            try:
+                await _wallet_backend.ensure_check_wager(db(), user_id)
+            except GameError as error:
+                wager_error = error.message
+        if wager_error:
+            await send(html_escape(wager_error))
+            return False
     balance = await get_balance(user_id)
 
     if balance < WITHDRAW_MIN_BALANCE:
@@ -2650,6 +2689,63 @@ async def on_withdraw_all(call: CallbackQuery, state: FSMContext, bot: Bot) -> N
     balance = await get_balance(call.from_user.id)
     await create_withdraw_request(call.from_user.id, call.from_user, balance, bot, send)
     await state.clear()
+
+
+@router.message(Command("ref", "реф", ignore_case=True))
+@router.message(F.text.regexp(r"(?i)^/?(?:ref|реф)\s*$"))
+async def cmd_ref(message: Message, state: FSMContext) -> None:
+    logging.info("Processing referral command for user %s", message.from_user.id)
+    await state.clear()
+
+    user_id = message.from_user.id
+    ref_data = await get_ref_data(user_id)
+
+    active = not await is_ref_frozen(user_id)
+
+    active_icon = (
+        '<tg-emoji emoji-id="5832229652805985405">✅</tg-emoji>'
+        if active
+        else '<tg-emoji emoji-id="5273914604752216432">❌</tg-emoji>'
+    )
+
+    balance = ref_data["signup_earned"] + ref_data["deposit_earned"]
+    ref_link = f"https://t.me/{BOT_USERNAME}?start=ref_{user_id}"
+
+    await message.answer(
+        '<tg-emoji emoji-id="5814662914442797254">👥</tg-emoji>'
+        '<b> Реферальная система</b> '
+        '<blockquote expandable>'
+        '<tg-emoji emoji-id="5055840333242303386">🤑</tg-emoji>'
+        ' Тут ты сможешь заработать Telegram Stars на приглашении своих друзей и знакомых. '
+        'За обычного друга награда — 2.5'
+        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>'
+        ', награда за друга с Telegram Premium — 5'
+        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>'
+        '. Также вы будете получать 10% от пополнения ваших рефералов.\n\n '
+        '<tg-emoji emoji-id="5271604874419647061">🔗</tg-emoji>'
+        f'<i> Ваша реферальная ссылка:</i><code> {ref_link}</code>\n'
+        '</blockquote>'
+        '<blockquote>'
+        f' Заработок с приглашений: {active_icon}\n'
+        '</blockquote>'
+        '<tg-emoji emoji-id="4965219701572503640">💰</tg-emoji>'
+        f'<i> Текущий реферальный баланс:</i> {round(balance, 2)}'
+        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>\n'
+        '<blockquote expandable>'
+        '<tg-emoji emoji-id="4994896443824145756">⭐️</tg-emoji>'
+        f' Заработано с рефералов: {round(balance, 2)}'
+        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>\n'
+        '<tg-emoji emoji-id="5431577498364158238">📊</tg-emoji>'
+        ' Статистика заработка:\n'
+        '<tg-emoji emoji-id="5308004189677330658">👤</tg-emoji>'
+        f' Заработано с приглашений: {round(ref_data["signup_earned"], 2)}'
+        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>\n'
+        '<tg-emoji emoji-id="5443127283888405358">📥</tg-emoji>'
+        f' Заработано с пополнений: {round(ref_data["deposit_earned"], 2)}'
+        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>'
+        '</blockquote>',
+        reply_markup=ref_markup(user_id),
+    )
 
 
 @router.message(WithdrawStates.waiting_amount, F.text)
@@ -2828,63 +2924,6 @@ async def on_get_bonus(call: CallbackQuery, bot: Bot) -> None:
         await call.message.answer(text, reply_markup=reply_markup)
 
     await process_bonus(call.from_user.id, call.from_user, bot, send)
-
-
-@router.message(
-    F.text.regexp(r"(?i)^/?ref$") | F.text.regexp(r"(?i)^/?реф$")
-)
-async def cmd_ref(message: Message, state: FSMContext) -> None:
-    await state.clear()
-
-    user_id = message.from_user.id
-    ref_data = await get_ref_data(user_id)
-
-    active = not await is_ref_frozen(user_id)
-
-    active_icon = (
-        '<tg-emoji emoji-id="5832229652805985405">✅</tg-emoji>'
-        if active
-        else '<tg-emoji emoji-id="5273914604752216432">❌</tg-emoji>'
-    )
-
-    balance = ref_data["signup_earned"] + ref_data["deposit_earned"]
-    ref_link = f"https://t.me/{BOT_USERNAME}?start=ref_{user_id}"
-
-    await message.answer(
-        '<tg-emoji emoji-id="5814662914442797254">👥</tg-emoji>'
-        '<b> Реферальная система</b> '
-        '<blockquote expandable>'
-        '<tg-emoji emoji-id="5055840333242303386">🤑</tg-emoji>'
-        ' Тут ты сможешь заработать Telegram Stars на приглашении своих друзей и знакомых. '
-        'За обычного друга награда — 2.5'
-        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>'
-        ', награда за друга с Telegram Premium — 5'
-        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>'
-        '. Также вы будете получать 10% от пополнения ваших рефералов.\n\n '
-        '<tg-emoji emoji-id="5271604874419647061">🔗</tg-emoji>'
-        f'<i> Ваша реферальная ссылка:</i><code> {ref_link}</code>\n'
-        '</blockquote>'
-        '<blockquote>'
-        f' Заработок с приглашений: {active_icon}\n'
-        '</blockquote>'
-        '<tg-emoji emoji-id="4965219701572503640">💰</tg-emoji>'
-        f'<i> Текущий реферальный баланс:</i> {round(balance, 2)}'
-        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>\n'
-        '<blockquote expandable>'
-        '<tg-emoji emoji-id="4994896443824145756">⭐️</tg-emoji>'
-        f' Заработано с рефералов: {round(balance, 2)}'
-        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>\n'
-        '<tg-emoji emoji-id="5431577498364158238">📊</tg-emoji>'
-        ' Статистика заработка:\n'
-        '<tg-emoji emoji-id="5308004189677330658">👤</tg-emoji>'
-        f' Заработано с приглашений: {round(ref_data["signup_earned"], 2)}'
-        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>\n'
-        '<tg-emoji emoji-id="5443127283888405358">📥</tg-emoji>'
-        f' Заработано с пополнений: {round(ref_data["deposit_earned"], 2)}'
-        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>'
-        '</blockquote>',
-        reply_markup=ref_markup(user_id),
-    )
 
 
 @router.message(
@@ -3805,8 +3844,26 @@ async def on_ref_withdraw(call: CallbackQuery) -> None:
     await call.answer()
 
 
+@router.inline_query()
+async def on_inline_check(query: InlineQuery) -> None:
+    if _wallet_backend is None:
+        await query.answer([], cache_time=0, is_personal=True)
+        return
+    results = await _wallet_backend.inline_check_results(query.from_user.id, query.query)
+    await query.answer(results, cache_time=0, is_personal=True)
+
+
 @router.pre_checkout_query()
 async def on_pre_checkout(query: PreCheckoutQuery) -> None:
+    if query.invoice_payload.startswith("ms_"):
+        if _wallet_backend is None:
+            await query.answer(ok=False, error_message="Платёжный сервис временно недоступен.")
+            return
+        try:
+            await _wallet_backend.validate_stars_order(query.invoice_payload, query.from_user.id, query.currency, query.total_amount)
+        except GameError as error:
+            await query.answer(ok=False, error_message=error.message)
+            return
     logging.info("pre_checkout: user=%s amount=%s", query.from_user.id, query.total_amount)
     await query.answer(ok=True)
 
@@ -3814,6 +3871,18 @@ async def on_pre_checkout(query: PreCheckoutQuery) -> None:
 @router.message(F.successful_payment)
 async def on_successful_payment(message: Message) -> None:
     payment = message.successful_payment
+    if payment.invoice_payload.startswith("ms_"):
+        if _wallet_backend is None:
+            logging.error("Stars payment received while wallet backend is unavailable")
+            return
+        try:
+            balance = await _wallet_backend.credit_stars_order(payment.invoice_payload, message.from_user.id, payment.currency, payment.total_amount, payment.telegram_payment_charge_id)
+        except GameError:
+            logging.error("Stars payment validation failed for user %s", message.from_user.id)
+            return
+        if balance is not None:
+            await message.answer(f"Баланс пополнен на {payment.total_amount} Stars. Баланс: {balance:g} Stars.")
+        return
 
     new_balance = await credit_payment(
         payment.telegram_payment_charge_id,
@@ -3838,7 +3907,8 @@ async def on_successful_payment(message: Message) -> None:
     amount = payment.total_amount
 
     try:
-        await process_referral_deposit(message.from_user.id, float(amount))
+        if _wallet_backend is None:
+            await process_referral_deposit(message.from_user.id, float(amount))
     except Exception:
         logging.exception("referral deposit processing failed")
 
@@ -5887,7 +5957,7 @@ async def on_startup(bot: Bot) -> None:
     await bot.set_webhook(
         url=webhook_url,
         secret_token=WEBHOOK_SECRET,
-        allowed_updates=["message", "callback_query", "pre_checkout_query"],
+        allowed_updates=["message", "callback_query", "pre_checkout_query", "inline_query"],
         drop_pending_updates=False,
     )
 
@@ -5940,7 +6010,165 @@ async def on_shutdown(bot: Bot) -> None:
     await db_close()
 
 
+_wallet_backend = None
+
+
+WEBAPP_ROOT = Path(__file__).resolve().parent
+WEBAPP_FILES = {
+    "index.html", "app_shell.html", "app.js", "styles.css", "guard.js",
+    "game_names.js", "support.js", "support.css", "sw.js", "admin.js",
+    "gadmin.js", "srv_panel.js", "srv_panel.css",
+}
+WEBAPP_DIRECTORIES = {
+    "images", "lottie", "fonts", "ИграHiLo", "ИграКено", "ИграРулетка",
+    "Капча", "cryptobot", "tonkeeper", "xrocket",
+}
+
+
+async def webapp_index(request: web.Request) -> web.StreamResponse:
+    if request.path == "/app/":
+        raise web.HTTPPermanentRedirect(location="/app" + ("?" + request.query_string if request.query_string else ""))
+    return web.FileResponse(WEBAPP_ROOT / "index.html", headers={"Cache-Control": "no-cache"})
+
+
+def webapp_authenticated_user(request: web.Request, init_data: str | None = None):
+    raw = init_data if init_data is not None else request.headers.get("X-Telegram-Init-Data", "")
+    if not isinstance(raw, str) or not raw or len(raw) > 16384:
+        raise web.HTTPUnauthorized(
+            text='{"ok":false,"error":"Откройте приложение через Telegram."}',
+            content_type="application/json",
+            headers={"Cache-Control": "no-store"},
+        )
+    try:
+        data = safe_parse_webapp_init_data(BOT_TOKEN, raw)
+        age = time.time() - data.auth_date.timestamp()
+        if age < -60 or age > 86400 or data.user is None or data.user.id <= 0:
+            raise ValueError("Invalid Telegram authentication")
+    except (ValueError, TypeError, OverflowError):
+        raise web.HTTPUnauthorized(
+            text='{"ok":false,"error":"Вход устарел или недействителен. Перезапустите приложение в Telegram."}',
+            content_type="application/json",
+            headers={"Cache-Control": "no-store"},
+        ) from None
+    requested_user = request.query.get("uid")
+    if requested_user is not None and requested_user != str(data.user.id):
+        raise web.HTTPForbidden(
+            text='{"ok":false,"error":"Нет доступа к чужому аккаунту."}',
+            content_type="application/json",
+            headers={"Cache-Control": "no-store"},
+        )
+    return data.user
+
+
+@web.middleware
+async def webapp_api_guard(request: web.Request, handler):
+    if request.path == "/api" or request.path.startswith("/api/"):
+        try:
+            if request.path == "/api/auth/telegram" and request.method == "POST":
+                try:
+                    payload = await request.json()
+                except (ValueError, TypeError, UnicodeDecodeError):
+                    raise web.HTTPNotFound(headers={"Cache-Control": "no-store"}) from None
+                raw = payload.get("initData", "") if isinstance(payload, dict) else ""
+                webapp_authenticated_user(request, raw)
+            else:
+                webapp_authenticated_user(request)
+        except (web.HTTPUnauthorized, web.HTTPForbidden):
+            raise web.HTTPNotFound(headers={"Cache-Control": "no-store"}) from None
+    return await handler(request)
+
+
+async def webapp_auth(request: web.Request) -> web.Response:
+    try:
+        payload = await request.json()
+    except (ValueError, TypeError, UnicodeDecodeError):
+        return web.json_response({"ok": False, "error": "Некорректный запрос."}, status=400, headers={"Cache-Control": "no-store"})
+    if not isinstance(payload, dict):
+        return web.json_response({"ok": False, "error": "Некорректный запрос."}, status=400, headers={"Cache-Control": "no-store"})
+    user = webapp_authenticated_user(request, payload.get("initData", ""))
+    display_name = " ".join(part for part in (user.first_name, user.last_name) if part)
+    async with _db_lock:
+        connection = db()
+        try:
+            await connection.execute("INSERT INTO usernames(user_id,username,full_name,updated_at) VALUES (?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET username = excluded.username,full_name = excluded.full_name,updated_at = excluded.updated_at WHERE usernames.username IS NOT excluded.username OR usernames.full_name != excluded.full_name", (user.id, user.username, display_name, now_msk().isoformat()))
+            await connection.commit()
+        except BaseException:
+            await connection.rollback()
+            raise
+    TELEGRAM_NAMES[user.id] = user.username
+    return web.json_response({"ok": True, "userId": user.id}, headers={"Cache-Control": "no-store"})
+
+
+async def webapp_state(request: web.Request) -> web.Response:
+    user = webapp_authenticated_user(request)
+    async with _db_lock:
+        async with db().execute(
+            "SELECT amount, created_at FROM balances WHERE user_id = ?", (user.id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+    display_name = " ".join(part for part in (user.first_name, user.last_name) if part)
+    return web.json_response(
+        {
+            "ok": True,
+            "id": user.id,
+            "balance": float(row[0]) if row else 0.0,
+            "registrationDate": row[1] if row else None,
+            "displayName": display_name or user.username or "Игрок",
+            "username": user.username,
+            "avatarUrl": user.photo_url or "",
+            "botUsername": BOT_USERNAME,
+            "isAdmin": user.id == ADMIN_ID,
+            "serverTz": 180,
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+async def webapp_referral(request: web.Request) -> web.Response:
+    user = webapp_authenticated_user(request)
+    referral = await get_ref_data(user.id)
+    count = await count_referrals(user.id)
+    return web.json_response(
+        {
+            "ok": True,
+            "link": f"https://t.me/{BOT_USERNAME}?start=ref_{user.id}",
+            "count": count,
+            "earnings": referral["signup_earned"] + referral["deposit_earned"],
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+async def webapp_api_unavailable(request: web.Request) -> web.Response:
+    return web.json_response(
+        {"ok": False, "error": "Этот раздел WebApp пока не подключён.", "code": "WEBAPP_BACKEND_UNAVAILABLE"},
+        status=503,
+        headers={"Cache-Control": "no-store", "Retry-After": "60"},
+    )
+
+
+async def webapp_asset(request: web.Request) -> web.StreamResponse:
+    relative = Path(request.match_info["path"])
+    if relative.is_absolute() or ".." in relative.parts or not relative.parts:
+        raise web.HTTPNotFound()
+    if relative.parts[0] not in WEBAPP_DIRECTORIES and str(relative) not in WEBAPP_FILES:
+        raise web.HTTPNotFound()
+    path = (WEBAPP_ROOT / relative).resolve()
+    if not path.is_relative_to(WEBAPP_ROOT):
+        raise web.HTTPNotFound()
+    if path.is_file():
+        headers = {"Cache-Control": "no-cache"} if path.suffix in {".js", ".css", ".html"} else {}
+        return web.FileResponse(path, headers=headers)
+    placeholders = {".png": "unavailable.png", ".jpg": "unavailable.png", ".jpeg": "unavailable.png", ".webp": "unavailable.png", ".gif": "unavailable.png", ".svg": "unavailable.svg", ".lottie": "unavailable.lottie"}
+    placeholder = placeholders.get(path.suffix.lower())
+    if placeholder:
+        logging.warning("WebApp resource missing: %s", relative)
+        return web.FileResponse(WEBAPP_ROOT / "placeholders" / placeholder, headers={"Cache-Control": "no-store", "X-MjrStar-Placeholder": "1"})
+    raise web.HTTPNotFound()
+
+
 def main() -> None:
+    global _wallet_backend
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -5978,7 +6206,20 @@ def main() -> None:
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
 
-    app = web.Application()
+    app = web.Application(middlewares=[webapp_api_guard])
+    app.router.add_get("/", webapp_index)
+    app.router.add_get("/app", webapp_index)
+    app.router.add_get("/app/", webapp_index)
+    app.router.add_post("/api/auth/telegram", webapp_auth)
+    app.router.add_get("/api/state", webapp_state)
+    app.router.add_get("/api/referral", webapp_referral)
+    games_backend = CompleteGamesBackend(db, _db_lock, webapp_authenticated_user, now_msk)
+    _wallet_backend = games_backend
+    games_backend.wallet_runtime = globals()
+    games_backend.telegram_bot = bot
+    games_backend.telegram_channel = CHANNEL_ID
+    games_backend.register(app)
+    app.router.add_route("*", "/api/{path:.*}", webapp_api_unavailable)
 
     webhook_handler = SimpleRequestHandler(
         dispatcher=dp,
@@ -5987,7 +6228,10 @@ def main() -> None:
     )
     webhook_handler.register(app, path=WEBHOOK_PATH)
 
+    app.router.add_get("/{path:.*}", webapp_asset)
+
     setup_application(app, dp, bot=bot)
+    app.on_startup.append(games_backend.initialize)
 
     logging.info("Starting web server on %s:%s", WEBAPP_HOST, WEBAPP_PORT)
     web.run_app(app, host=WEBAPP_HOST, port=WEBAPP_PORT, access_log=None)
