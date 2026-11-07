@@ -1,0 +1,9 @@
+# Runtime state and generated caches; never commit a live SQLite database.
+.cache/
+.venv/
+__pycache__/
+*.py[cod]
+bot.db
+bot.db-shm
+bot.db-wal
+.env

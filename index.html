@@ -57,19 +57,19 @@
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#050506">
-    <title>casinocgbot</title>
+    <title>MjrStar</title>
     <link rel="icon" href="data:,">
 
-    <link rel="preload" as="font" type="font/woff2" href="/fonts/Unbounded-400.woff2" crossorigin>
-    <link rel="preload" as="font" type="font/woff2" href="/fonts/Montserrat-600.woff2" crossorigin>
+    <link rel="preload" as="font" type="font/ttf" href="/fonts/Unbounded-Regular.ttf" crossorigin>
+    <link rel="preload" as="font" type="font/ttf" href="/fonts/Montserrat-SemiBold.ttf" crossorigin>
     <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/@lottiefiles/dotlottie-web@0.80.0/dist/index.js" crossorigin>
     <link rel="preload" as="fetch" href="https://cdn.jsdelivr.net/npm/@lottiefiles/dotlottie-web@0.80.0/dist/dotlottie-player.wasm" crossorigin>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        @font-face{font-family:'Unbounded'; src:url('/fonts/Unbounded-400.woff2') format('woff2'), url('/fonts/Unbounded-400.ttf') format('truetype'); font-weight:400; font-style:normal; font-display:swap;}
-          @font-face{font-family:'Unbounded'; src:url('/fonts/Unbounded-600.woff2') format('woff2'), url('/fonts/Unbounded-600.ttf') format('truetype'); font-weight:600; font-style:normal; font-display:swap;}
-          @font-face{font-family:'Unbounded'; src:url('/fonts/Unbounded-800.woff2') format('woff2'), url('/fonts/Unbounded-800.ttf') format('truetype'); font-weight:800; font-style:normal; font-display:swap;}
-          @font-face{font-family:'Montserrat'; src:url('/fonts/Montserrat-600.woff2') format('woff2'), url('/fonts/Montserrat-600.ttf') format('truetype'); font-weight:400 900; font-style:normal; font-display:swap;}
+        @font-face{font-family:'Unbounded'; src:url('/fonts/Unbounded-Regular.ttf') format('truetype'); font-weight:400; font-style:normal; font-display:swap;}
+          @font-face{font-family:'Unbounded'; src:url('/fonts/Unbounded-Medium.ttf') format('truetype'); font-weight:600; font-style:normal; font-display:swap;}
+          @font-face{font-family:'Unbounded'; src:url('/fonts/Unbounded-Medium.ttf') format('truetype'); font-weight:800; font-style:normal; font-display:swap;}
+          @font-face{font-family:'Montserrat'; src:url('/fonts/Montserrat-SemiBold.ttf') format('truetype'); font-weight:400 900; font-style:normal; font-display:swap;}
         
           :root{
             --bg-0:#020203;
@@ -260,10 +260,7 @@
             <div class="rs-pl-pct" id="rsPreloaderPct" role="progressbar" aria-label="Загрузка" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
                 <span class="d h" id="rsPctH">1</span><span class="d" id="rsPctT">0</span><span class="d" id="rsPctU">0</span><span class="sign">%</span>
             </div>
-            <div class="rs-pl-brand" aria-hidden="true"><span style="--i:0">C</span><span style="--i:1">r</span><span style="--i:2">y</span><span style="--i:3">p</span><span style="--i:4">t</span><span style="--i:5">o</span><span style="--i:6">G</span><span style="--i:7">a</span><span style="--i:8">m</span>
-                <span
-                    style="--i:9">e</span>
-            </div>
+            <div class="rs-pl-brand" aria-hidden="true"><span style="--i:0">M</span><span style="--i:1">a</span><span style="--i:2">j</span><span style="--i:3">o</span><span style="--i:4">r</span><span style="--i:5">S</span><span style="--i:6">t</span><span style="--i:7">a</span><span style="--i:8">r</span><span style="--i:9">s</span></div>
         </div>
     </div>
 
@@ -272,7 +269,7 @@
             <canvas class="tg-gate-gif" id="tgGateGif" width="264" height="264"></canvas>
             <h1 class="tg-gate-title">Доступ только через Telegram</h1>
             <p class="tg-gate-text">Это мини-приложение работает только внутри Telegram — вход и весь функционал привязаны к вашему Telegram-аккаунту. Откройте бота, чтобы продолжить.</p>
-            <a class="tg-gate-btn" href="https://t.me/casinocgbot?start=webapp">
+            <a class="tg-gate-btn" href="https://t.me/mjrstarsbot?start=webapp">
       <svg class="tg-gate-btn-icon" viewBox="0 0 240 240" fill="none"><circle cx="120" cy="120" r="120" fill="#1a1206" fill-opacity=".15"/><path d="M54 122l128-49c6-2 11 1 9 10l-22 103c-2 8-7 10-14 6l-38-28-18 17c-2 2-4 4-8 4l3-40 73-66c3-3-1-4-4-2l-90 57-39-12c-8-3-8-8 2-11z" fill="currentColor"/></svg>
       Открыть через Telegram
     </a>
@@ -283,6 +280,7 @@
         <div class="rs-err-card">
             <div class="rs-err-art" id="rsErrArt"><img src="/lottie/images/ПредупреждениеОшибка.png" alt=""><canvas width="264" height="264"></canvas></div>
             <h1>Не удалось загрузить страницу</h1>
+                <p id="rsLoadErrorDetail" role="status"></p>
             <p>Похоже, пропало подключение к интернету или сервер временно недоступен. Проверьте соединение и попробуйте ещё раз — на слабой сети иногда не хватает пары попыток.</p>
             <button type="button" onclick="location.reload()"><svg viewBox="0 0 24 24" fill="none"><path d="M20 12a8 8 0 1 1-2.6-5.9M20 4v4.5h-4.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Обновить страницу</button>
         </div>
@@ -450,31 +448,43 @@
             });
             var safetyTimeout = setTimeout(onProfileReady, 12000);
 
-            var v = '4be0a7c119';
+            var v = 'majorstars-performance-20261107-6';
 
-            var FETCH_TIMEOUT_MS = 10000;
+            var FETCH_TIMEOUT_MS = 30000;
+
+            function resourceError(resource, reason) {
+                var error = new Error(resource + ': ' + reason);
+                error.resource = resource.split('?')[0];
+                error.reason = reason;
+                return error;
+            }
 
             function fetchTextWithRetry(url, attemptsLeft, delayMs) {
                 var controller = ('AbortController' in window) ? new AbortController() : null;
                 var timer = setTimeout(function() {
                     if (controller) controller.abort();
                 }, FETCH_TIMEOUT_MS);
-                return fetch(url, controller ? {
-                    signal: controller.signal
-                } : {}).then(function(r) {
-                    clearTimeout(timer);
-                    if (!r.ok) throw new Error('HTTP ' + r.status);
-                    return r.text();
-                }).catch(function(err) {
-                    clearTimeout(timer);
-                    if (attemptsLeft <= 1) throw err;
-                    return new Promise(function(resolve) {
-                            setTimeout(resolve, delayMs);
-                        })
-                        .then(function() {
-                            return fetchTextWithRetry(url, attemptsLeft - 1, delayMs);
-                        });
-                });
+                return fetch(url, {signal: controller ? controller.signal : undefined, cache: 'no-cache'})
+                    .then(function(r) {
+                        if (!r.ok) throw resourceError(url, 'HTTP ' + r.status);
+                        var type = r.headers.get('content-type') || '';
+                        if (type && type.indexOf('text/html') === -1) {
+                            throw resourceError(url, 'неверный Content-Type');
+                        }
+                        return r.text();
+                    }).then(function(text) {
+                        clearTimeout(timer);
+                        if (text.indexOf('id="arenaHubOpenBtn"') === -1 || text.indexOf('id="balanceModalAmount"') === -1) {
+                            throw resourceError(url, 'вместо оболочки приложения получена другая страница');
+                        }
+                        return text;
+                    }).catch(function(err) {
+                        clearTimeout(timer);
+                        var error = err.resource ? err : resourceError(url, err.name === 'AbortError' ? 'таймаут загрузки' : 'ошибка сети');
+                        if (attemptsLeft <= 1) throw error;
+                        return new Promise(function(resolve) { setTimeout(resolve, delayMs); })
+                            .then(function() { return fetchTextWithRetry(url, attemptsLeft - 1, delayMs); });
+                    });
             }
 
             function loadCssWithRetry(url, attemptsLeft, delayMs) {
@@ -493,7 +503,7 @@
                             clearTimeout(timer);
                             link.remove();
                             if (n <= 1) {
-                                reject(new Error('css failed'));
+                                reject(resourceError(url, 'стили не загрузились: ошибка сети, HTTP или таймаут'));
                                 return;
                             }
                             setTimeout(function() {
@@ -514,7 +524,7 @@
                 });
             }
 
-            function showLoadError() {
+            function showLoadError(error) {
                 clearTimeout(safetyTimeout);
                 finishing = true;
                 document.documentElement.classList.remove('rs-boot');
@@ -522,6 +532,10 @@
                 document.documentElement.classList.remove('rs-lock-scroll');
                 var errEl = document.getElementById('rsLoadError');
                 if (errEl) errEl.classList.add('rs-show');
+                var detail = document.getElementById('rsLoadErrorDetail');
+                if (detail) detail.textContent = error && error.resource
+                    ? 'Не загружен ресурс ' + error.resource + ': ' + error.reason + '. Это ошибка загрузки файлов, не проверка initData.'
+                    : 'Не удалось запустить интерфейс. Проверьте версии app.js и app_shell.html.';
                 var errArt = document.getElementById('rsErrArt');
                 if (errArt && !errArt.getAttribute('data-m')) {
                     errArt.setAttribute('data-m', '1');
@@ -541,8 +555,8 @@
                 }
             }
 
-            var htmlPromise = fetchTextWithRetry('app_shell.html?v=' + v, 3, 1500);
-            var cssPromise = loadCssWithRetry('styles.css?v=' + v, 3, 1500);
+            var htmlPromise = fetchTextWithRetry('/app_shell.html?v=' + v, 3, 1500);
+            var cssPromise = loadCssWithRetry('/styles.css?v=' + v, 3, 1500);
             htmlPromise.then(function() {
                 setTarget(30);
             }).catch(function() {});
@@ -564,11 +578,11 @@
                     }
                 }
                 var appScript = document.createElement('script');
-                appScript.src = 'app.js?v=' + v;
+                appScript.src = '/app.js?v=' + v;
                 appScript.onload = function() {
                     setTarget(75);
                 };
-                appScript.onerror = showLoadError;
+                appScript.onerror = function() { showLoadError(resourceError('/app.js', 'скрипт не загружен: проверьте HTTP-ответ и тип JavaScript')); };
                 document.body.appendChild(appScript);
             }).catch(showLoadError);
         })();

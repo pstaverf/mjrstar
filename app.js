@@ -1,7 +1,7 @@
 var __APP_SCRIPT_EL = document.currentScript;
 
 if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js").then(function(reg) {
+    navigator.serviceWorker.register("/sw.js").then(function(reg) {
         if (reg && reg.update) reg.update().catch(function() {});
     }).catch(function() {});
     var swReloaded = false;
@@ -15,8 +15,86 @@ if ("serviceWorker" in navigator) {
 (function() {
     const nativeFetch = window.fetch.bind(window);
     let lastRateLimitToastAt = 0;
+    const gameVersions = new Map();
+    const liveRounds = new Map();
+    const blackjackPvpVersions = new Map();
     window.fetch = function(input, init) {
-        return nativeFetch(input, init).then(function(res) {
+        try {
+            const target = new URL(typeof input === "string" || input instanceof URL ? input : input.url, window.location.href);
+            const telegram = window.Telegram && window.Telegram.WebApp;
+            if (target.origin === window.location.origin && target.pathname.indexOf("/api/") === 0 && telegram && telegram.initData) {
+                const headers = new Headers(init && init.headers || input && input.headers);
+                headers.set("X-Telegram-Init-Data", telegram.initData);
+                const method = String(init && init.method || input && input.method || "GET").toUpperCase();
+                if (method === "POST" && !headers.has("Idempotency-Key")) {
+                    const bytes = new Uint8Array(16);
+                    crypto.getRandomValues(bytes);
+                    headers.set("Idempotency-Key", Array.from(bytes).map(value => value.toString(16).padStart(2, "0")).join(""));
+                }
+                const cardAction = target.pathname.match(/^\/api\/(hilo|redblack|blackjack|coinflip)\/(guess|cashout|hit|stand|double|split)$/);
+                if (cardAction && init && typeof init.body === "string") {
+                    const body = JSON.parse(init.body);
+                    const current = gameVersions.get(cardAction[1]);
+                    if (current) {
+                        body.roundId = current.roundId;
+                        body.version = current.version;
+                        init = Object.assign({}, init, {body: JSON.stringify(body)});
+                    }
+                }
+                const blackjackPvpAction = /^\/api\/pvp\/blackjack\/(hit|stand|double)$/.test(target.pathname);
+                if (blackjackPvpAction && init && typeof init.body === "string") {
+                    const body = JSON.parse(init.body);
+                    if (blackjackPvpVersions.has(body.roomId)) {
+                        body.version = blackjackPvpVersions.get(body.roomId);
+                        init = Object.assign({}, init, {body: JSON.stringify(body)});
+                    }
+                }
+                const potAction = target.pathname.match(/^\/api\/(portal|race|bomb|sumo)\/(join|bet|cancel)$/);
+                if (potAction && init && typeof init.body === "string") {
+                    const body = JSON.parse(init.body);
+                    const current = liveRounds.get(potAction[1] + ":" + body.room);
+                    if (current) body.roundId = current;
+                    init = Object.assign({}, init, {body: JSON.stringify(body)});
+                }
+                const liveAction = target.pathname.match(/^\/api\/(crash|roulette)\/(bet|cashout)$/);
+                if (liveAction && init && typeof init.body === "string" && liveRounds.has(liveAction[1])) {
+                    const body = JSON.parse(init.body);
+                    body.roundId = liveRounds.get(liveAction[1]);
+                    init = Object.assign({}, init, {body: JSON.stringify(body)});
+                }
+                init = Object.assign({}, init, {headers: headers});
+            }
+        } catch (error) {}
+        return nativeFetch(input, init).then(async function(res) {
+            try {
+                const target = new URL(typeof input === "string" || input instanceof URL ? input : input.url, window.location.href);
+                if (target.origin === window.location.origin && /^\/api\/pvp\/blackjack\/(state|join|hit|stand|double)$/.test(target.pathname) && res.ok) {
+                    const data = await res.clone().json();
+                    if (data.ok && data.roomId && data.youAre && Number.isInteger(data.version)) {
+                        const current = blackjackPvpVersions.get(data.roomId);
+                        if (current === undefined || data.version >= current) blackjackPvpVersions.set(data.roomId, data.version);
+                    }
+                }
+                const potGame = target.pathname.match(/^\/api\/(portal|race|bomb|sumo)\/(state|join|bet|cancel)$/);
+                if (target.origin === window.location.origin && potGame && res.ok) {
+                    const data = await res.clone().json();
+                    if (data.ok && data.round && data.room) liveRounds.set(potGame[1] + ":" + data.room.id, data.round.id);
+                }
+                const liveGame = target.pathname.match(/^\/api\/(crash|roulette)\/(state|bet|cashout)$/);
+                if (target.origin === window.location.origin && liveGame && res.ok) {
+                    const data = await res.clone().json();
+                    if (data.ok && data.roundId) liveRounds.set(liveGame[1], data.roundId);
+                }
+                const cardGame = target.pathname.match(/^\/api\/(hilo|redblack|blackjack|coinflip)\/(state|start|guess|cashout|hit|stand|double|split)$/);
+                if (target.origin === window.location.origin && cardGame && res.ok) {
+                    const data = await res.clone().json();
+                    const round = data.round || data;
+                    if (data.ok && round.roundId && Number.isInteger(round.version)) {
+                        const current = gameVersions.get(cardGame[1]);
+                        if (!current || current.roundId !== round.roundId || current.version <= round.version) gameVersions.set(cardGame[1], {roundId: round.roundId, version: round.version});
+                    }
+                }
+            } catch (error) {}
             if (res.status === 403) {
                 try {
                     const url = typeof input === "string" ? input : input && input.url || "";
@@ -525,9 +603,9 @@ function computeHw() {
             x.fillStyle = "#f60";
             x.fillRect(110, 2, 60, 20);
             x.fillStyle = "#069";
-            x.fillText("CryptoGame fp 0123", 2, 14);
+            x.fillText("MjrStar fp 0123", 2, 14);
             x.fillStyle = "rgba(102,204,0,0.7)";
-            x.fillText("CryptoGame fp 0123", 4, 16);
+            x.fillText("MjrStar fp 0123", 4, 16);
             parts.push(c2.toDataURL());
         } catch (e) {}
         parts.push(Math.min(scr.width || 0, scr.height || 0) + "x" + Math.max(scr.width || 0, scr.height || 0));
@@ -803,6 +881,12 @@ if (tgWebApp && tgWebApp.initData) {
             closeBlockedApp();
         } else if (data && data.ok) {
             reportDevice();
+        } else if (data && data.code === "WEBAPP_BACKEND_UNAVAILABLE") {
+            const notice = document.createElement("div");
+            notice.className = "backend-unavailable-notice";
+            notice.setAttribute("role", "status");
+            notice.textContent = data.error;
+            document.body.appendChild(notice);
         }
     }).catch(() => {});
 }
@@ -816,7 +900,7 @@ let currentUser = {
     refLink: "",
     refCount: 0,
     refEarnings: 0,
-    botUsername: "casinocgbot",
+    botUsername: "mjrstarsbot",
     hapticsEnabled: true,
     liteUiEnabled: false,
     tgBgEnabled: false,
@@ -852,7 +936,18 @@ function formatMoney(n) {
     const parts = rounded.toFixed(2).split(".");
     const intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ".");
     const decPart = parts[1];
-    return "$ " + intPart + (decPart !== "00" ? "." + decPart : "");
+    return "⭐️ " + intPart + (decPart !== "00" ? "." + decPart : "");
+}
+
+function balanceAmountHTML(amount, loading) {
+    const value = loading ? "000.00" : formatMoney(amount).replace(/^⭐️ /, "");
+    return '<span class="balance-value">' + value + '</span><img class="balance-currency" width="26" height="26" style="width:1.25em;height:1.25em;max-width:1.25em;max-height:1.25em;object-fit:contain;flex-shrink:0;margin-inline-start:.3em;margin-inline-end:0;vertical-align:-.2em" src="/images/TelegramStars.png" alt="Telegram Stars">';
+}
+
+function setBalanceAmount(element, amount) {
+    const value = element.querySelector(".balance-value");
+    if (value) value.textContent = formatMoney(amount).replace(/^⭐️ /, "");
+    else element.innerHTML = balanceAmountHTML(amount);
 }
 
 function isAllowedAmountKey(currentValue, key) {
@@ -880,11 +975,11 @@ function sanitizeAmountInput(value) {
             v = String(maxAllowed);
         }
     }
-    return v ? v + "$" : "";
+    return v ? v + "⭐️" : "";
 }
 
 function amountValue(raw) {
-    return parseFloat((raw || "").replace("$", "")) || 0;
+    return parseFloat((raw || "").replace("⭐️", "")) || 0;
 }
 
 const TOAST_GIF = {
@@ -1064,7 +1159,7 @@ function showGameWinToast(amount, prefix, suffix, gif) {
         countUp: {
             amount: amount,
             prefix: prefix != null ? prefix : "Выигрыш +",
-            suffix: suffix != null ? suffix : "$"
+            suffix: suffix != null ? suffix : "⭐️"
         }
     });
 }
@@ -1300,7 +1395,7 @@ function emojiHistoryRowHTML(gameKey, r, i, fallbackOutcome) {
     const rowName = isMe ? currentUser.displayName || "Игрок" : r.username || "Игрок";
     const avatarHTML = isMe ? lazyImgTag(currentUser.avatarUrl, currentUser.displayName) : r.anon ? "?" : lazyImgTag("/api/avatar/" + r.user_id, rowName);
     const outcomeText = emojiOutcomeDisplayHTML(gameKey, meta.outcome || fallbackOutcome);
-    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-avatar">' + (isMe || !r.anon ? '<div class="skel-box"></div>' : "") + avatarHTML + "</div>" + '<div class="gv-history-mid">' + '<div class="gv-history-name"><span class="gv-history-name-text">' + escapeHtml(rowName) + "</span>" + botBadge + "</div>" + historyTimeHTML(r.created_at) + "</div>" + '<div class="gv-history-right">Сумма ставки: <b>' + fmtNum(r.bet) + "$</b><br>" + '<span class="gv-history-outcome">Исход: <b>' + outcomeText + "</b></span><br>" + (isDraw ? '<span class="gv-history-draw">Ничья: возврат ' + fmtNum(r.win_amount) + "$</span>" : isWin ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "$</span>" : Number(r.win_amount) > 0 ? '<span class="gv-history-lose">Проигрыш, возврат ' + fmtNum(r.win_amount) + "$</span>" : '<span class="gv-history-lose">Проигрыш</span>') + "</div>" + "</div>" + (meta.checkLink ? '<button class="crash-history-fair-btn" type="button" data-game="' + gameKey + '" data-idx="' + i + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" : "") + "</div>";
+    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-avatar">' + (isMe || !r.anon ? '<div class="skel-box"></div>' : "") + avatarHTML + "</div>" + '<div class="gv-history-mid">' + '<div class="gv-history-name"><span class="gv-history-name-text">' + escapeHtml(rowName) + "</span>" + botBadge + "</div>" + historyTimeHTML(r.created_at) + "</div>" + '<div class="gv-history-right">Сумма ставки: <b>' + fmtNum(r.bet) + "⭐️</b><br>" + '<span class="gv-history-outcome">Исход: <b>' + outcomeText + "</b></span><br>" + (isDraw ? '<span class="gv-history-draw">Ничья: возврат ' + fmtNum(r.win_amount) + "⭐️</span>" : isWin ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "⭐️</span>" : Number(r.win_amount) > 0 ? '<span class="gv-history-lose">Проигрыш, возврат ' + fmtNum(r.win_amount) + "⭐️</span>" : '<span class="gv-history-lose">Проигрыш</span>') + "</div>" + "</div>" + (meta.checkLink ? '<button class="crash-history-fair-btn" type="button" data-game="' + gameKey + '" data-idx="' + i + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" : "") + "</div>";
 }
 
 const EMOJI_GAME_LABELS = {
@@ -1351,6 +1446,11 @@ function emojiRoundMediaHTML(gameKey, meta) {
     return '<div class="dice-img-wrap pair">' + dicePairHTML([urlFn(values[0]), urlFn(values[1])], labels) + "</div>";
 }
 
+function emojiProofLinksHTML(meta) {
+    const links = Array.isArray(meta.checkLinks) ? meta.checkLinks : [];
+    return links.slice(1).map((url, index) => /^https:\/\/t\.me\/(?:c\/\d+|[A-Za-z0-9_]+)\/\d+$/.test(url) ? '<a class="gv-fair" style="position:static" href="' + url + '" target="_blank" rel="noopener">Бросок ' + (index + 2) + '</a>' : "").join("");
+}
+
 function openEmojiRoundModal(gameKey, r, meta, playerName) {
     const modal = document.getElementById("emojiRoundModal");
     if (!modal) return;
@@ -1361,17 +1461,17 @@ function openEmojiRoundModal(gameKey, r, meta, playerName) {
     document.getElementById("emojiRoundPlayerValue").textContent = playerName || currentUser.displayName || "Игрок";
     const statusEl = document.getElementById("emojiRoundStatus");
     statusEl.className = "emoji-round-status " + (isDraw ? "draw" : isWin ? "win" : "lose");
-    statusEl.textContent = isDraw ? "Ничья: возврат " + fmtNum(r.win_amount) + "$" : isWin ? "Выигрыш +" + fmtNum(r.win_amount) + "$" : Number(r.win_amount) > 0 ? "Проигрыш −" + fmtNum(r.bet - r.win_amount) + "$ (возврат " + fmtNum(r.win_amount) + "$)" : "Проигрыш −" + fmtNum(r.bet) + "$";
+    statusEl.textContent = isDraw ? "Ничья: возврат " + fmtNum(r.win_amount) + "⭐️" : isWin ? "Выигрыш +" + fmtNum(r.win_amount) + "⭐️" : Number(r.win_amount) > 0 ? "Проигрыш −" + fmtNum(r.bet - r.win_amount) + "⭐️ (возврат " + fmtNum(r.win_amount) + "⭐️)" : "Проигрыш −" + fmtNum(r.bet) + "⭐️";
     const coefEl = document.getElementById("emojiRoundCoef");
     coefEl.textContent = meta.mult != null ? "Коэффициент x" + fmtCoef(meta.mult) : "";
     document.getElementById("emojiRoundMedia").innerHTML = emojiRoundMediaHTML(gameKey, meta);
-    document.getElementById("emojiRoundBetValue").textContent = fmtNum(r.bet) + "$";
+    document.getElementById("emojiRoundBetValue").textContent = fmtNum(r.bet) + "⭐️";
     const outcomeValueEl = document.getElementById("emojiRoundOutcomeValue");
     if (meta.outcome) outcomeValueEl.innerHTML = emojiOutcomeDisplayHTML(gameKey, meta.outcome);
     else outcomeValueEl.textContent = "—";
     const resultEl = document.getElementById("emojiRoundResultValue");
     resultEl.className = "emoji-round-info-value " + (isDraw ? "draw" : isWin ? "win" : "lose");
-    resultEl.textContent = isDraw ? "Ничья: " + fmtNum(r.win_amount) + "$" : isWin ? "Выигрыш: " + fmtNum(r.win_amount) + "$" : Number(r.win_amount) > 0 ? "Проигрыш, возврат " + fmtNum(r.win_amount) + "$" : "Проигрыш";
+    resultEl.textContent = isDraw ? "Ничья: " + fmtNum(r.win_amount) + "⭐️" : isWin ? "Выигрыш: " + fmtNum(r.win_amount) + "⭐️" : Number(r.win_amount) > 0 ? "Проигрыш, возврат " + fmtNum(r.win_amount) + "⭐️" : "Проигрыш";
     document.getElementById("emojiRoundTimeValue").textContent = mskStr(r.created_at);
     const sourceEl = document.getElementById("emojiRoundSourceValue");
     const inChatRound = !!(r.in_chat || meta.inChat);
@@ -1380,6 +1480,14 @@ function openEmojiRoundModal(gameKey, r, meta, playerName) {
     uidEl.dataset.copy = msgId;
     uidEl.innerHTML = fairHashHTML(msgId);
     const tgLink = document.getElementById("emojiRoundTgLink");
+    let proofs = document.getElementById("emojiRoundProofLinks");
+    if (!proofs) {
+        proofs = document.createElement("div");
+        proofs.id = "emojiRoundProofLinks";
+        proofs.style.cssText = "display:flex;flex-wrap:wrap;gap:8px";
+        tgLink.insertAdjacentElement("afterend", proofs);
+    }
+    proofs.innerHTML = inChatRound ? "" : emojiProofLinksHTML(meta);
     if (meta.checkLink && !inChatRound) {
         tgLink.href = meta.checkLink;
         tgLink.style.display = "";
@@ -1440,17 +1548,17 @@ function applyBalance(amount) {
     if (!userDataLoaded) return;
     if (from === amount) {
         document.querySelectorAll(".balance-pill .amount").forEach(el => {
-            el.textContent = formatMoney(amount);
+            setBalanceAmount(el, amount);
             el.classList.remove("text-skel");
         });
         const wvAmount = document.querySelector(".wallet-balance-amount");
         if (wvAmount) {
-            wvAmount.textContent = formatMoney(amount);
+            setBalanceAmount(wvAmount, amount);
             wvAmount.classList.remove("text-skel");
         }
         const balanceModalAmount = document.getElementById("balanceModalAmount");
         if (balanceModalAmount) {
-            balanceModalAmount.textContent = formatMoney(amount);
+            setBalanceAmount(balanceModalAmount, amount);
             balanceModalAmount.classList.remove("text-skel");
         }
         return;
@@ -2105,12 +2213,12 @@ function applyRefBlockToUI() {
     }
     const earnEl = document.getElementById("refSummaryEarnings");
     if (earnEl) {
-        earnEl.textContent = fmtNum(currentUser.refEarnings) + "$";
+        earnEl.textContent = fmtNum(currentUser.refEarnings) + "⭐️";
         earnEl.classList.remove("text-skel");
     }
 }
 
-let pvpCommissionPercent = 5;
+let pvpCommissionPercent = 1;
 
 function pvpPctText(value) {
     return String(Math.round(Number(value) * 100) / 100);
@@ -2135,8 +2243,19 @@ function loadPvpCommission() {
 loadPvpCommission();
 
 function loadUserState() {
-    fetch("/api/state?uid=" + CURRENT_UID).then(r => r.json()).then(data => {
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timeout = setTimeout(() => { if (controller) controller.abort(); }, 15000);
+    fetch("/api/state?uid=" + CURRENT_UID, controller ? {signal: controller.signal} : {}).then(r => {
+        if (!r.ok) {
+            const error = new Error("Profile HTTP " + r.status);
+            error.status = r.status;
+            throw error;
+        }
+        return r.json();
+    }).then(data => {
         if (!data || !data.ok) throw new Error("bad response");
+        const notice = document.getElementById("profile-load-error");
+        if (notice) notice.remove();
         if (data.banned) {
             try {
                 document.documentElement.style.display = "none";
@@ -2166,9 +2285,22 @@ function loadUserState() {
         if (data.isAdmin) loadThemeDraftPreview();
         window.dispatchEvent(new CustomEvent("eternacas:profileReady"));
     }).catch(err => {
-        console.warn("[user] /api/state failed, retry in 4s:", err);
-        setTimeout(loadUserState, 4e3);
-    });
+        console.warn("[user] /api/state failed:", err);
+        let notice = document.getElementById("profile-load-error");
+        if (!notice) {
+            notice = document.createElement("div");
+            notice.id = "profile-load-error";
+            notice.className = "backend-unavailable-notice";
+            notice.setAttribute("role", "status");
+            document.body.appendChild(notice);
+        }
+        const authFailure = [401, 403, 404].includes(err.status);
+        notice.textContent = authFailure
+            ? "Профиль не загружен: /api/state вернул HTTP " + err.status + ". Закройте и заново откройте Mini App из бота. Если ошибка повторится, проверьте маршрут API, токен бота и время сервера."
+            : "Профиль временно не загружен: " + (err.status ? "HTTP " + err.status : "ошибка сети или ответа сервера") + ". Повторяем запрос. Баланс и аватар пока недоступны.";
+        // A rejected session or missing route will not recover by polling every four seconds.
+        if (!authFailure) setTimeout(loadUserState, 4e3);
+    }).finally(() => clearTimeout(timeout));
 }
 
 function loadReferralBase() {
@@ -2219,9 +2351,8 @@ function animateBalanceNumber(fromValue, toValue, durationMs) {
         if (myToken !== balanceAnimToken) return;
         const t = Math.min(1, (Date.now() - start) / durationMs);
         const value = fromValue + (toValue - fromValue) * easeOutCubic(t);
-        const text = formatMoney(value);
         targets.forEach(el => {
-            el.textContent = text;
+            setBalanceAmount(el, value);
         });
         if (t < 1) setTimeout(step, 16);
     }
@@ -2302,7 +2433,11 @@ function refreshBetsLockUI() {
 
 function loadBetsAcceptance() {
     fetch("/api/bets/status").then(r => r.json()).then(data => {
-        if (data && data.ok) betsAccepted = !!data.accepting;
+        if (data && data.ok) {
+            const accepting = typeof data.accepting === "boolean" ? data.accepting
+                : typeof data.betsAccepted === "boolean" ? data.betsAccepted : data.accepted;
+            if (typeof accepting === "boolean") betsAccepted = accepting;
+        }
         refreshBetsLockUI();
     }).catch(function() {});
 }
@@ -2763,13 +2898,13 @@ function checksRenderMenu() {
         if (!data || !data.ok) return;
         checksNotifEnabled = data.notificationsEnabled;
         const el = document.getElementById("checksOverviewStats");
-        if (el) el.innerHTML = '<div class="checks-stat-title">Ваша статистика</div>' + '<div class="checks-stat-row"><span>Создано чеков</span><b>' + data.createdChecks + "</b></div>" + '<div class="checks-stat-row"><span>Активировано чеков</span><b>' + data.activatedChecks + "</b></div>" + '<div class="checks-stat-row"><span>Отправлено средств</span><b>' + fmtNum(data.totalSent) + "$</b></div>";
+        if (el) el.innerHTML = '<div class="checks-stat-title">Ваша статистика</div>' + '<div class="checks-stat-row"><span>Создано чеков</span><b>' + data.createdChecks + "</b></div>" + '<div class="checks-stat-row"><span>Активировано чеков</span><b>' + data.activatedChecks + "</b></div>" + '<div class="checks-stat-row"><span>Отправлено средств</span><b>' + fmtNum(data.totalSent) + "⭐️</b></div>";
     }).catch(function() {});
 }
 
 function checksRenderCreateType() {
     checksSetChrome("Создание чека", true);
-    checksContentHTML('<p class="checks-input-hint" style="margin-bottom:16px; font-size:13px;">Ваш баланс: <b style="color:var(--gold-1)">' + fmtNum(currentUser.balance) + "$</b></p>" + '<button class="checks-menu-btn checks-type-btn" data-action="checks-create-inline">' + checksIconWrapHTML(liteAsset(CHECKS_DIR + "СоздатьИнлайн.lottie"), "checks-icon-wrap-lg") + '<span><div>Создать Inline</div><span class="checks-menu-btn-sub">Выберите чат и создайте чек прямо там</span></span></button>' + '<button class="checks-menu-btn checks-type-btn" data-action="checks-goto-create-form" data-type="normal">' + checksIconWrapHTML(liteAsset(CHECKS_DIR + "Чеки.lottie"), "checks-icon-wrap-lg") + '<span><div>Обычный чек</div><span class="checks-menu-btn-sub">Может активировать любой пользователь</span></span></button>' + '<button class="checks-menu-btn checks-type-btn" data-action="checks-goto-create-form" data-type="personal">' + checksIconWrapHTML(CHECKS_DIR + "ПерсональныйЧек.lottie", "checks-icon-wrap-lg") + '<span><div>Персональный чек</div><span class="checks-menu-btn-sub">Только для определённого пользователя</span></span></button>' + '<button class="checks-menu-btn checks-type-btn" data-action="checks-goto-create-form" data-type="multi">' + checksIconWrapHTML(CHECKS_DIR + "МультиЧек.lottie", "checks-icon-wrap-lg") + '<span><div>Мульти-чек</div><span class="checks-menu-btn-sub">Может быть активирован несколько раз</span></span></button>');
+    checksContentHTML('<p class="checks-input-hint" style="margin-bottom:16px; font-size:13px;">Ваш баланс: <b style="color:var(--gold-1)">' + fmtNum(currentUser.balance) + "⭐️</b></p>" + '<button class="checks-menu-btn checks-type-btn" data-action="checks-create-inline">' + checksIconWrapHTML(liteAsset(CHECKS_DIR + "СоздатьИнлайн.lottie"), "checks-icon-wrap-lg") + '<span><div>Отправить Inline</div><span class="checks-menu-btn-sub">Выберите активный чек и отправьте его в чат</span></span></button>' + '<button class="checks-menu-btn checks-type-btn" data-action="checks-goto-create-form" data-type="normal">' + checksIconWrapHTML(liteAsset(CHECKS_DIR + "Чеки.lottie"), "checks-icon-wrap-lg") + '<span><div>Обычный чек</div><span class="checks-menu-btn-sub">Может активировать любой пользователь</span></span></button>' + '<button class="checks-menu-btn checks-type-btn" data-action="checks-goto-create-form" data-type="personal">' + checksIconWrapHTML(CHECKS_DIR + "ПерсональныйЧек.lottie", "checks-icon-wrap-lg") + '<span><div>Персональный чек</div><span class="checks-menu-btn-sub">Только для определённого пользователя</span></span></button>' + '<button class="checks-menu-btn checks-type-btn" data-action="checks-goto-create-form" data-type="multi">' + checksIconWrapHTML(CHECKS_DIR + "МультиЧек.lottie", "checks-icon-wrap-lg") + '<span><div>Мульти-чек</div><span class="checks-menu-btn-sub">Может быть активирован несколько раз</span></span></button>');
 }
 
 const CHECKS_FORM_TYPES = {
@@ -2803,7 +2938,7 @@ function checksToggleRowHTML(id, icon, title, sub, checked) {
 }
 
 function checksReqCardHTML(kind, label, icon) {
-    return '<div class="checks-req"><div class="checks-req-head">' + checksPngIcon(icon) + "<b>По " + label + "</b></div>" + '<div class="checks-req-grid">' + '<div class="checks-field"><label>Мин. сумма, $</label><input class="checks-input" id="checksCreateReq' + kind + 'AmountInput" type="text" inputmode="decimal" autocomplete="off" placeholder="Не задано"></div>' + '<div class="checks-field"><label>Период</label>' + checksPeriodSelectHTML("checksCreateReq" + kind + "PeriodInput", CHECK_REQ_PERIODS_STATIC, null) + "</div></div></div>";
+    return '<div class="checks-req"><div class="checks-req-head">' + checksPngIcon(icon) + "<b>По " + label + "</b></div>" + '<div class="checks-req-grid">' + '<div class="checks-field"><label>Мин. сумма, ⭐️</label><input class="checks-input" id="checksCreateReq' + kind + 'AmountInput" type="text" inputmode="decimal" autocomplete="off" placeholder="Не задано"></div>' + '<div class="checks-field"><label>Период</label>' + checksPeriodSelectHTML("checksCreateReq" + kind + "PeriodInput", CHECK_REQ_PERIODS_STATIC, null) + "</div></div></div>";
 }
 
 function checksRenderCreateForm(type) {
@@ -2814,11 +2949,11 @@ function checksRenderCreateForm(type) {
         extra = '<div class="checks-field"><label>Юзернейм получателя</label><div class="checks-amount checks-handle"><span class="checks-amount-cur">@</span><input class="checks-input" id="checksTargetInput" placeholder="username" maxlength="32" autocomplete="off" autocapitalize="off" spellcheck="false"></div></div>';
     }
     if (type === "multi") {
-        extra = '<div class="checks-field"><label>Количество активаций (<span id="checksActRange">' + checksLimits.minActivations + "–" + checksLimits.maxActivations + '</span>)</label><div class="checks-stepper"><button type="button" class="checks-step" data-checks-step="-1" aria-label="Меньше">−</button><input class="checks-input" id="checksActivationsInput" type="number" inputmode="numeric" value="10"><button type="button" class="checks-step" data-checks-step="1" aria-label="Больше">+</button></div></div>' + '<div class="checks-total"><span>Спишется с баланса</span><b id="checksTotal">0$</b></div>';
+        extra = '<div class="checks-field"><label>Количество активаций (<span id="checksActRange">' + checksLimits.minActivations + "–" + checksLimits.maxActivations + '</span>)</label><div class="checks-stepper"><button type="button" class="checks-step" data-checks-step="-1" aria-label="Меньше">−</button><input class="checks-input" id="checksActivationsInput" type="number" inputmode="numeric" value="10"><button type="button" class="checks-step" data-checks-step="1" aria-label="Больше">+</button></div></div>' + '<div class="checks-total"><span>Спишется с баланса</span><b id="checksTotal">0⭐️</b></div>';
     }
-    const presets = [10, 50, 100, 500].map(v => '<button type="button" class="checks-preset' + (v > currentUser.balance ? " unaffordable" : "") + '" data-checks-preset="' + v + '">' + v + "$</button>").join("") + '<button type="button" class="checks-preset" data-checks-preset="max">Макс</button>';
-    const settingsHTML = '<button class="checks-set-head" type="button" data-action="checks-toggle-settings">' + '<span class="checks-set-ic"><span class="skel-box"></span>' + lazyImgTag("/lottie/LiteUi.png", "", "checks-icon-img") + "</span>" + '<span class="checks-set-title"><b>Настройки</b><small>Срок жизни, пароль, ограничения, вейджер</small></span><i class="checks-chev" id="checksSettingsArrow"></i></button>' + '<div id="checksSettingsPanel" class="checks-set-panel" style="display:none;">' + '<div class="checks-sec"><div class="checks-sec-cap">Срок жизни</div><div class="checks-field"><label>Через сколько часов чек истечёт</label><input class="checks-input" id="checksExpireInput" type="number" inputmode="numeric" min="1" max="720" step="1" value="48" placeholder="48"></div><div class="checks-note">От 1 до 720 часов. Сумма списывается с баланса сразу и замораживается: если чек не активируют до конца срока (или вы его отмените), деньги вернутся на баланс.</div></div>' + '<div class="checks-sec"><div class="checks-sec-cap">Доступ</div>' + '<div class="checks-field"><label>Пароль</label><input class="checks-input" id="checksPasswordInput" type="text" placeholder="Оставьте пустым, если не нужен" maxlength="64" autocomplete="off"></div>' + checksToggleRowHTML("checksPremiumToggle", "TelegramLogo", "Только для Telegram Premium") + checksToggleRowHTML("checksVerifiedToggle", "ПопулярныеИгры", "Только для новых пользователей бота") + checksToggleRowHTML("checksReferralToggle", "РефСистема", "Только для рефералов создателя", "Если у активатора ещё нет реферера - вы будете закреплены за ним автоматически при активации.") + "</div>" + checksCaptchaSectionHTML("checksCaptchaSeg", Math.max(checksCaptchaDefault, checksCaptchaFloor), checksCaptchaFloor) + '<div class="checks-sec"><div class="checks-sec-cap">Вейджер (отыгрыш)</div><div class="checks-note">Активатор чека должен отыграть указанную сумму за указанное число игр (кости/боулинг/дартс/баскетбол/футбол/слоты), прежде чем сможет создать свой чек или вывести средства.</div>' + '<div class="checks-req-grid">' + '<div class="checks-field"><label>Сумма отыгрыша, $</label><input class="checks-input" id="checksWagerAmountInput" type="text" inputmode="decimal" autocomplete="off" placeholder="Не задано"></div>' + '<div class="checks-field"><label>Количество игр</label><input class="checks-input" id="checksWagerGamesInput" type="number" inputmode="numeric" placeholder="Не задано"></div></div></div>' + '<div class="checks-sec"><div class="checks-sec-cap">Условия активации</div><div class="checks-note">Необязательно. Активировать чек сможет только тот, у кого сумма соответствующей операции за выбранный период не меньше указанной.</div>' + checksReqCardHTML("deposit", "депозитам", "Депозиты") + checksReqCardHTML("turnover", "обороту", "ОборотБаланса") + checksReqCardHTML("withdraw", "выводам", "Выводы") + "</div></div>";
-    checksContentHTML('<div class="checks-hero"><span class="checks-hero-ic"><span class="skel-box"></span>' + lazyImgTag(def.icon(), "", "checks-icon-img") + '</span><div class="checks-hero-text"><small>Ваш баланс</small><b>' + fmtNum(currentUser.balance) + "$</b><em>" + def.sub + "</em></div></div>" + '<div class="checks-field"><label>Сумма' + (type === "multi" ? " за одну активацию" : "") + '</label><div class="checks-amount"><span class="checks-amount-cur">$</span><input class="checks-input" id="checksAmountInput" type="text" inputmode="decimal" autocomplete="off" placeholder="10"></div><div class="checks-presets">' + presets + "</div></div>" + extra + settingsHTML + '<button class="modal-ok checks-create-cta" data-action="checks-submit-create" data-type="' + type + '">Создать</button>' + '<div class="checks-error" id="checksCreateError"></div>');
+    const presets = [10, 50, 100, 500].map(v => '<button type="button" class="checks-preset' + (v > currentUser.balance ? " unaffordable" : "") + '" data-checks-preset="' + v + '">' + v + "⭐️</button>").join("") + '<button type="button" class="checks-preset" data-checks-preset="max">Макс</button>';
+    const settingsHTML = '<button class="checks-set-head" type="button" data-action="checks-toggle-settings">' + '<span class="checks-set-ic"><span class="skel-box"></span>' + lazyImgTag("/lottie/LiteUi.png", "", "checks-icon-img") + "</span>" + '<span class="checks-set-title"><b>Настройки</b><small>Срок жизни, пароль, ограничения, вейджер</small></span><i class="checks-chev" id="checksSettingsArrow"></i></button>' + '<div id="checksSettingsPanel" class="checks-set-panel" style="display:none;">' + '<div class="checks-sec"><div class="checks-sec-cap">Срок жизни</div><div class="checks-field"><label>Через сколько часов чек истечёт</label><input class="checks-input" id="checksExpireInput" type="number" inputmode="numeric" min="1" max="720" step="1" value="48" placeholder="48"></div><div class="checks-note">От 1 до 720 часов. Сумма списывается с баланса сразу и замораживается: если чек не активируют до конца срока (или вы его отмените), деньги вернутся на баланс.</div></div>' + '<div class="checks-sec"><div class="checks-sec-cap">Доступ</div>' + '<div class="checks-field"><label>Пароль</label><input class="checks-input" id="checksPasswordInput" type="text" placeholder="Оставьте пустым, если не нужен" maxlength="64" autocomplete="off"></div>' + checksToggleRowHTML("checksPremiumToggle", "TelegramLogo", "Только для Telegram Premium") + checksToggleRowHTML("checksVerifiedToggle", "ПопулярныеИгры", "Только для новых пользователей бота") + checksToggleRowHTML("checksReferralToggle", "РефСистема", "Только для рефералов создателя", "Если у активатора ещё нет реферера - вы будете закреплены за ним автоматически при активации.") + "</div>" + checksCaptchaSectionHTML("checksCaptchaSeg", Math.max(checksCaptchaDefault, checksCaptchaFloor), checksCaptchaFloor) + '<div class="checks-sec"><div class="checks-sec-cap">Вейджер (отыгрыш)</div><div class="checks-note">Активатор чека должен отыграть указанную сумму за указанное число завершённых игр, прежде чем сможет создать свой чек или вывести средства.</div>' + '<div class="checks-req-grid">' + '<div class="checks-field"><label>Сумма отыгрыша, ⭐️</label><input class="checks-input" id="checksWagerAmountInput" type="text" inputmode="decimal" autocomplete="off" placeholder="Не задано"></div>' + '<div class="checks-field"><label>Количество игр</label><input class="checks-input" id="checksWagerGamesInput" type="number" inputmode="numeric" placeholder="Не задано"></div></div></div>' + '<div class="checks-sec"><div class="checks-sec-cap">Условия активации</div><div class="checks-note">Необязательно. Активировать чек сможет только тот, у кого сумма соответствующей операции за выбранный период не меньше указанной.</div>' + checksReqCardHTML("deposit", "депозитам", "Депозиты") + checksReqCardHTML("turnover", "обороту", "ОборотБаланса") + checksReqCardHTML("withdraw", "выводам", "Выводы") + "</div></div>";
+    checksContentHTML('<div class="checks-hero"><span class="checks-hero-ic"><span class="skel-box"></span>' + lazyImgTag(def.icon(), "", "checks-icon-img") + '</span><div class="checks-hero-text"><small>Ваш баланс</small><b>' + fmtNum(currentUser.balance) + "⭐️</b><em>" + def.sub + "</em></div></div>" + '<div class="checks-field"><label>Сумма' + (type === "multi" ? " за одну активацию" : "") + '</label><div class="checks-amount"><span class="checks-amount-cur">⭐️</span><input class="checks-input" id="checksAmountInput" type="text" inputmode="decimal" autocomplete="off" placeholder="10"></div><div class="checks-presets">' + presets + "</div></div>" + extra + settingsHTML + '<button class="modal-ok checks-create-cta" data-action="checks-submit-create" data-type="' + type + '">Создать</button>' + '<div class="checks-error" id="checksCreateError"></div>');
     checksCreateSettings.premiumOnly = false;
     checksCreateSettings.verifiedOnly = false;
     checksCreateSettings.referralOnly = false;
@@ -2857,7 +2992,7 @@ function checksWireCreateForm(type) {
         if (!totalEl) return;
         const a = Math.round(parseFloat((amountEl.value || "").replace(",", ".")) * 100) / 100 || 0;
         const total = a * activations();
-        totalEl.textContent = fmtNum(total) + "$";
+        totalEl.textContent = fmtNum(total) + "⭐️";
         totalEl.classList.toggle("warn", total > currentUser.balance);
     }
     root.querySelectorAll("[data-checks-preset]").forEach(btn => {
@@ -3020,7 +3155,7 @@ function checksSubmitCreate(type) {
         return;
     }
     if (amount < checksLimits.minAmount || amount > checksLimits.maxAmount) {
-        if (errEl) errEl.textContent = "Сумма чека - от " + fmtNum(checksLimits.minAmount) + " до " + fmtNum(checksLimits.maxAmount) + "$";
+        if (errEl) errEl.textContent = "Сумма чека - от " + fmtNum(checksLimits.minAmount) + " до " + fmtNum(checksLimits.maxAmount) + "⭐️";
         return;
     }
     let firstNameVal = "";
@@ -3120,7 +3255,7 @@ function checksSubmitCreate(type) {
             currentUser.balance -= spent;
             applyUserToUI();
         }
-        const typeText = type === "multi" ? "Мульти-чек на сумму " + fmtNum(spent) + "$ (" + fmtNum(amount) + "$ × " + body.activations + ")" : type === "personal" ? "Персональный чек на сумму " + fmtNum(amount) + "$" : "Чек на сумму " + fmtNum(amount) + "$";
+        const typeText = type === "multi" ? "Мульти-чек на сумму " + fmtNum(spent) + "⭐️ (" + fmtNum(amount) + "⭐️ × " + body.activations + ")" : type === "personal" ? "Персональный чек на сумму " + fmtNum(amount) + "⭐️" : "Чек на сумму " + fmtNum(amount) + "⭐️";
         checksReplaceTop(checksRenderCreateSuccess, data.code, data.link, typeText);
     }).catch(function() {
         checksReplaceTop(checksRenderCreateError, null);
@@ -3221,7 +3356,7 @@ function checksRenderMy(page) {
         }
         const base = page * 6;
         const gridHtml = data.rows.map(function(c, i) {
-            return '<button class="checks-pill-btn" data-action="checks-goto-detail" data-code="' + c.check_code + '">' + checksMyTypeIcon(c) + '<span class="checks-pill-text"><b>№' + (base + i + 1) + "</b><em>" + fmtNum(c.amount) + '$</em></span><i class="checks-chev-r"></i></button>';
+            return '<button class="checks-pill-btn" data-action="checks-goto-detail" data-code="' + c.check_code + '">' + checksMyTypeIcon(c) + '<span class="checks-pill-text"><b>№' + (base + i + 1) + "</b><em>" + fmtNum(c.amount) + '⭐️</em></span><i class="checks-chev-r"></i></button>';
         }).join("");
         checksContentHTML('<div class="checks-list-grid">' + gridHtml + "</div>" + checksPaginationHTML("my", page, data.totalPages) + checksRefreshBtnHTML(page));
         checksUpdateRefreshBtnUI();
@@ -3254,7 +3389,7 @@ function checksRenderDetail(code) {
         const tone = CHECK_STATUS_TONE[data.status] || "muted";
         const typeText = CHECK_TYPE_LABEL_RU[data.checkType] || data.checkType;
         const heroSub = data.isMulti ? "Всего активаций: " + data.maxActivations : data.targetUsername ? "Только для @" + escapeHtml(data.targetUsername) : "Для любого пользователя";
-        let html = '<div class="checks-hero checks-hero-detail"><span class="checks-hero-ic"><span class="skel-box"></span>' + lazyImgTag(liteAsset(CHECKS_DIR + "Чеки.lottie"), "", "checks-icon-img") + '</span><div class="checks-hero-text"><small>' + (data.isMulti ? "Сумма за активацию" : "Сумма чека") + "</small><b>" + fmtNum(data.amount) + "$</b><em>" + heroSub + '</em></div><span class="checks-status ' + tone + '"><i></i>' + (CHECK_STATUS_LABEL_RU[data.status] || data.status) + "</span></div>";
+        let html = '<div class="checks-hero checks-hero-detail"><span class="checks-hero-ic"><span class="skel-box"></span>' + lazyImgTag(liteAsset(CHECKS_DIR + "Чеки.lottie"), "", "checks-icon-img") + '</span><div class="checks-hero-text"><small>' + (data.isMulti ? "Сумма за активацию" : "Сумма чека") + "</small><b>" + fmtNum(data.amount) + "⭐️</b><em>" + heroSub + '</em></div><span class="checks-status ' + tone + '"><i></i>' + (CHECK_STATUS_LABEL_RU[data.status] || data.status) + "</span></div>";
         let rows = checksInfoRow(CHECKS_DIR + "СистемаЧеков.png", "Тип", typeText.charAt(0).toUpperCase() + typeText.slice(1));
         if (data.targetUsername) rows += checksInfoRow("/lottie/images/TelegramLogo.png", "Получатель", "@" + escapeHtml(data.targetUsername));
         if (data.isMulti) {
@@ -3338,10 +3473,10 @@ function checksRenderEditSettings(code) {
         }
         const reqPeriods = data.reqPeriods || [];
         let html = '<div class="checks-hero"><span class="checks-hero-ic"><span class="skel-box"></span>' + lazyImgTag(liteAsset(CHECKS_DIR + "Чеки.lottie"), "", "checks-icon-img") + '</span><div class="checks-hero-text"><small>Управление чеком</small><b class="checks-hero-word">Настройки</b><em>Тумблеры применяются сразу, остальное - кнопками.</em></div></div>';
-        html += '<div class="checks-sec"><div class="checks-sec-cap">Срок жизни</div><div class="checks-note">Отсчёт - от момента создания чека. Сейчас: ' + data.expireHours + " ч, осталось " + checksFmtTimeLeft(data.expiresAt - Math.floor(Date.now() / 1e3)) + (data.heldAmount > 0 ? ". Заморожено на балансе: " + fmtNum(data.heldAmount) + "$." : ".") + '</div><div class="checks-field"><label>Срок жизни, часов</label><div class="checks-inline"><input class="checks-input" id="checksEditExpireInput" type="number" inputmode="numeric" min="1" max="720" step="1" value="' + data.expireHours + '" placeholder="48">' + checksEditActBtn("checks-edit-set-expire", code, "Сохранить") + "</div></div></div>";
+        html += '<div class="checks-sec"><div class="checks-sec-cap">Срок жизни</div><div class="checks-note">Отсчёт - от момента создания чека. Сейчас: ' + data.expireHours + " ч, осталось " + checksFmtTimeLeft(data.expiresAt - Math.floor(Date.now() / 1e3)) + (data.heldAmount > 0 ? ". Заморожено на балансе: " + fmtNum(data.heldAmount) + "⭐️." : ".") + '</div><div class="checks-field"><label>Срок жизни, часов</label><div class="checks-inline"><input class="checks-input" id="checksEditExpireInput" type="number" inputmode="numeric" min="1" max="720" step="1" value="' + data.expireHours + '" placeholder="48">' + checksEditActBtn("checks-edit-set-expire", code, "Сохранить") + "</div></div></div>";
         html += '<div class="checks-sec"><div class="checks-sec-cap">Доступ</div>';
         if (data.hasPassword) {
-            html += '<div class="checks-setrow">' + checksPngIcon("Приватность") + '<div class="checks-setrow-body"><span>Пароль</span><b>' + escapeHtml(data.password || "") + "</b></div>" + checksEditActBtn("checks-edit-remove-password", code, "Убрать", "", "danger") + "</div>";
+            html += '<div class="checks-setrow">' + checksPngIcon("Приватность") + '<div class="checks-setrow-body"><span>Пароль</span><b>' + escapeHtml(data.password || "Установлен") + "</b></div>" + checksEditActBtn("checks-edit-remove-password", code, "Убрать", "", "danger") + "</div>";
         } else {
             html += '<div class="checks-field"><label>Установить пароль</label><div class="checks-inline"><input class="checks-input" id="checksEditPasswordInput" type="text" placeholder="Пароль для активации" maxlength="64" autocomplete="off">' + checksEditActBtn("checks-edit-set-password", code, "Установить") + "</div></div>";
         }
@@ -3349,9 +3484,9 @@ function checksRenderEditSettings(code) {
         html += checksCaptchaSectionHTML("checksEditCaptchaSeg", data.captchaLevel || 0, data.captchaFloor || 0);
         html += '<div class="checks-sec"><div class="checks-sec-cap">Вейджер (отыгрыш)</div><div class="checks-note">Активатор чека должен отыграть указанную сумму за указанное число игр (' + (data.wagerGamesText ? escapeHtml(String(data.wagerGamesText).toLowerCase()) : 'сейчас ни одна игра не засчитывается') + '), прежде чем сможет создать свой чек или вывести средства.</div>';
         if (data.hasWager) {
-            html += '<div class="checks-setrow">' + checksPngIcon("ПроцентПобед") + '<div class="checks-setrow-body"><span>Вейджер</span><b>' + fmtNum(data.wagerAmount) + "$ / " + data.wagerGames + " игр</b></div>" + checksEditActBtn("checks-edit-remove-wager", code, "Убрать", "", "danger") + "</div>";
+            html += '<div class="checks-setrow">' + checksPngIcon("ПроцентПобед") + '<div class="checks-setrow-body"><span>Вейджер</span><b>' + fmtNum(data.wagerAmount) + "⭐️ / " + data.wagerGames + " игр</b></div>" + checksEditActBtn("checks-edit-remove-wager", code, "Убрать", "", "danger") + "</div>";
         } else {
-            html += '<div class="checks-req-grid"><div class="checks-field"><label>Сумма отыгрыша, $</label><input class="checks-input" id="checksEditWagerAmountInput" type="text" inputmode="decimal" autocomplete="off" placeholder="Не задано"></div><div class="checks-field"><label>Количество игр</label><input class="checks-input" id="checksEditWagerGamesInput" type="number" inputmode="numeric" placeholder="Не задано"></div></div>' + checksEditActBtn("checks-edit-set-wager", code, "Установить вейджер", "", "wide");
+            html += '<div class="checks-req-grid"><div class="checks-field"><label>Сумма отыгрыша, ⭐️</label><input class="checks-input" id="checksEditWagerAmountInput" type="text" inputmode="decimal" autocomplete="off" placeholder="Не задано"></div><div class="checks-field"><label>Количество игр</label><input class="checks-input" id="checksEditWagerGamesInput" type="number" inputmode="numeric" placeholder="Не задано"></div></div>' + checksEditActBtn("checks-edit-set-wager", code, "Установить вейджер", "", "wide");
         }
         html += "</div>";
         html += '<div class="checks-sec"><div class="checks-sec-cap">Условия активации</div><div class="checks-note">Активировать чек сможет только тот, у кого сумма соответствующей операции за выбранный период не меньше указанной.</div>';
@@ -3378,9 +3513,9 @@ function checksRenderEditSettings(code) {
             html += '<div class="checks-req"><div class="checks-req-head">' + checksPngIcon(def.icon) + "<b>По " + def.label + "</b></div>";
             if (def.data && def.data.has) {
                 const periodLabel = (reqPeriods.find(p => p[0] === def.data.period) || [null, def.data.period])[1];
-                html += '<div class="checks-req-value"><div><span>Условие</span><b>от ' + fmtNum(def.data.amount) + "$ (" + escapeHtml(periodLabel || "") + ")</b></div>" + checksEditActBtn("checks-edit-remove-req", code, "Убрать", ' data-kind="' + def.kind + '"', "danger") + "</div>";
+                html += '<div class="checks-req-value"><div><span>Условие</span><b>от ' + fmtNum(def.data.amount) + "⭐️ (" + escapeHtml(periodLabel || "") + ")</b></div>" + checksEditActBtn("checks-edit-remove-req", code, "Убрать", ' data-kind="' + def.kind + '"', "danger") + "</div>";
             } else {
-                html += '<div class="checks-req-grid"><div class="checks-field"><label>Мин. сумма, $</label><input class="checks-input" id="checksEditReq' + def.kind + 'AmountInput" type="text" inputmode="decimal" autocomplete="off" placeholder="Не задано"></div><div class="checks-field"><label>Период</label>' + checksPeriodSelectHTML("checksEditReq" + def.kind + "PeriodInput", reqPeriods, null) + "</div></div>" + checksEditActBtn("checks-edit-set-req", code, "Установить условие по " + def.label, ' data-kind="' + def.kind + '"', "wide");
+                html += '<div class="checks-req-grid"><div class="checks-field"><label>Мин. сумма, ⭐️</label><input class="checks-input" id="checksEditReq' + def.kind + 'AmountInput" type="text" inputmode="decimal" autocomplete="off" placeholder="Не задано"></div><div class="checks-field"><label>Период</label>' + checksPeriodSelectHTML("checksEditReq" + def.kind + "PeriodInput", reqPeriods, null) + "</div></div>" + checksEditActBtn("checks-edit-set-req", code, "Установить условие по " + def.label, ' data-kind="' + def.kind + '"', "wide");
             }
             html += "</div>";
         });
@@ -3745,7 +3880,7 @@ function checksAnimateDonut(el, pct, dur, delay) {
 }
 
 function checksStatMoney(v) {
-    return fmtNum(Math.round(v * 100) / 100) + "$";
+    return fmtNum(Math.round(v * 100) / 100) + "⭐️";
 }
 
 function checksStatInt(v) {
@@ -3754,7 +3889,7 @@ function checksStatInt(v) {
 
 function checksBarRow(label, cls, value, max, delay) {
     const w = max > 0 ? Math.max(value > 0 ? 3 : 0, value / max * 100) : 0;
-    return '<div class="cs-bar-row"><div class="cs-bar-top"><span>' + label + '</span><b class="cs-num" data-to="' + value + '" data-kind="money">0$</b></div><div class="cs-track"><i class="cs-fill ' + cls + '" style="--w:' + w.toFixed(2) + "%; transition-delay:" + delay + 'ms"></i></div></div>';
+    return '<div class="cs-bar-row"><div class="cs-bar-top"><span>' + label + '</span><b class="cs-num" data-to="' + value + '" data-kind="money">0⭐️</b></div><div class="cs-track"><i class="cs-fill ' + cls + '" style="--w:' + w.toFixed(2) + "%; transition-delay:" + delay + 'ms"></i></div></div>';
 }
 
 function checksRenderStats() {
@@ -3781,7 +3916,7 @@ function checksRenderStats() {
             return '<div class="cs-tile"><span class="cs-tile-ic ' + cls + '"><span class="skel-box"></span>' + lazyImgTag(icon, "", "checks-icon-img") + '</span><div class="cs-tile-text"><small>' + label + '</small><b class="cs-num" data-to="' + to + '" data-kind="' + kind + '">0</b></div></div>';
         }
         html += '<div class="cs-tiles">' + tile(CHECKS_DIR + "Чеки.png", "Создано чеков", "gold", created, "int") + tile(CHECKS_DIR + "УспешноАктивированЧек.png", "Активировано чеков", "green", activated, "int") + tile("/lottie/images/Выводы.png", "Отправлено средств", "gold", data.totalSent || 0, "money") + tile("/lottie/images/Депозиты.png", "Получено средств", "green", data.totalReceived || 0, "money") + "</div>";
-        html += '<div class="cs-card"><div class="cs-cap">Движение средств</div>' + '<div class="cs-group"><div class="cs-group-cap">За всё время</div>' + checksBarRow("Отправлено", "gold", data.totalSent || 0, allMax, 150) + checksBarRow("Получено", "green", data.totalReceived || 0, allMax, 260) + "</div>" + '<div class="cs-group"><div class="cs-group-cap">За последнюю неделю</div>' + checksBarRow("Отправлено", "gold", data.weekSent || 0, weekMax, 380) + checksBarRow("Получено", "green", data.weekReceived || 0, weekMax, 490) + "</div>" + '<div class="cs-profit ' + (profit >= 0 ? "pos" : "neg") + '"><span>Прибыль / убыток</span><b><i class="cs-arrow"></i><span class="cs-num" data-to="' + profit + '" data-kind="profit">0$</span></b></div></div>';
+        html += '<div class="cs-card"><div class="cs-cap">Движение средств</div>' + '<div class="cs-group"><div class="cs-group-cap">За всё время</div>' + checksBarRow("Отправлено", "gold", data.totalSent || 0, allMax, 150) + checksBarRow("Получено", "green", data.totalReceived || 0, allMax, 260) + "</div>" + '<div class="cs-group"><div class="cs-group-cap">За последнюю неделю</div>' + checksBarRow("Отправлено", "gold", data.weekSent || 0, weekMax, 380) + checksBarRow("Получено", "green", data.weekReceived || 0, weekMax, 490) + "</div>" + '<div class="cs-profit ' + (profit >= 0 ? "pos" : "neg") + '"><span>Прибыль / убыток</span><b><i class="cs-arrow"></i><span class="cs-num" data-to="' + profit + '" data-kind="profit">0⭐️</span></b></div></div>';
         const daily = Array.isArray(data.daily) && data.daily.length === 7 ? data.daily : null;
         if (daily) {
             const max = Math.max.apply(null, daily.map(d => Math.max(d.sent || 0, d.received || 0)).concat([0]));
@@ -3861,7 +3996,7 @@ function checksRenderHistory(scope, page) {
             rowsHtml = data.rows.map(function(r, i) {
                 const created = r.type === "created";
                 const actionText = created ? "Создан" : "Получен";
-                return '<div class="checks-list-row cs-hrow" data-action="checks-history-detail" data-idx="' + i + '" data-scope="' + scope + '" data-page="' + page + '" style="--r:' + i + '">' + checksImgIcon("/lottie/images/" + (created ? "Выводы" : "Депозиты") + ".png", "cs-hic " + (created ? "gold" : "green")) + '<div class="cs-hbody"><div class="checks-list-row-title">' + actionText + '</div><div class="checks-list-row-sub">' + r.time_readable + (r.target_username ? " · @" + escapeHtml(r.target_username) : "") + "</div></div>" + '<div class="cs-hamt ' + (created ? "gold" : "green") + '">' + (created ? "−" : "+") + fmtNum(r.amount) + '$</div><i class="checks-chev-r"></i></div>';
+                return '<div class="checks-list-row cs-hrow" data-action="checks-history-detail" data-idx="' + i + '" data-scope="' + scope + '" data-page="' + page + '" style="--r:' + i + '">' + checksImgIcon("/lottie/images/" + (created ? "Выводы" : "Депозиты") + ".png", "cs-hic " + (created ? "gold" : "green")) + '<div class="cs-hbody"><div class="checks-list-row-title">' + actionText + '</div><div class="checks-list-row-sub">' + r.time_readable + (r.target_username ? " · @" + escapeHtml(r.target_username) : "") + "</div></div>" + '<div class="cs-hamt ' + (created ? "gold" : "green") + '">' + (created ? "−" : "+") + fmtNum(r.amount) + '⭐️</div><i class="checks-chev-r"></i></div>';
             }).join("");
         }
         const pag = checksPaginationHTML("history", page, data.totalPages, scope);
@@ -3880,8 +4015,8 @@ function checksRenderHistoryDetail(idx, scope, page) {
     checksSetChrome("Детали операции", true);
     const created = r.type === "created";
     const tone = created ? "gold" : "green";
-    let html = '<div class="checks-hero"><span class="checks-hero-ic"><span class="skel-box"></span>' + lazyImgTag(liteAsset(CHECKS_DIR + "Чеки.lottie"), "", "checks-icon-img") + '</span><div class="checks-hero-text"><small>' + (created ? "Создан чек" : "Получен чек") + '</small><b class="' + tone + '">' + (created ? "−" : "+") + fmtNum(r.amount) + "$</b><em>" + r.time_readable + "</em></div></div>";
-    let rows = checksInfoRow(CHECKS_DIR + "СистемаЧеков.png", "Действие", created ? "Создан чек" : "Получен чек") + checksInfoRow("/lottie/images/Баланс.png", "Сумма", fmtNum(r.amount) + "$") + checksInfoRow(CHECKS_DIR + "РазделИсторияЧеков.png", "Дата и время", r.time_readable);
+    let html = '<div class="checks-hero"><span class="checks-hero-ic"><span class="skel-box"></span>' + lazyImgTag(liteAsset(CHECKS_DIR + "Чеки.lottie"), "", "checks-icon-img") + '</span><div class="checks-hero-text"><small>' + (created ? "Создан чек" : "Получен чек") + '</small><b class="' + tone + '">' + (created ? "−" : "+") + fmtNum(r.amount) + "⭐️</b><em>" + r.time_readable + "</em></div></div>";
+    let rows = checksInfoRow(CHECKS_DIR + "СистемаЧеков.png", "Действие", created ? "Создан чек" : "Получен чек") + checksInfoRow("/lottie/images/Баланс.png", "Сумма", fmtNum(r.amount) + "⭐️") + checksInfoRow(CHECKS_DIR + "РазделИсторияЧеков.png", "Дата и время", r.time_readable);
     if (r.check_code) rows += checksInfoRow(CHECKS_DIR + "Чеки.png", "Код чека", '<span class="cs-code">' + escapeHtml(r.check_code) + "</span>");
     if (r.target_username) rows += checksInfoRow("/lottie/images/TelegramLogo.png", created ? "Получателю" : "От пользователя", "@" + escapeHtml(r.target_username));
     html += '<div class="checks-info">' + rows + "</div>";
@@ -4569,7 +4704,7 @@ function captchaHeroHTML() {
     const title = group ? captchaInfo && captchaInfo.chatTitle || "Игровой чат" : "Проверка в боте";
     const sub = group ? "Вы вступили в чат · пройдите проверку" : "Подтвердите, что вы не бот";
     let badgeClass = "";
-    let badge = CAPTCHA_ICONS.shield + (group ? "Moderator CryptoGame" : "Защита");
+    let badge = CAPTCHA_ICONS.shield + (group ? "Moderator MjrStar" : "Защита");
     if (captchaPhase === "success") {
         badgeClass = " ok";
         badge = CAPTCHA_ICONS.shield + "Проверка пройдена";
@@ -4663,7 +4798,7 @@ function paintCaptchaChrome() {
     const group = !!captchaGroupToken;
     const eyebrow = document.getElementById("captchaEyebrow");
     const title = document.getElementById("captchaTitle");
-    if (eyebrow) eyebrow.textContent = group ? "Moderator CryptoGame · защита чата" : "CryptoGame · безопасность";
+    if (eyebrow) eyebrow.textContent = group ? "Moderator MjrStar · защита чата" : "MjrStar · безопасность";
     if (title) title.textContent = group ? "Проверка при входе" : "Быстрая проверка";
 }
 
@@ -5012,7 +5147,7 @@ function blackjackPvpDeepLinkConfirmJoin(room) {
     if (searchResult) searchResult.style.display = "none";
     list.style.display = "";
     const canAfford = room.betAmount <= currentUser.balance + 1e-6;
-    list.innerHTML = '<div class="pvp-confirm-box">' + "<p>Вы хотите присоединиться к этой PvP игре в Блэкджек на сумму " + fmtNum(room.betAmount) + "$? Карты раздадутся сразу же, как только вы зайдёте!</p>" + '<button class="gv-start-btn' + (canAfford ? "" : " pvp-disabled") + '" type="button" id="pvpConfirmYes"' + (canAfford ? "" : " disabled") + ">Да, войти</button>" + '<button class="gv-outcome" type="button" id="pvpConfirmNo" style="display:block; width:100%; margin:10px 0 0;">Отмена</button>' + "</div>";
+    list.innerHTML = '<div class="pvp-confirm-box">' + "<p>Вы хотите присоединиться к этой PvP игре в Блэкджек на сумму " + fmtNum(room.betAmount) + "⭐️? Карты раздадутся сразу же, как только вы зайдёте!</p>" + '<button class="gv-start-btn' + (canAfford ? "" : " pvp-disabled") + '" type="button" id="pvpConfirmYes"' + (canAfford ? "" : " disabled") + ">Да, войти</button>" + '<button class="gv-outcome" type="button" id="pvpConfirmNo" style="display:block; width:100%; margin:10px 0 0;">Отмена</button>' + "</div>";
     document.getElementById("pvpConfirmNo").addEventListener("click", closeBlackjackPvpActiveModal);
     if (canAfford) document.getElementById("pvpConfirmYes").addEventListener("click", () => {
         closeBlackjackPvpActiveModal();
@@ -5244,7 +5379,7 @@ function ckcBuild() {
     for (let k = 0; k < t.seq.length; k++) pips += "<i></i>";
     let lives = "";
     for (let k = 0; k < t.attempts; k++) lives += "<i></i>";
-    content.innerHTML = '<div class="ckc" id="ckcRoot" data-phase="intro" data-level="' + t.level + '">' + '<div class="ckc-head"><h3 class="checks-activate-title">Проверка чека</h3><div class="ckc-tags"><span class="ckc-tag">' + escapeHtml(t.levelName) + '</span><span class="ckc-tag gold">' + fmtNum(checksActivateAmount) + "$</span></div></div>" + '<div class="ckc-stage" id="ckcStage"><div class="ckc-grid" id="ckcGrid">' + cells + '</div><div class="ckc-pop" id="ckcPop"></div></div>' + '<div class="ckc-pips" id="ckcPips">' + pips + "</div>" + '<p class="checks-activate-text ckc-msg" id="ckcMsg"></p>' + '<button class="modal-ok ckc-main" id="ckcMain" type="button" data-action="ckc-start">Начать</button>' + '<div class="ckc-foot"><div class="ckc-lives" id="ckcLives" aria-label="Попытки">' + lives + '</div><button class="ckc-ghost" id="ckcReplay" type="button" data-action="ckc-replay">Показать ещё раз</button><button class="ckc-ghost" type="button" data-action="ckc-cancel">Отмена</button></div></div>';
+    content.innerHTML = '<div class="ckc" id="ckcRoot" data-phase="intro" data-level="' + t.level + '">' + '<div class="ckc-head"><h3 class="checks-activate-title">Проверка чека</h3><div class="ckc-tags"><span class="ckc-tag">' + escapeHtml(t.levelName) + '</span><span class="ckc-tag gold">' + fmtNum(checksActivateAmount) + "⭐️</span></div></div>" + '<div class="ckc-stage" id="ckcStage"><div class="ckc-grid" id="ckcGrid">' + cells + '</div><div class="ckc-pop" id="ckcPop"></div></div>' + '<div class="ckc-pips" id="ckcPips">' + pips + "</div>" + '<p class="checks-activate-text ckc-msg" id="ckcMsg"></p>' + '<button class="modal-ok ckc-main" id="ckcMain" type="button" data-action="ckc-start">Начать</button>' + '<div class="ckc-foot"><div class="ckc-lives" id="ckcLives" aria-label="Попытки">' + lives + '</div><button class="ckc-ghost" id="ckcReplay" type="button" data-action="ckc-replay">Показать ещё раз</button><button class="ckc-ghost" type="button" data-action="ckc-cancel">Отмена</button></div></div>';
     const mine = ckc;
     content.querySelectorAll(".ckc-chest").forEach((el, i) => {
         const cell = {
@@ -5777,10 +5912,10 @@ function checksRenderActivate(data, code) {
     let text = "Вам предлагают " + (CHECK_TYPE_LABEL_RU[data.checkType] || "") + " чек";
     if (data.targetUsername) text += " для @" + data.targetUsername;
     const passwordFieldHTML = data.passwordRequired ? '<div class="checks-field" style="text-align:center; margin:14px 0;"><label>Пароль чека</label><input class="checks-input" id="checkActivatePasswordInput" type="text" placeholder="Введите пароль" maxlength="64" style="text-align:center;"></div>' : "";
-    const wagerNoticeHTML = data.hasWager ? '<p class="checks-activate-text" style="color:var(--gold-1); margin-top:6px;">У чека имеется условие отыгрыша суммы ' + fmtNum(data.wagerAmount) + '$ и ' + data.wagerGames + " игр.</p>" : "";
+    const wagerNoticeHTML = data.hasWager ? '<p class="checks-activate-text" style="color:var(--gold-1); margin-top:6px;">У чека имеется условие отыгрыша суммы ' + fmtNum(data.wagerAmount) + '⭐️ и ' + data.wagerGames + " игр.</p>" : "";
     let captchaNoteHTML = "";
     if (checksCaptchaNeed) captchaNoteHTML = checksCaptchaToken ? '<div class="ckc-note done"><span>' + CKC_SHIELD + "</span>Капча пройдена</div>" : '<div class="ckc-note"><span>' + CKC_SHIELD + "</span>Чек защищён капчей: нужно повторить порядок сундуков</div>";
-    content.innerHTML = '<h3 class="checks-activate-title">' + lazyImgTag(liteAsset("/lottie/images/ДатаРегистрации.lottie"), "", "checks-activate-title-icon") + " Активация чека</h3>" + '<div class="checks-activate-amount">' + fmtNum(data.amount) + "$</div>" + '<p class="checks-activate-text">' + text + "</p>" + wagerNoticeHTML + (data.canActivate ? captchaNoteHTML + passwordFieldHTML + '<button class="modal-ok" id="checkActivateBtn" data-action="checks-do-activate" data-code="' + code + '">' + checksActivateBtnLabel() + "</button>" : '<p class="checks-activate-text" style="color:#ff8478;">' + escapeHtml(data.blockedReason || "Активация недоступна") + "</p>" + '<button class="modal-ok" data-action="checks-activate-close" style="background:rgba(255,255,255,.08); color:var(--text-0);">Закрыть</button>');
+    content.innerHTML = '<h3 class="checks-activate-title">' + lazyImgTag(liteAsset("/lottie/images/ДатаРегистрации.lottie"), "", "checks-activate-title-icon") + " Активация чека</h3>" + '<div class="checks-activate-amount">' + fmtNum(data.amount) + "⭐️</div>" + '<p class="checks-activate-text">' + text + "</p>" + wagerNoticeHTML + (data.canActivate ? captchaNoteHTML + passwordFieldHTML + '<button class="modal-ok" id="checkActivateBtn" data-action="checks-do-activate" data-code="' + code + '">' + checksActivateBtnLabel() + "</button>" : '<p class="checks-activate-text" style="color:#ff8478;">' + escapeHtml(data.blockedReason || "Активация недоступна") + "</p>" + '<button class="modal-ok" data-action="checks-activate-close" style="background:rgba(255,255,255,.08); color:var(--text-0);">Закрыть</button>');
     if (data.canActivate && checksActivateCooldownRemainingMs() > 0) {
         checksStartActivateCooldown(document.getElementById("checkActivateBtn"));
     }
@@ -5972,7 +6107,7 @@ function checksDoActivate(code) {
             try {
                 if (tgWebApp && tgWebApp.HapticFeedback) tgWebApp.HapticFeedback.notificationOccurred("success");
             } catch (err) {}
-            content.innerHTML = '<h3 class="checks-activate-title">' + lazyImgTag("/lottie/images/ВыСНами.lottie", "", "checks-activate-title-icon") + " Получено: " + fmtNum(data.amount) + "$</h3>" + '<p class="checks-activate-text">Средства зачислены на баланс.</p>' + '<button class="modal-ok" data-action="checks-activate-close">Отлично!</button>';
+            content.innerHTML = '<h3 class="checks-activate-title">' + lazyImgTag("/lottie/images/ВыСНами.lottie", "", "checks-activate-title-icon") + " Получено: " + fmtNum(data.amount) + "⭐️</h3>" + '<p class="checks-activate-text">Средства зачислены на баланс.</p>' + '<button class="modal-ok" data-action="checks-activate-close">Отлично!</button>';
             if (currentUser && typeof data.newBalance === "number") {
                 currentUser.balance = cleanBalance(data.newBalance);
                 applyUserToUI();
@@ -6208,34 +6343,7 @@ function dogHouseVersion() {
 let dogHouseOpenToken = 0;
 
 function openDogHouse(opts) {
-    if (!(opts && typeof opts.replay === "string" && opts.replay) && gameSwitchOff.has("doghouse")) {
-        showToast("Игра временно недоступна", "warning");
-        return;
-    }
-    const overlay = document.getElementById("dogHouseOverlay");
-    const frame = document.getElementById("dogHouseFrame");
-    if (!overlay || !frame || overlay.classList.contains("show")) return;
-    const replayId = opts && typeof opts.replay === "string" ? opts.replay : "";
-    const token = ++dogHouseOpenToken;
-    frame.setAttribute("data-replay", replayId);
-    overlay.classList.add("show");
-    overlay.setAttribute("aria-hidden", "false");
-    document.documentElement.classList.add("dh-open");
-    const v = dogHouseVersion();
-    fetch("/api/doghouse/page" + (v ? "?v=" + encodeURIComponent(v) : ""), {
-        cache: "no-store",
-        credentials: "same-origin"
-    }).then(r => {
-        if (!r.ok) throw new Error("bad status");
-        return r.text();
-    }).then(html => {
-        if (token !== dogHouseOpenToken || !overlay.classList.contains("show")) return;
-        frame.srcdoc = html;
-    }).catch(() => {
-        if (token !== dogHouseOpenToken) return;
-        dogHouseClose();
-        showToast("Не удалось открыть игру. Проверьте соединение", "error");
-    });
+    showToast("DogHouse удалён из доступных игр", "warning");
 }
 
 function dogHouseClose() {
@@ -6515,11 +6623,11 @@ function pvpDiceShowResult(result) {
         pvpDiceSetStatus("");
         pvpDiceSetFairBox(result.roomId, myCheckLink);
         if (result.isDraw) {
-            showPvpDiceResultBox("draw", '<span style="font-weight:400;">Ничья ' + myVal + ":" + oppVal + " — ставка " + fmtNum(result.betAmount) + "$ возвращена</span>");
+            showPvpDiceResultBox("draw", '<span style="font-weight:400;">Ничья ' + myVal + ":" + oppVal + " — ставка " + fmtNum(result.betAmount) + "⭐️ возвращена</span>");
         } else {
             const won = iAmCreator ? result.winnerId === result.creatorId : result.winnerId === result.opponentId;
-            if (won) showPvpDiceResultBox("win", '<span style="font-weight:400;">Выигрыш +' + fmtNum(result.winAmount) + "$</span>");
-            else showPvpDiceResultBox("lose", '<span style="font-weight:400;">Проигрыш ' + fmtNum(result.betAmount) + "$</span>");
+            if (won) showPvpDiceResultBox("win", '<span style="font-weight:400;">Выигрыш +' + fmtNum(result.winAmount) + "⭐️</span>");
+            else showPvpDiceResultBox("lose", '<span style="font-weight:400;">Проигрыш ' + fmtNum(result.betAmount) + "⭐️</span>");
         }
         loadUserState();
         loadPvpDiceHistory();
@@ -6668,19 +6776,19 @@ function pvpDiceCancelRoom() {
 }
 
 function pvpDiceHistoryRowHTML(r) {
-    const resultLabel = r.isDraw ? '<span class="gv-history-draw">Ничья</span>' : '<span class="gv-history-win">' + escapeHtml(r.winnerId === r.creatorId ? r.creatorName : r.opponentName) + " выиграл " + fmtNum(r.winAmount) + "$</span>";
-    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-mid pvp-history-mid">' + "<div>" + '<div class="gv-history-name">' + escapeHtml(r.creatorName || "—") + " vs " + escapeHtml(r.opponentName || "—") + "</div>" + historyTimeHTML(r.finishedAt || r.createdAt) + "</div>" + pvpHistoryAvatarsHTML(r.creatorId, r.opponentId) + "</div>" + '<div class="gv-history-right">Ставка: <b>' + fmtNum(r.betAmount) + "$</b><br>" + resultLabel + "</div>" + "</div>" + '<button class="crash-history-fair-btn" type="button" data-pvp-dice-round="' + escapeHtml(r.roomId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" + "</div>";
+    const resultLabel = r.isDraw ? '<span class="gv-history-draw">Ничья</span>' : '<span class="gv-history-win">' + escapeHtml(r.winnerId === r.creatorId ? r.creatorName : r.opponentName) + " выиграл " + fmtNum(r.winAmount) + "⭐️</span>";
+    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-mid pvp-history-mid">' + "<div>" + '<div class="gv-history-name">' + escapeHtml(r.creatorName || "—") + " vs " + escapeHtml(r.opponentName || "—") + "</div>" + historyTimeHTML(r.finishedAt || r.createdAt) + "</div>" + pvpHistoryAvatarsHTML(r.creatorId, r.opponentId) + "</div>" + '<div class="gv-history-right">Ставка: <b>' + fmtNum(r.betAmount) + "⭐️</b><br>" + resultLabel + "</div>" + "</div>" + '<button class="crash-history-fair-btn" type="button" data-pvp-dice-round="' + escapeHtml(r.roomId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" + "</div>";
 }
 
 function pvpSearchResultRowHTML(r) {
     if (r.status === "finished") {
-        const resultLabel = r.isDraw ? '<span class="gv-history-draw">Ничья</span>' : '<span class="gv-history-win">' + escapeHtml(r.winnerId === r.creatorId ? r.creatorName : r.opponentName) + " выиграл " + fmtNum(r.winAmount) + "$</span>";
-        return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-mid pvp-history-mid">' + "<div>" + '<div class="gv-history-name">' + escapeHtml(r.creatorName || "—") + " vs " + escapeHtml(r.opponentName || "—") + "</div>" + historyTimeHTML(r.finishedAt || r.createdAt) + "</div>" + pvpHistoryAvatarsHTML(r.creatorId, r.opponentId) + "</div>" + '<div class="gv-history-right">Ставка: <b>' + fmtNum(r.betAmount) + "$</b><br>" + resultLabel + "</div>" + "</div>" + '<button class="crash-history-fair-btn" type="button" data-pvp-round="' + escapeHtml(r.roomId) + '" data-pvp-round-game="' + escapeHtml(r.game || "dice") + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" + "</div>";
+        const resultLabel = r.isDraw ? '<span class="gv-history-draw">Ничья</span>' : '<span class="gv-history-win">' + escapeHtml(r.winnerId === r.creatorId ? r.creatorName : r.opponentName) + " выиграл " + fmtNum(r.winAmount) + "⭐️</span>";
+        return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-mid pvp-history-mid">' + "<div>" + '<div class="gv-history-name">' + escapeHtml(r.creatorName || "—") + " vs " + escapeHtml(r.opponentName || "—") + "</div>" + historyTimeHTML(r.finishedAt || r.createdAt) + "</div>" + pvpHistoryAvatarsHTML(r.creatorId, r.opponentId) + "</div>" + '<div class="gv-history-right">Ставка: <b>' + fmtNum(r.betAmount) + "⭐️</b><br>" + resultLabel + "</div>" + "</div>" + '<button class="crash-history-fair-btn" type="button" data-pvp-round="' + escapeHtml(r.roomId) + '" data-pvp-round-game="' + escapeHtml(r.game || "dice") + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" + "</div>";
     }
     if (r.status === "waiting" || r.status === "active") {
         const isMine = r.creatorId === CURRENT_UID;
         const subLabel = r.status === "active" ? "Бой уже идёт…" : "Ждёт соперника";
-        return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-mid pvp-history-mid">' + "<div>" + '<div class="gv-history-name">' + escapeHtml(r.creatorName || "—") + (r.opponentName ? " vs " + escapeHtml(r.opponentName) : "") + "</div>" + '<div class="gv-history-time">' + subLabel + "</div>" + "</div>" + pvpHistoryAvatarsHTML(r.creatorId, r.opponentId) + "</div>" + '<div class="gv-history-right">Ставка: <b>' + fmtNum(r.betAmount) + "$</b></div>" + "</div>" + '<button class="crash-history-fair-btn" type="button" data-pvp-goto-room="' + escapeHtml(r.roomId) + '" data-pvp-goto-game="' + escapeHtml(r.game || "dice") + '" data-pvp-goto-mine="' + (isMine ? "1" : "0") + '"' + (r.status === "active" ? " disabled" : "") + ">Перейти к игре</button>" + "</div>";
+        return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-mid pvp-history-mid">' + "<div>" + '<div class="gv-history-name">' + escapeHtml(r.creatorName || "—") + (r.opponentName ? " vs " + escapeHtml(r.opponentName) : "") + "</div>" + '<div class="gv-history-time">' + subLabel + "</div>" + "</div>" + pvpHistoryAvatarsHTML(r.creatorId, r.opponentId) + "</div>" + '<div class="gv-history-right">Ставка: <b>' + fmtNum(r.betAmount) + "⭐️</b></div>" + "</div>" + '<button class="crash-history-fair-btn" type="button" data-pvp-goto-room="' + escapeHtml(r.roomId) + '" data-pvp-goto-game="' + escapeHtml(r.game || "dice") + '" data-pvp-goto-mine="' + (isMine ? "1" : "0") + '"' + (r.status === "active" ? " disabled" : "") + ">Перейти к игре</button>" + "</div>";
     }
     return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-mid">' + '<div class="gv-history-name">' + escapeHtml(r.creatorName || "—") + "</div>" + '<div class="gv-history-time">Комната отменена</div>' + "</div>" + "</div>" + "</div>";
 }
@@ -6853,7 +6961,7 @@ function pvpRoomListSkeletonHTML(count) {
 function pvpActiveRoomRowHTML(room) {
     const isMine = !!room.isMine;
     const disabled = isMine || room.bet > currentUser.balance;
-    return '<div class="crash-player-row" data-room-id="' + escapeHtml(room.roomId) + '">' + '<div class="crash-player-avatar"><img src="' + room.avatarUrl + '" alt=""></div>' + '<div class="crash-player-mid">' + '<div class="crash-player-name">' + escapeHtml(room.creatorName) + (isMine ? ' <span style="color:var(--text-2); font-weight:600;">(вы)</span>' : "") + "</div>" + '<div class="crash-player-sub">Ставка ' + fmtNum(room.bet) + "$ · #" + escapeHtml(room.roomId) + "</div>" + "</div>" + '<button class="pvp-room-join-btn' + (disabled ? " disabled" : "") + '" type="button"' + (disabled ? " disabled" : "") + ">Войти</button>" + "</div>";
+    return '<div class="crash-player-row" data-room-id="' + escapeHtml(room.roomId) + '">' + '<div class="crash-player-avatar"><img src="' + room.avatarUrl + '" alt=""></div>' + '<div class="crash-player-mid">' + '<div class="crash-player-name">' + escapeHtml(room.creatorName) + (isMine ? ' <span style="color:var(--text-2); font-weight:600;">(вы)</span>' : "") + "</div>" + '<div class="crash-player-sub">Ставка ' + fmtNum(room.bet) + "⭐️ · #" + escapeHtml(room.roomId) + "</div>" + "</div>" + '<button class="pvp-room-join-btn' + (disabled ? " disabled" : "") + '" type="button"' + (disabled ? " disabled" : "") + ">Войти</button>" + "</div>";
 }
 
 function closePvpActiveModal() {
@@ -7016,7 +7124,7 @@ if (pvpActiveModal) pvpActiveModal.addEventListener("click", e => {
 });
 
 function pvpMyRoomsRowHTML(room) {
-    return '<div class="crash-player-row" data-my-room-id="' + escapeHtml(room.id) + '">' + '<div class="crash-player-mid">' + '<div class="crash-player-name">Комната #' + escapeHtml(room.id) + "</div>" + '<div class="crash-player-sub">Ставка ' + fmtNum(room.bet_amount) + "$ · " + escapeHtml(String(room.created_at || "").replace("T", " ").slice(0, 16)) + "</div>" + "</div>" + '<button class="pvp-room-join-btn" type="button">Перейти</button>' + "</div>";
+    return '<div class="crash-player-row" data-my-room-id="' + escapeHtml(room.id) + '">' + '<div class="crash-player-mid">' + '<div class="crash-player-name">Комната #' + escapeHtml(room.id) + "</div>" + '<div class="crash-player-sub">Ставка ' + fmtNum(room.bet_amount) + "⭐️ · " + escapeHtml(String(room.created_at || "").replace("T", " ").slice(0, 16)) + "</div>" + "</div>" + '<button class="pvp-room-join-btn" type="button">Перейти</button>' + "</div>";
 }
 
 function closePvpMyRoomsModal() {
@@ -7088,9 +7196,9 @@ function pvpDiceRoundDetailHTML(d) {
     const isDraw = d.isDraw;
     const winnerName = isDraw ? null : d.winnerId === d.creatorId ? d.creatorName : d.opponentName;
     const statusCls = isDraw ? "draw" : "win";
-    const statusText = isDraw ? "Ничья — возврат " + fmtNum(d.betAmount) + "$ каждому" : escapeHtml(winnerName) + " выигрывает " + fmtNum(d.winAmount) + "$";
+    const statusText = isDraw ? "Ничья — возврат " + fmtNum(d.betAmount) + "⭐️ каждому" : escapeHtml(winnerName) + " выигрывает " + fmtNum(d.winAmount) + "⭐️";
     const dateStr = mskStr(d.finishedAt || d.createdAt);
-    return '<div class="emoji-round-status ' + statusCls + '">' + statusText + "</div>" + '<div class="emoji-round-media">' + '<div class="dice-pair">' + pvpDiceFaceHTML(escapeHtml(d.creatorName), diceFaceUrl(d.creatorResult)) + '<div class="dice-divider"></div>' + pvpDiceFaceHTML(escapeHtml(d.opponentName), diceFaceUrl(d.opponentResult)) + "</div>" + "</div>" + '<div class="emoji-round-infogrid">' + '<div class="emoji-round-info-item"><div class="emoji-round-info-label">Банк:</div><div class="emoji-round-info-value">' + fmtNum(d.betAmount * 2) + "$</div></div>" + '<div class="emoji-round-info-item"><div class="emoji-round-info-label">PvP игра:</div><div class="emoji-round-info-value">Кости</div></div>' + '<div class="emoji-round-info-item"><div class="emoji-round-info-label">Игрок 1:</div><div class="emoji-round-info-value">' + pvpPlayerLabelHTML(d.creatorId ? "/api/avatar/" + d.creatorId : null, escapeHtml(d.creatorName)) + "</div></div>" + '<div class="emoji-round-info-item"><div class="emoji-round-info-label">Игрок 2:</div><div class="emoji-round-info-value">' + pvpPlayerLabelHTML(d.opponentId ? "/api/avatar/" + d.opponentId : null, escapeHtml(d.opponentName)) + "</div></div>" + '<div class="emoji-round-info-item emoji-round-info-item-wide"><div class="emoji-round-info-label">Результат</div><div class="emoji-round-info-value ' + statusCls + '">' + (isDraw ? "Ничья" : escapeHtml(winnerName) + " Выиграл") + "</div></div>" + '<div class="emoji-round-info-item emoji-round-info-item-wide"><div class="emoji-round-info-label">Дата и время</div><div class="emoji-round-info-value">' + dateStr + "</div></div>" + "</div>" + '<div class="admin-card" style="display:flex; flex-direction:column; gap:10px; margin-top:14px;">' + (d.creatorCheckLink ? '<a class="gv-fair" href="' + d.creatorCheckLink + '" target="_blank" rel="noopener" style="position:static;"><span class="gv-fair-icon">✓</span><span>Бросок: ' + escapeHtml(d.creatorName) + "</span></a>" : "") + (d.opponentCheckLink ? '<a class="gv-fair" href="' + d.opponentCheckLink + '" target="_blank" rel="noopener" style="position:static;"><span class="gv-fair-icon">✓</span><span>Бросок: ' + escapeHtml(d.opponentName) + "</span></a>" : "") + "</div>" + '<div class="emoji-round-note">' + '<div class="emoji-round-note-title">' + '<span class="emoji-round-note-icon"><span class="skel-box"></span>' + lazyImgTag(liteAsset("/lottie/images/ДатаРегистрации.lottie"), "", "") + "</span>" + "Результат нельзя подкрутить" + "</div>" + "<p>Это честная PvP-дуэль между двумя живыми игроками — оба броска настоящие и происходят в игровом канале, подкрутить их никак нельзя.</p>" + "<p><b>Как это работает.</b> В момент, когда второй игрок заходит в комнату:</p>" + "<ul>" + "<li>Бот отправляет в игровой канал два настоящих броска подряд — один за создателя комнаты, один за присоединившегося игрока.</li>" + "<li>Сервер Telegram с помощью генератора случайных чисел (RNG) мгновенно определяет результат каждого броска — точно так же честно, как и в обычной игре против бота.</li>" + "<li>У кого результат лучше — тот забирает банк за вычетом комиссии платформы; оба броска можно проверить по ссылкам выше — они ведут на настоящие сообщения в канале.</li>" + "</ul>" + "</div>";
+    return '<div class="emoji-round-status ' + statusCls + '">' + statusText + "</div>" + '<div class="emoji-round-media">' + '<div class="dice-pair">' + pvpDiceFaceHTML(escapeHtml(d.creatorName), diceFaceUrl(d.creatorResult)) + '<div class="dice-divider"></div>' + pvpDiceFaceHTML(escapeHtml(d.opponentName), diceFaceUrl(d.opponentResult)) + "</div>" + "</div>" + '<div class="emoji-round-infogrid">' + '<div class="emoji-round-info-item"><div class="emoji-round-info-label">Банк:</div><div class="emoji-round-info-value">' + fmtNum(d.betAmount * 2) + "⭐️</div></div>" + '<div class="emoji-round-info-item"><div class="emoji-round-info-label">PvP игра:</div><div class="emoji-round-info-value">Кости</div></div>' + '<div class="emoji-round-info-item"><div class="emoji-round-info-label">Игрок 1:</div><div class="emoji-round-info-value">' + pvpPlayerLabelHTML(d.creatorId ? "/api/avatar/" + d.creatorId : null, escapeHtml(d.creatorName)) + "</div></div>" + '<div class="emoji-round-info-item"><div class="emoji-round-info-label">Игрок 2:</div><div class="emoji-round-info-value">' + pvpPlayerLabelHTML(d.opponentId ? "/api/avatar/" + d.opponentId : null, escapeHtml(d.opponentName)) + "</div></div>" + '<div class="emoji-round-info-item emoji-round-info-item-wide"><div class="emoji-round-info-label">Результат</div><div class="emoji-round-info-value ' + statusCls + '">' + (isDraw ? "Ничья" : escapeHtml(winnerName) + " Выиграл") + "</div></div>" + '<div class="emoji-round-info-item emoji-round-info-item-wide"><div class="emoji-round-info-label">Дата и время</div><div class="emoji-round-info-value">' + dateStr + "</div></div>" + "</div>" + '<div class="admin-card" style="display:flex; flex-direction:column; gap:10px; margin-top:14px;">' + (d.creatorCheckLink ? '<a class="gv-fair" href="' + d.creatorCheckLink + '" target="_blank" rel="noopener" style="position:static;"><span class="gv-fair-icon">✓</span><span>Бросок: ' + escapeHtml(d.creatorName) + "</span></a>" : "") + (d.opponentCheckLink ? '<a class="gv-fair" href="' + d.opponentCheckLink + '" target="_blank" rel="noopener" style="position:static;"><span class="gv-fair-icon">✓</span><span>Бросок: ' + escapeHtml(d.opponentName) + "</span></a>" : "") + "</div>" + '<div class="emoji-round-note">' + '<div class="emoji-round-note-title">' + '<span class="emoji-round-note-icon"><span class="skel-box"></span>' + lazyImgTag(liteAsset("/lottie/images/ДатаРегистрации.lottie"), "", "") + "</span>" + "Результат нельзя подкрутить" + "</div>" + "<p>Это честная PvP-дуэль между двумя живыми игроками — оба броска настоящие и происходят в игровом канале, подкрутить их никак нельзя.</p>" + "<p><b>Как это работает.</b> В момент, когда второй игрок заходит в комнату:</p>" + "<ul>" + "<li>Бот отправляет в игровой канал два настоящих броска подряд — один за создателя комнаты, один за присоединившегося игрока.</li>" + "<li>Сервер Telegram с помощью генератора случайных чисел (RNG) мгновенно определяет результат каждого броска — точно так же честно, как и в обычной игре против бота.</li>" + "<li>У кого результат лучше — тот забирает банк за вычетом комиссии платформы; оба броска можно проверить по ссылкам выше — они ведут на настоящие сообщения в канале.</li>" + "</ul>" + "</div>";
 }
 
 function openPvpDiceRoundModal(roomId) {
@@ -7199,7 +7307,7 @@ function pvpAllActiveRoomRowHTML(room) {
     const isMine = !!room.isMine;
     const disabled = isMine || room.bet > currentUser.balance;
     const gameLabel = PVP_ALL_GAME_LABELS[room.game] || room.game;
-    return '<div class="crash-player-row" data-room-id="' + escapeHtml(room.roomId) + '" data-room-game="' + escapeHtml(room.game) + '">' + '<div class="crash-player-avatar"><img src="' + room.avatarUrl + '" alt=""></div>' + '<div class="crash-player-mid">' + '<div class="crash-player-name">' + escapeHtml(room.creatorName) + (isMine ? ' <span style="color:var(--text-2); font-weight:600;">(вы)</span>' : "") + "</div>" + '<div class="crash-player-sub">' + gameLabel + " · Ставка " + fmtNum(room.bet) + "$ · #" + escapeHtml(room.roomId) + "</div>" + "</div>" + '<button class="pvp-room-join-btn' + (disabled ? " disabled" : "") + '" type="button"' + (disabled ? " disabled" : "") + ">Войти</button>" + "</div>";
+    return '<div class="crash-player-row" data-room-id="' + escapeHtml(room.roomId) + '" data-room-game="' + escapeHtml(room.game) + '">' + '<div class="crash-player-avatar"><img src="' + room.avatarUrl + '" alt=""></div>' + '<div class="crash-player-mid">' + '<div class="crash-player-name">' + escapeHtml(room.creatorName) + (isMine ? ' <span style="color:var(--text-2); font-weight:600;">(вы)</span>' : "") + "</div>" + '<div class="crash-player-sub">' + gameLabel + " · Ставка " + fmtNum(room.bet) + "⭐️ · #" + escapeHtml(room.roomId) + "</div>" + "</div>" + '<button class="pvp-room-join-btn' + (disabled ? " disabled" : "") + '" type="button"' + (disabled ? " disabled" : "") + ">Войти</button>" + "</div>";
 }
 
 function loadPvpAllActiveList(append) {
@@ -7605,11 +7713,11 @@ function pvpGenShowResult(result) {
         pvpGenSetFairBox(result.roomId, myCheckLink);
         const detail = '<span class="dr-sub">Вы: ' + escapeHtml(myLabel || "") + " · Соперник: " + escapeHtml(oppLabel || "") + "</span>";
         if (result.isDraw) {
-            showPvpGenResultBox("draw", '<span style="font-weight:400;">Ничья — ставка ' + fmtNum(result.betAmount) + "$ возвращена" + detail + "</span>");
+            showPvpGenResultBox("draw", '<span style="font-weight:400;">Ничья — ставка ' + fmtNum(result.betAmount) + "⭐️ возвращена" + detail + "</span>");
         } else {
             const won = iAmCreator ? result.winnerId === result.creatorId : result.winnerId === result.opponentId;
-            if (won) showPvpGenResultBox("win", '<span style="font-weight:400;">Выигрыш +' + fmtNum(result.winAmount) + "$" + detail + "</span>");
-            else showPvpGenResultBox("lose", '<span style="font-weight:400;">Проигрыш ' + fmtNum(result.betAmount) + "$" + detail + "</span>");
+            if (won) showPvpGenResultBox("win", '<span style="font-weight:400;">Выигрыш +' + fmtNum(result.winAmount) + "⭐️" + detail + "</span>");
+            else showPvpGenResultBox("lose", '<span style="font-weight:400;">Проигрыш ' + fmtNum(result.betAmount) + "⭐️" + detail + "</span>");
         }
         loadUserState();
         loadPvpGenHistory();
@@ -7758,8 +7866,8 @@ function pvpGenCancelRoom() {
 }
 
 function pvpGenHistoryRowHTML(r) {
-    const resultLabel = r.isDraw ? '<span class="gv-history-draw">Ничья</span>' : '<span class="gv-history-win">' + escapeHtml(r.winnerId === r.creatorId ? r.creatorName : r.opponentName) + " выиграл " + fmtNum(r.winAmount) + "$</span>";
-    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-mid pvp-history-mid">' + "<div>" + '<div class="gv-history-name">' + escapeHtml(r.creatorName || "—") + " vs " + escapeHtml(r.opponentName || "—") + "</div>" + historyTimeHTML(r.finishedAt || r.createdAt) + "</div>" + pvpHistoryAvatarsHTML(r.creatorId, r.opponentId) + "</div>" + '<div class="gv-history-right">Ставка: <b>' + fmtNum(r.betAmount) + "$</b><br>" + resultLabel + "</div>" + "</div>" + '<button class="crash-history-fair-btn" type="button" data-pvp-gen-round="' + escapeHtml(r.roomId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" + "</div>";
+    const resultLabel = r.isDraw ? '<span class="gv-history-draw">Ничья</span>' : '<span class="gv-history-win">' + escapeHtml(r.winnerId === r.creatorId ? r.creatorName : r.opponentName) + " выиграл " + fmtNum(r.winAmount) + "⭐️</span>";
+    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-mid pvp-history-mid">' + "<div>" + '<div class="gv-history-name">' + escapeHtml(r.creatorName || "—") + " vs " + escapeHtml(r.opponentName || "—") + "</div>" + historyTimeHTML(r.finishedAt || r.createdAt) + "</div>" + pvpHistoryAvatarsHTML(r.creatorId, r.opponentId) + "</div>" + '<div class="gv-history-right">Ставка: <b>' + fmtNum(r.betAmount) + "⭐️</b><br>" + resultLabel + "</div>" + "</div>" + '<button class="crash-history-fair-btn" type="button" data-pvp-gen-round="' + escapeHtml(r.roomId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" + "</div>";
 }
 
 function loadPvpGenHistory(scope, append) {
@@ -7779,11 +7887,11 @@ function pvpGenRoundDetailHTML(cfg, d) {
     const isDraw = d.isDraw;
     const winnerName = isDraw ? null : d.winnerId === d.creatorId ? d.creatorName : d.opponentName;
     const statusCls = isDraw ? "draw" : "win";
-    const statusText = isDraw ? "Ничья — возврат " + fmtNum(d.betAmount) + "$ каждому" : escapeHtml(winnerName) + " выигрывает " + fmtNum(d.winAmount) + "$";
+    const statusText = isDraw ? "Ничья — возврат " + fmtNum(d.betAmount) + "⭐️ каждому" : escapeHtml(winnerName) + " выигрывает " + fmtNum(d.winAmount) + "⭐️";
     const gameName = String(cfg.title || "").replace(/^PvP:\s*/, "");
     const dateStr = mskStr(d.finishedAt || d.createdAt);
     const pairHtml = cfg.isSlots ? '<div style="width:100%;">' + pvpGenSlotsRowHTML(d.creatorReels, escapeHtml(d.creatorName)) + '<div class="my-games-divider"></div>' + pvpGenSlotsRowHTML(d.opponentReels, escapeHtml(d.opponentName)) + "</div>" : '<div class="dice-pair">' + pvpDiceFaceHTML(escapeHtml(d.creatorName), cfg.urlFn(d.creatorResult)) + '<div class="dice-divider"></div>' + pvpDiceFaceHTML(escapeHtml(d.opponentName), cfg.urlFn(d.opponentResult)) + "</div>";
-    return '<div class="emoji-round-status ' + statusCls + '">' + statusText + "</div>" + '<div class="emoji-round-media">' + pairHtml + "</div>" + '<div class="emoji-round-infogrid">' + '<div class="emoji-round-info-item"><div class="emoji-round-info-label">Банк:</div><div class="emoji-round-info-value">' + fmtNum(d.betAmount * 2) + "$</div></div>" + '<div class="emoji-round-info-item"><div class="emoji-round-info-label">PvP игра:</div><div class="emoji-round-info-value">' + escapeHtml(gameName) + "</div></div>" + '<div class="emoji-round-info-item"><div class="emoji-round-info-label">Игрок 1:</div><div class="emoji-round-info-value">' + pvpPlayerLabelHTML(d.creatorId ? "/api/avatar/" + d.creatorId : null, escapeHtml(d.creatorName)) + "</div></div>" + '<div class="emoji-round-info-item"><div class="emoji-round-info-label">Игрок 2:</div><div class="emoji-round-info-value">' + pvpPlayerLabelHTML(d.opponentId ? "/api/avatar/" + d.opponentId : null, escapeHtml(d.opponentName)) + "</div></div>" + '<div class="emoji-round-info-item emoji-round-info-item-wide"><div class="emoji-round-info-label">Результат</div><div class="emoji-round-info-value ' + statusCls + '">' + (isDraw ? "Ничья" : escapeHtml(winnerName) + " Выиграл") + "</div></div>" + '<div class="emoji-round-info-item emoji-round-info-item-wide"><div class="emoji-round-info-label">Дата и время</div><div class="emoji-round-info-value">' + dateStr + "</div></div>" + "</div>" + '<div class="admin-card" style="display:flex; flex-direction:column; gap:10px; margin-top:14px;">' + (d.creatorCheckLink ? '<a class="gv-fair" href="' + d.creatorCheckLink + '" target="_blank" rel="noopener" style="position:static;"><span class="gv-fair-icon">✓</span><span>Бросок: ' + escapeHtml(d.creatorName) + "</span></a>" : "") + (d.opponentCheckLink ? '<a class="gv-fair" href="' + d.opponentCheckLink + '" target="_blank" rel="noopener" style="position:static;"><span class="gv-fair-icon">✓</span><span>Бросок: ' + escapeHtml(d.opponentName) + "</span></a>" : "") + "</div>" + '<div class="emoji-round-note">' + '<div class="emoji-round-note-title">' + '<span class="emoji-round-note-icon"><span class="skel-box"></span>' + lazyImgTag(liteAsset("/lottie/images/ДатаРегистрации.lottie"), "", "") + "</span>" + "Результат нельзя подкрутить" + "</div>" + "<p>Это честная PvP-дуэль между двумя живыми игроками — оба броска настоящие и происходят в игровом канале, подкрутить их никак нельзя.</p>" + "<p><b>Как это работает.</b> В момент, когда второй игрок заходит в комнату:</p>" + "<ul>" + "<li>Бот отправляет в игровой канал два настоящих броска подряд — один за создателя комнаты, один за присоединившегося игрока.</li>" + "<li>Сервер Telegram с помощью генератора случайных чисел (RNG) мгновенно определяет результат каждого броска — точно так же честно, как и в обычной игре против бота.</li>" + "<li>У кого результат лучше — тот забирает банк за вычетом комиссии платформы; оба броска можно проверить по ссылкам выше — они ведут на настоящие сообщения в канале.</li>" + "</ul>" + "</div>";
+    return '<div class="emoji-round-status ' + statusCls + '">' + statusText + "</div>" + '<div class="emoji-round-media">' + pairHtml + "</div>" + '<div class="emoji-round-infogrid">' + '<div class="emoji-round-info-item"><div class="emoji-round-info-label">Банк:</div><div class="emoji-round-info-value">' + fmtNum(d.betAmount * 2) + "⭐️</div></div>" + '<div class="emoji-round-info-item"><div class="emoji-round-info-label">PvP игра:</div><div class="emoji-round-info-value">' + escapeHtml(gameName) + "</div></div>" + '<div class="emoji-round-info-item"><div class="emoji-round-info-label">Игрок 1:</div><div class="emoji-round-info-value">' + pvpPlayerLabelHTML(d.creatorId ? "/api/avatar/" + d.creatorId : null, escapeHtml(d.creatorName)) + "</div></div>" + '<div class="emoji-round-info-item"><div class="emoji-round-info-label">Игрок 2:</div><div class="emoji-round-info-value">' + pvpPlayerLabelHTML(d.opponentId ? "/api/avatar/" + d.opponentId : null, escapeHtml(d.opponentName)) + "</div></div>" + '<div class="emoji-round-info-item emoji-round-info-item-wide"><div class="emoji-round-info-label">Результат</div><div class="emoji-round-info-value ' + statusCls + '">' + (isDraw ? "Ничья" : escapeHtml(winnerName) + " Выиграл") + "</div></div>" + '<div class="emoji-round-info-item emoji-round-info-item-wide"><div class="emoji-round-info-label">Дата и время</div><div class="emoji-round-info-value">' + dateStr + "</div></div>" + "</div>" + '<div class="admin-card" style="display:flex; flex-direction:column; gap:10px; margin-top:14px;">' + (d.creatorCheckLink ? '<a class="gv-fair" href="' + d.creatorCheckLink + '" target="_blank" rel="noopener" style="position:static;"><span class="gv-fair-icon">✓</span><span>Бросок: ' + escapeHtml(d.creatorName) + "</span></a>" : "") + (d.opponentCheckLink ? '<a class="gv-fair" href="' + d.opponentCheckLink + '" target="_blank" rel="noopener" style="position:static;"><span class="gv-fair-icon">✓</span><span>Бросок: ' + escapeHtml(d.opponentName) + "</span></a>" : "") + "</div>" + '<div class="emoji-round-note">' + '<div class="emoji-round-note-title">' + '<span class="emoji-round-note-icon"><span class="skel-box"></span>' + lazyImgTag(liteAsset("/lottie/images/ДатаРегистрации.lottie"), "", "") + "</span>" + "Результат нельзя подкрутить" + "</div>" + "<p>Это честная PvP-дуэль между двумя живыми игроками — оба броска настоящие и происходят в игровом канале, подкрутить их никак нельзя.</p>" + "<p><b>Как это работает.</b> В момент, когда второй игрок заходит в комнату:</p>" + "<ul>" + "<li>Бот отправляет в игровой канал два настоящих броска подряд — один за создателя комнаты, один за присоединившегося игрока.</li>" + "<li>Сервер Telegram с помощью генератора случайных чисел (RNG) мгновенно определяет результат каждого броска — точно так же честно, как и в обычной игре против бота.</li>" + "<li>У кого результат лучше — тот забирает банк за вычетом комиссии платформы; оба броска можно проверить по ссылкам выше — они ведут на настоящие сообщения в канале.</li>" + "</ul>" + "</div>";
 }
 
 function openPvpGenRoundModal(gameKey, roomId) {
@@ -7987,7 +8095,7 @@ if (pvpGenActiveSearchResultEl) {
 }
 
 function pvpGenMyRoomsRowHTML(room) {
-    return '<div class="crash-player-row" data-my-room-id="' + escapeHtml(room.id) + '">' + '<div class="crash-player-mid">' + '<div class="crash-player-name">Комната #' + escapeHtml(room.id) + "</div>" + '<div class="crash-player-sub">Ставка ' + fmtNum(room.bet_amount) + "$ · " + escapeHtml(String(room.created_at || "").replace("T", " ").slice(0, 16)) + "</div>" + "</div>" + '<button class="pvp-room-join-btn" type="button">Перейти</button>' + "</div>";
+    return '<div class="crash-player-row" data-my-room-id="' + escapeHtml(room.id) + '">' + '<div class="crash-player-mid">' + '<div class="crash-player-name">Комната #' + escapeHtml(room.id) + "</div>" + '<div class="crash-player-sub">Ставка ' + fmtNum(room.bet_amount) + "⭐️ · " + escapeHtml(String(room.created_at || "").replace("T", " ").slice(0, 16)) + "</div>" + "</div>" + '<button class="pvp-room-join-btn" type="button">Перейти</button>' + "</div>";
 }
 
 function closePvpGenMyRoomsModal() {
@@ -8734,8 +8842,8 @@ function currentLimitKey() {
 
 function betLimitIssue(key, bet) {
     if (!(bet > 0)) return null;
-    if (bet < betMin(key)) return "Минимальная ставка — " + fmtNum(betMin(key)) + "$";
-    if (bet > betMax(key)) return "Максимальная ставка — " + fmtNum(betMax(key)) + "$";
+    if (bet < betMin(key)) return "Минимальная ставка — " + fmtNum(betMin(key)) + "⭐️";
+    if (bet > betMax(key)) return "Максимальная ставка — " + fmtNum(betMax(key)) + "⭐️";
     return null;
 }
 
@@ -8787,8 +8895,8 @@ function newRound() {
 }
 
 function betRowHTML(defaultValue) {
-    const val = (defaultValue === undefined ? "100" : defaultValue) + "$";
-    return '<div class="gv-bet-row">' + '<div class="gv-bet-group">' + '<button class="gv-chip" type="button" data-action="min">MIN</button>' + '<button class="gv-chip" type="button" data-action="half">/2</button>' + "</div>" + '<input type="text" inputmode="decimal" autocomplete="off" class="gv-bet-input" placeholder="100$" value="' + val + '">' + '<div class="gv-bet-group">' + '<button class="gv-chip" type="button" data-action="double">x2</button>' + '<button class="gv-chip" type="button" data-action="max">MAX</button>' + "</div>" + "</div>";
+    const val = (defaultValue === undefined ? "100" : defaultValue) + "⭐️";
+    return '<div class="gv-bet-row">' + '<div class="gv-bet-group">' + '<button class="gv-chip" type="button" data-action="min">MIN</button>' + '<button class="gv-chip" type="button" data-action="half">/2</button>' + "</div>" + '<input type="text" inputmode="decimal" autocomplete="off" class="gv-bet-input" placeholder="100⭐️" value="' + val + '">' + '<div class="gv-bet-group">' + '<button class="gv-chip" type="button" data-action="double">x2</button>' + '<button class="gv-chip" type="button" data-action="max">MAX</button>' + "</div>" + "</div>";
 }
 
 function howtoHTML(extraStyle) {
@@ -8806,7 +8914,7 @@ function multRowHTML(values) {
 function historyHTML(data) {
     const outcomes = data.historyOutcomes || data.outcomes || ["—"];
     const times = ["13:00", "12:57", "12:41", "12:26", "12:10", "11:58", "11:42", "11:19"];
-    const bets = ["1000$", "750$", "300$", "1500$", "200$", "980$", "450$", "2000$"];
+    const bets = ["1000⭐️", "750⭐️", "300⭐️", "1500⭐️", "200⭐️", "980⭐️", "450⭐️", "2000⭐️"];
     const rows = times.map((time, i) => ({
         time: time,
         bet: bets[i],
@@ -10632,6 +10740,7 @@ function randDuelPreviewCategorized(categories) {
 function selectDiceOutcome(outcome, tileEl) {
     if (!betsAccepted) return;
     diceSelectedOutcome = outcome;
+    loadEmojiQuote("dice", outcome).catch(() => {});
     diceMoveBadgeToTitle();
     document.querySelectorAll("#diceOutcomes .gv-outcome").forEach(b => b.classList.remove("selected"));
     if (tileEl) tileEl.classList.add("selected");
@@ -10878,7 +10987,7 @@ function renderDiceQueue(items) {
         return;
     }
     el.style.display = "";
-    el.innerHTML = '<div class="dice-queue-title">' + lazyImgTag(liteAsset("/lottie/images/ОгоньЭмоджи.lottie"), "", "flame-gif") + " Очередь ставок (" + items.length + ")</div>" + items.map(it => '<div class="dice-queue-row"><span>' + escapeHtml(it.userName || "Игрок") + "</span><b>" + fmtNum(it.betAmount) + "$" + (it.outcome ? " · " + emojiOutcomeDisplayHTML("кости", it.outcome) : "") + "</b></div>").join("");
+    el.innerHTML = '<div class="dice-queue-title">' + lazyImgTag(liteAsset("/lottie/images/ОгоньЭмоджи.lottie"), "", "flame-gif") + " Очередь ставок (" + items.length + ")</div>" + items.map(it => '<div class="dice-queue-row"><span>' + escapeHtml(it.userName || "Игрок") + "</span><b>" + fmtNum(it.betAmount) + "⭐️" + (it.outcome ? " · " + emojiOutcomeDisplayHTML("кости", it.outcome) : "") + "</b></div>").join("");
 }
 
 function loadDiceQueue() {
@@ -10901,18 +11010,47 @@ function stopDiceQueuePolling() {
     }
 }
 
+const emojiQuoteRequests = new Map();
+const emojiQuoteSelected = new Map();
+
+function loadEmojiQuote(game, outcome) {
+    emojiQuoteSelected.set(game, outcome);
+    const key = game + ":" + outcome;
+    if (!emojiQuoteRequests.has(key)) {
+        const promise = fetch("/api/" + game + "/quote?outcome=" + encodeURIComponent(outcome), {cache: "no-store"}).then(response => response.json()).then(data => {
+            if (!data || !data.ok) throw new Error(data && data.error || "Не удалось получить коэффициент");
+            LIVE_MULT[game] = LIVE_MULT[game] || {};
+            LIVE_MULT[game][outcome] = data.multiplier;
+            return data;
+        }).catch(error => {
+            emojiQuoteRequests.delete(key);
+            throw error;
+        });
+        if (emojiQuoteRequests.size >= 128) emojiQuoteRequests.delete(emojiQuoteRequests.keys().next().value);
+        emojiQuoteRequests.set(key, promise);
+    }
+    return emojiQuoteRequests.get(key).then(data => {
+        if (emojiQuoteSelected.get(game) === outcome) {
+            const badge = document.getElementById(game + "MultBadge");
+            if (badge) badge.textContent = (data.variable ? "до x" : "x") + fmtCoef(data.multiplier);
+        }
+        return data;
+    });
+}
+
 function gamePlayFetch(url, body) {
     const rid = (window.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2)).replace(/[^A-Za-z0-9_-]/g, "");
     const payload = Object.assign({
         rid: rid
     }, body);
-    return fetch(url, {
+    const game = url.split("/")[2];
+    return loadEmojiQuote(game, body.outcome).then(() => fetch(url, {
         method: "POST",
         headers: {
             "Content-Type": "application/json"
         },
         body: JSON.stringify(payload)
-    }).then(r => r.json()).catch(err => recoverPlayResult(rid, err));
+    }).then(r => r.json()).catch(err => recoverPlayResult(rid, err)));
 }
 
 function recoverPlayResult(rid, err) {
@@ -11032,11 +11170,11 @@ function playDice() {
         return;
     }
     if (state.underMin) {
-        showToast("Минимальная ставка — " + fmtNum(betMin("dice")) + "$", "error");
+        showToast("Минимальная ставка — " + fmtNum(betMin("dice")) + "⭐️", "error");
         return;
     }
     if (state.overMax) {
-        showToast("Максимальная ставка — " + fmtNum(betMax("dice")) + "$", "error");
+        showToast("Максимальная ставка — " + fmtNum(betMax("dice")) + "⭐️", "error");
         return;
     }
     const bet = state.bet;
@@ -11094,15 +11232,15 @@ function playDice() {
             setDiceCheckLink(data.checkLink);
             if (data.isDraw) {
                 showDiceResult("draw", 'Ничья<span class="dr-sub">' + data.details + "</span>");
-                showToast("Ничья — возврат " + fmtNum(data.winAmount) + "$", "warning");
+                showToast("Ничья — возврат " + fmtNum(data.winAmount) + "⭐️", "warning");
             } else if (data.refund > 0) {
-                showDiceResult("draw", "Возврат +" + fmtNum(data.refund) + "$ из " + fmtNum(data.betAmount) + '$<span class="dr-sub">' + data.details + "</span>");
-                showToast("Вернулось " + fmtNum(data.refund) + "$ из " + fmtNum(data.betAmount) + "$", "warning");
+                showDiceResult("draw", "Возврат +" + fmtNum(data.refund) + "⭐️ из " + fmtNum(data.betAmount) + '⭐️<span class="dr-sub">' + data.details + "</span>");
+                showToast("Вернулось " + fmtNum(data.refund) + "⭐️ из " + fmtNum(data.betAmount) + "⭐️", "warning");
             } else if (data.win) {
-                showDiceResult("win", "Выигрыш +" + fmtNum(data.winAmount) + '$<span class="dr-sub">' + data.details + "</span>");
+                showDiceResult("win", "Выигрыш +" + fmtNum(data.winAmount) + '⭐️<span class="dr-sub">' + data.details + "</span>");
                 showGameWinToast(data.winAmount);
             } else {
-                showDiceResult("lose", "Проигрыш −" + fmtNum(data.betAmount) + '$<span class="dr-sub">' + data.details + "</span>");
+                showDiceResult("lose", "Проигрыш −" + fmtNum(data.betAmount) + '⭐️<span class="dr-sub">' + data.details + "</span>");
             }
             if (startBtn) {
                 startBtn.classList.remove("gv-collapsed");
@@ -11599,6 +11737,7 @@ const SLOT_PREVIEW_SYMBOL = {
 function selectSlotsOutcome(outcome, tileEl) {
     if (!betsAccepted) return;
     slotsSelectedOutcome = outcome;
+    loadEmojiQuote("slots", outcome).catch(() => {});
     slotsMoveBadgeToTitle();
     document.querySelectorAll("#slotsOutcomes .gv-outcome").forEach(b => b.classList.remove("selected"));
     if (tileEl) tileEl.classList.add("selected");
@@ -11714,7 +11853,7 @@ function renderSlotsQueue(items) {
         return;
     }
     el.style.display = "";
-    el.innerHTML = '<div class="dice-queue-title">' + lazyImgTag(liteAsset("/lottie/images/ОгоньЭмоджи.lottie"), "", "flame-gif") + " Очередь ставок (" + items.length + ")</div>" + items.map(it => '<div class="dice-queue-row"><span>' + escapeHtml(it.userName || "Игрок") + "</span><b>" + fmtNum(it.betAmount) + "$" + (it.outcome ? " · " + emojiOutcomeDisplayHTML("слоты", it.outcome) : "") + "</b></div>").join("");
+    el.innerHTML = '<div class="dice-queue-title">' + lazyImgTag(liteAsset("/lottie/images/ОгоньЭмоджи.lottie"), "", "flame-gif") + " Очередь ставок (" + items.length + ")</div>" + items.map(it => '<div class="dice-queue-row"><span>' + escapeHtml(it.userName || "Игрок") + "</span><b>" + fmtNum(it.betAmount) + "⭐️" + (it.outcome ? " · " + emojiOutcomeDisplayHTML("слоты", it.outcome) : "") + "</b></div>").join("");
 }
 
 function loadSlotsQueue() {
@@ -11814,11 +11953,11 @@ function playSlots() {
         return;
     }
     if (state.underMin) {
-        showToast("Минимальная ставка — " + fmtNum(betMin("slots")) + "$", "error");
+        showToast("Минимальная ставка — " + fmtNum(betMin("slots")) + "⭐️", "error");
         return;
     }
     if (state.overMax) {
-        showToast("Максимальная ставка — " + fmtNum(betMax("slots")) + "$", "error");
+        showToast("Максимальная ставка — " + fmtNum(betMax("slots")) + "⭐️", "error");
         return;
     }
     const bet = state.bet;
@@ -11876,15 +12015,15 @@ function playSlots() {
             const landed = slotsResultLandedHTML(data);
             if (data.isDraw) {
                 showSlotsResult("draw", 'Ничья<span class="dr-sub">' + landed + "</span>");
-                showToast("Ничья — возврат " + fmtNum(data.winAmount) + "$", "warning");
+                showToast("Ничья — возврат " + fmtNum(data.winAmount) + "⭐️", "warning");
             } else if (data.win) {
-                showSlotsResult("win", "Выигрыш +" + fmtNum(data.winAmount) + '$<span class="dr-sub">' + landed + "</span>");
+                showSlotsResult("win", "Выигрыш +" + fmtNum(data.winAmount) + '⭐️<span class="dr-sub">' + landed + "</span>");
                 showGameWinToast(data.winAmount);
             } else if (data.refund > 0) {
-                showSlotsResult("draw", "Возврат +" + fmtNum(data.refund) + "$ из " + fmtNum(data.betAmount) + '$<span class="dr-sub">' + landed + "</span>");
-                showToast("Вернулось " + fmtNum(data.refund) + "$ из " + fmtNum(data.betAmount) + "$", "warning");
+                showSlotsResult("draw", "Возврат +" + fmtNum(data.refund) + "⭐️ из " + fmtNum(data.betAmount) + '⭐️<span class="dr-sub">' + landed + "</span>");
+                showToast("Вернулось " + fmtNum(data.refund) + "⭐️ из " + fmtNum(data.betAmount) + "⭐️", "warning");
             } else {
-                showSlotsResult("lose", "Проигрыш −" + fmtNum(data.betAmount) + '$<span class="dr-sub">' + landed + "</span>");
+                showSlotsResult("lose", "Проигрыш −" + fmtNum(data.betAmount) + '⭐️<span class="dr-sub">' + landed + "</span>");
             }
             if (startBtn) {
                 startBtn.classList.remove("gv-collapsed");
@@ -12640,6 +12779,7 @@ const BOWL_PREVIEW_VALUES = {
 function selectBowlOutcome(outcome, tileEl) {
     if (!betsAccepted) return;
     bowlSelectedOutcome = outcome;
+    loadEmojiQuote("bowl", outcome).catch(() => {});
     bowlMoveBadgeToTitle();
     document.querySelectorAll("#bowlOutcomes .gv-outcome").forEach(b => b.classList.remove("selected"));
     if (tileEl) tileEl.classList.add("selected");
@@ -12761,7 +12901,7 @@ function renderBowlQueue(items) {
         return;
     }
     el.style.display = "";
-    el.innerHTML = '<div class="dice-queue-title">' + lazyImgTag(liteAsset("/lottie/images/ОгоньЭмоджи.lottie"), "", "flame-gif") + " Очередь ставок (" + items.length + ")</div>" + items.map(it => '<div class="dice-queue-row"><span>' + escapeHtml(it.userName || "Игрок") + "</span><b>" + fmtNum(it.betAmount) + "$" + (it.outcome ? " · " + emojiOutcomeDisplayHTML("боулинг", it.outcome) : "") + "</b></div>").join("");
+    el.innerHTML = '<div class="dice-queue-title">' + lazyImgTag(liteAsset("/lottie/images/ОгоньЭмоджи.lottie"), "", "flame-gif") + " Очередь ставок (" + items.length + ")</div>" + items.map(it => '<div class="dice-queue-row"><span>' + escapeHtml(it.userName || "Игрок") + "</span><b>" + fmtNum(it.betAmount) + "⭐️" + (it.outcome ? " · " + emojiOutcomeDisplayHTML("боулинг", it.outcome) : "") + "</b></div>").join("");
 }
 
 function loadBowlQueue() {
@@ -12861,11 +13001,11 @@ function playBowl() {
         return;
     }
     if (state.underMin) {
-        showToast("Минимальная ставка — " + fmtNum(betMin("bowl")) + "$", "error");
+        showToast("Минимальная ставка — " + fmtNum(betMin("bowl")) + "⭐️", "error");
         return;
     }
     if (state.overMax) {
-        showToast("Максимальная ставка — " + fmtNum(betMax("bowl")) + "$", "error");
+        showToast("Максимальная ставка — " + fmtNum(betMax("bowl")) + "⭐️", "error");
         return;
     }
     const bet = state.bet;
@@ -12923,15 +13063,15 @@ function playBowl() {
             setBowlCheckLink(data.checkLink);
             if (data.isDraw) {
                 showBowlResult("draw", 'Ничья<span class="dr-sub">' + data.details + "</span>");
-                showToast("Ничья — возврат " + fmtNum(data.winAmount) + "$", "warning");
+                showToast("Ничья — возврат " + fmtNum(data.winAmount) + "⭐️", "warning");
             } else if (data.refund > 0) {
-                showBowlResult("draw", "Возврат +" + fmtNum(data.refund) + "$ из " + fmtNum(data.betAmount) + '$<span class="dr-sub">' + data.details + "</span>");
-                showToast("Вернулось " + fmtNum(data.refund) + "$ из " + fmtNum(data.betAmount) + "$", "warning");
+                showBowlResult("draw", "Возврат +" + fmtNum(data.refund) + "⭐️ из " + fmtNum(data.betAmount) + '⭐️<span class="dr-sub">' + data.details + "</span>");
+                showToast("Вернулось " + fmtNum(data.refund) + "⭐️ из " + fmtNum(data.betAmount) + "⭐️", "warning");
             } else if (data.win) {
-                showBowlResult("win", "Выигрыш +" + fmtNum(data.winAmount) + '$<span class="dr-sub">' + data.details + "</span>");
+                showBowlResult("win", "Выигрыш +" + fmtNum(data.winAmount) + '⭐️<span class="dr-sub">' + data.details + "</span>");
                 showGameWinToast(data.winAmount);
             } else {
-                showBowlResult("lose", "Проигрыш −" + fmtNum(data.betAmount) + '$<span class="dr-sub">' + data.details + "</span>");
+                showBowlResult("lose", "Проигрыш −" + fmtNum(data.betAmount) + '⭐️<span class="dr-sub">' + data.details + "</span>");
             }
             if (startBtn) {
                 startBtn.classList.remove("gv-collapsed");
@@ -13397,6 +13537,7 @@ const DARTS_PREVIEW_VALUES = {
 function selectDartsOutcome(outcome, tileEl) {
     if (!betsAccepted) return;
     dartsSelectedOutcome = outcome;
+    loadEmojiQuote("darts", outcome).catch(() => {});
     dartsMoveBadgeToTitle();
     document.querySelectorAll("#dartsOutcomes .gv-outcome").forEach(b => b.classList.remove("selected"));
     if (tileEl) tileEl.classList.add("selected");
@@ -13494,7 +13635,7 @@ function renderDartsQueue(items) {
         return;
     }
     el.style.display = "";
-    el.innerHTML = '<div class="dice-queue-title">' + lazyImgTag(liteAsset("/lottie/images/ОгоньЭмоджи.lottie"), "", "flame-gif") + " Очередь ставок (" + items.length + ")</div>" + items.map(it => '<div class="dice-queue-row"><span>' + escapeHtml(it.userName || "Игрок") + "</span><b>" + fmtNum(it.betAmount) + "$" + (it.outcome ? " · " + emojiOutcomeDisplayHTML("дартс", it.outcome) : "") + "</b></div>").join("");
+    el.innerHTML = '<div class="dice-queue-title">' + lazyImgTag(liteAsset("/lottie/images/ОгоньЭмоджи.lottie"), "", "flame-gif") + " Очередь ставок (" + items.length + ")</div>" + items.map(it => '<div class="dice-queue-row"><span>' + escapeHtml(it.userName || "Игрок") + "</span><b>" + fmtNum(it.betAmount) + "⭐️" + (it.outcome ? " · " + emojiOutcomeDisplayHTML("дартс", it.outcome) : "") + "</b></div>").join("");
 }
 
 function loadDartsQueue() {
@@ -13594,11 +13735,11 @@ function playDarts() {
         return;
     }
     if (state.underMin) {
-        showToast("Минимальная ставка — " + fmtNum(betMin("darts")) + "$", "error");
+        showToast("Минимальная ставка — " + fmtNum(betMin("darts")) + "⭐️", "error");
         return;
     }
     if (state.overMax) {
-        showToast("Максимальная ставка — " + fmtNum(betMax("darts")) + "$", "error");
+        showToast("Максимальная ставка — " + fmtNum(betMax("darts")) + "⭐️", "error");
         return;
     }
     const bet = state.bet;
@@ -13656,15 +13797,15 @@ function playDarts() {
             setDartsCheckLink(data.checkLink);
             if (data.isDraw) {
                 showDartsResult("draw", 'Ничья<span class="dr-sub">' + data.details + "</span>");
-                showToast("Ничья — возврат " + fmtNum(data.winAmount) + "$", "warning");
+                showToast("Ничья — возврат " + fmtNum(data.winAmount) + "⭐️", "warning");
             } else if (data.refund > 0) {
-                showDartsResult("draw", "Возврат +" + fmtNum(data.refund) + "$ из " + fmtNum(data.betAmount) + '$<span class="dr-sub">' + data.details + "</span>");
-                showToast("Вернулось " + fmtNum(data.refund) + "$ из " + fmtNum(data.betAmount) + "$", "warning");
+                showDartsResult("draw", "Возврат +" + fmtNum(data.refund) + "⭐️ из " + fmtNum(data.betAmount) + '⭐️<span class="dr-sub">' + data.details + "</span>");
+                showToast("Вернулось " + fmtNum(data.refund) + "⭐️ из " + fmtNum(data.betAmount) + "⭐️", "warning");
             } else if (data.win) {
-                showDartsResult("win", "Выигрыш +" + fmtNum(data.winAmount) + '$<span class="dr-sub">' + data.details + "</span>");
+                showDartsResult("win", "Выигрыш +" + fmtNum(data.winAmount) + '⭐️<span class="dr-sub">' + data.details + "</span>");
                 showGameWinToast(data.winAmount);
             } else {
-                showDartsResult("lose", "Проигрыш −" + fmtNum(data.betAmount) + '$<span class="dr-sub">' + data.details + "</span>");
+                showDartsResult("lose", "Проигрыш −" + fmtNum(data.betAmount) + '⭐️<span class="dr-sub">' + data.details + "</span>");
             }
             if (startBtn) {
                 startBtn.classList.remove("gv-collapsed");
@@ -14440,6 +14581,7 @@ const BASKET_PREVIEW_VALUES = {
 function selectBasketOutcome(outcome, tileEl) {
     if (!betsAccepted) return;
     basketSelectedOutcome = outcome;
+    loadEmojiQuote("basket", outcome).catch(() => {});
     basketMoveBadgeToTitle();
     document.querySelectorAll("#basketOutcomes .gv-outcome").forEach(b => b.classList.remove("selected"));
     if (tileEl) tileEl.classList.add("selected");
@@ -14540,7 +14682,7 @@ function renderBasketQueue(items) {
         return;
     }
     el.style.display = "";
-    el.innerHTML = '<div class="dice-queue-title">' + lazyImgTag(liteAsset("/lottie/images/ОгоньЭмоджи.lottie"), "", "flame-gif") + " Очередь ставок (" + items.length + ")</div>" + items.map(it => '<div class="dice-queue-row"><span>' + escapeHtml(it.userName || "Игрок") + "</span><b>" + fmtNum(it.betAmount) + "$" + (it.outcome ? " · " + emojiOutcomeDisplayHTML("баскетбол", it.outcome) : "") + "</b></div>").join("");
+    el.innerHTML = '<div class="dice-queue-title">' + lazyImgTag(liteAsset("/lottie/images/ОгоньЭмоджи.lottie"), "", "flame-gif") + " Очередь ставок (" + items.length + ")</div>" + items.map(it => '<div class="dice-queue-row"><span>' + escapeHtml(it.userName || "Игрок") + "</span><b>" + fmtNum(it.betAmount) + "⭐️" + (it.outcome ? " · " + emojiOutcomeDisplayHTML("баскетбол", it.outcome) : "") + "</b></div>").join("");
 }
 
 function loadBasketQueue() {
@@ -14640,11 +14782,11 @@ function playBasket() {
         return;
     }
     if (state.underMin) {
-        showToast("Минимальная ставка — " + fmtNum(betMin("basket")) + "$", "error");
+        showToast("Минимальная ставка — " + fmtNum(betMin("basket")) + "⭐️", "error");
         return;
     }
     if (state.overMax) {
-        showToast("Максимальная ставка — " + fmtNum(betMax("basket")) + "$", "error");
+        showToast("Максимальная ставка — " + fmtNum(betMax("basket")) + "⭐️", "error");
         return;
     }
     const bet = state.bet;
@@ -14702,15 +14844,15 @@ function playBasket() {
             setBasketCheckLink(data.checkLink);
             if (data.isDraw) {
                 showBasketResult("draw", 'Ничья<span class="dr-sub">' + data.details + "</span>");
-                showToast("Ничья — возврат " + fmtNum(data.winAmount) + "$", "warning");
+                showToast("Ничья — возврат " + fmtNum(data.winAmount) + "⭐️", "warning");
             } else if (data.refund > 0) {
-                showBasketResult("draw", "Возврат +" + fmtNum(data.refund) + "$ из " + fmtNum(data.betAmount) + '$<span class="dr-sub">' + data.details + "</span>");
-                showToast("Вернулось " + fmtNum(data.refund) + "$ из " + fmtNum(data.betAmount) + "$", "warning");
+                showBasketResult("draw", "Возврат +" + fmtNum(data.refund) + "⭐️ из " + fmtNum(data.betAmount) + '⭐️<span class="dr-sub">' + data.details + "</span>");
+                showToast("Вернулось " + fmtNum(data.refund) + "⭐️ из " + fmtNum(data.betAmount) + "⭐️", "warning");
             } else if (data.win) {
-                showBasketResult("win", "Выигрыш +" + fmtNum(data.winAmount) + '$<span class="dr-sub">' + data.details + "</span>");
+                showBasketResult("win", "Выигрыш +" + fmtNum(data.winAmount) + '⭐️<span class="dr-sub">' + data.details + "</span>");
                 showGameWinToast(data.winAmount);
             } else {
-                showBasketResult("lose", "Проигрыш −" + fmtNum(data.betAmount) + '$<span class="dr-sub">' + data.details + "</span>");
+                showBasketResult("lose", "Проигрыш −" + fmtNum(data.betAmount) + '⭐️<span class="dr-sub">' + data.details + "</span>");
             }
             if (startBtn) {
                 startBtn.classList.remove("gv-collapsed");
@@ -15155,6 +15297,7 @@ const FOOT_PREVIEW_VALUES = {
 function selectFootOutcome(outcome, tileEl) {
     if (!betsAccepted) return;
     footSelectedOutcome = outcome;
+    loadEmojiQuote("foot", outcome).catch(() => {});
     footMoveBadgeToTitle();
     document.querySelectorAll("#footOutcomes .gv-outcome").forEach(b => b.classList.remove("selected"));
     if (tileEl) tileEl.classList.add("selected");
@@ -15248,7 +15391,7 @@ function renderFootQueue(items) {
         return;
     }
     el.style.display = "";
-    el.innerHTML = '<div class="dice-queue-title">' + lazyImgTag(liteAsset("/lottie/images/ОгоньЭмоджи.lottie"), "", "flame-gif") + " Очередь ставок (" + items.length + ")</div>" + items.map(it => '<div class="dice-queue-row"><span>' + escapeHtml(it.userName || "Игрок") + "</span><b>" + fmtNum(it.betAmount) + "$" + (it.outcome ? " · " + emojiOutcomeDisplayHTML("футбол", it.outcome) : "") + "</b></div>").join("");
+    el.innerHTML = '<div class="dice-queue-title">' + lazyImgTag(liteAsset("/lottie/images/ОгоньЭмоджи.lottie"), "", "flame-gif") + " Очередь ставок (" + items.length + ")</div>" + items.map(it => '<div class="dice-queue-row"><span>' + escapeHtml(it.userName || "Игрок") + "</span><b>" + fmtNum(it.betAmount) + "⭐️" + (it.outcome ? " · " + emojiOutcomeDisplayHTML("футбол", it.outcome) : "") + "</b></div>").join("");
 }
 
 function loadFootQueue() {
@@ -15348,11 +15491,11 @@ function playFoot() {
         return;
     }
     if (state.underMin) {
-        showToast("Минимальная ставка — " + fmtNum(betMin("foot")) + "$", "error");
+        showToast("Минимальная ставка — " + fmtNum(betMin("foot")) + "⭐️", "error");
         return;
     }
     if (state.overMax) {
-        showToast("Максимальная ставка — " + fmtNum(betMax("foot")) + "$", "error");
+        showToast("Максимальная ставка — " + fmtNum(betMax("foot")) + "⭐️", "error");
         return;
     }
     const bet = state.bet;
@@ -15411,15 +15554,15 @@ function playFoot() {
             setFootCheckLink(data.checkLink);
             if (data.isDraw) {
                 showFootResult("draw", 'Ничья<span class="dr-sub">' + data.details + "</span>");
-                showToast("Ничья — возврат " + fmtNum(data.winAmount) + "$", "warning");
+                showToast("Ничья — возврат " + fmtNum(data.winAmount) + "⭐️", "warning");
             } else if (data.refund > 0) {
-                showFootResult("draw", "Возврат +" + fmtNum(data.refund) + "$ из " + fmtNum(data.betAmount) + '$<span class="dr-sub">' + data.details + "</span>");
-                showToast("Вернулось " + fmtNum(data.refund) + "$ из " + fmtNum(data.betAmount) + "$", "warning");
+                showFootResult("draw", "Возврат +" + fmtNum(data.refund) + "⭐️ из " + fmtNum(data.betAmount) + '⭐️<span class="dr-sub">' + data.details + "</span>");
+                showToast("Вернулось " + fmtNum(data.refund) + "⭐️ из " + fmtNum(data.betAmount) + "⭐️", "warning");
             } else if (data.win) {
-                showFootResult("win", "Выигрыш +" + fmtNum(data.winAmount) + '$<span class="dr-sub">' + data.details + "</span>");
+                showFootResult("win", "Выигрыш +" + fmtNum(data.winAmount) + '⭐️<span class="dr-sub">' + data.details + "</span>");
                 showGameWinToast(data.winAmount);
             } else {
-                showFootResult("lose", "Проигрыш −" + fmtNum(data.betAmount) + '$<span class="dr-sub">' + data.details + "</span>");
+                showFootResult("lose", "Проигрыш −" + fmtNum(data.betAmount) + '⭐️<span class="dr-sub">' + data.details + "</span>");
             }
             if (startBtn) {
                 startBtn.classList.remove("gv-collapsed");
@@ -15755,10 +15898,10 @@ function minesStatusHTML() {
         const step = minesCellsOpened;
         const mult = minesTable[step] || 1;
         const cashoutAmount = Math.round(minesBet * mult * 100) / 100;
-        return "Открыто клеток: <b>" + minesCellsOpened + " / " + minesMaxSteps() + "</b>" + (minesCellsOpened > 0 ? " · Заберёте: <b>" + fmtNum(cashoutAmount) + "$</b> (x" + fmtCoef(mult) + ")" : "");
+        return "Открыто клеток: <b>" + minesCellsOpened + " / " + minesMaxSteps() + "</b>" + (minesCellsOpened > 0 ? " · Заберёте: <b>" + fmtNum(cashoutAmount) + "⭐️</b> (x" + fmtCoef(mult) + ")" : "");
     }
     if (minesFinishedInfo) {
-        return minesFinishedInfo.win ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(minesFinishedInfo.winAmount) + "$ (x" + fmtCoef(minesFinishedInfo.mult) + ")</span>" + " · Открыто: <b>" + minesCellsOpened + " / " + minesMaxSteps() + "</b>" : '<span class="gv-history-lose">Подрыв на клетке ' + minesFinishedInfo.hitIndex + "</span>" + " · Открыто: <b>" + minesCellsOpened + " / " + minesMaxSteps() + "</b>";
+        return minesFinishedInfo.win ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(minesFinishedInfo.winAmount) + "⭐️ (x" + fmtCoef(minesFinishedInfo.mult) + ")</span>" + " · Открыто: <b>" + minesCellsOpened + " / " + minesMaxSteps() + "</b>" : '<span class="gv-history-lose">Подрыв на клетке ' + minesFinishedInfo.hitIndex + "</span>" + " · Открыто: <b>" + minesCellsOpened + " / " + minesMaxSteps() + "</b>";
     }
     return "";
 }
@@ -15866,7 +16009,7 @@ function initMinesGame(data) {
         });
         selectMinesCount(st.minesCount);
         const betInput = gvBody.querySelector(".gv-bet-input");
-        if (betInput) betInput.value = st.bet + "$";
+        if (betInput) betInput.value = st.bet + "⭐️";
         setMinesPanelLocked(true);
         setMinesStartBtn("cashout");
         updateMinesStatus();
@@ -15889,11 +16032,11 @@ function playMines() {
         return;
     }
     if (state.underMin) {
-        showToast("Минимальная ставка — " + fmtNum(betMin("mines")) + "$", "error");
+        showToast("Минимальная ставка — " + fmtNum(betMin("mines")) + "⭐️", "error");
         return;
     }
     if (state.overMax) {
-        showToast("Максимальная ставка — " + fmtNum(betMax("mines")) + "$", "error");
+        showToast("Максимальная ставка — " + fmtNum(betMax("mines")) + "⭐️", "error");
         return;
     }
     if (!state.validCount) return;
@@ -15979,7 +16122,8 @@ function revealMinesCell(idx) {
         },
         body: JSON.stringify({
             uid: CURRENT_UID,
-            cellIndex: idx
+            cellIndex: idx,
+            roundId: minesCurrentRoundInfo && minesCurrentRoundInfo.roundId
         })
     }).then(r => r.json()).then(data => {
         minesBusy = false;
@@ -16042,7 +16186,8 @@ function cashoutMines() {
             "Content-Type": "application/json"
         },
         body: JSON.stringify({
-            uid: CURRENT_UID
+            uid: CURRENT_UID,
+            roundId: minesCurrentRoundInfo && minesCurrentRoundInfo.roundId
         })
     }).then(r => r.json()).then(data => {
         minesBusy = false;
@@ -16091,7 +16236,7 @@ function minesHistoryRowHTML(r) {
     const minesN = meta.minesCount != null ? meta.minesCount : "—";
     const opened = meta.cellsOpened != null ? meta.cellsOpened : "—";
     const maxSteps = meta.maxSteps != null ? meta.maxSteps : "—";
-    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-avatar"><div class="skel-box"></div>' + lazyImgTag(avatarUrl, name) + "</div>" + '<div class="gv-history-mid">' + '<div class="gv-history-name">' + escapeHtml(name) + "</div>" + historyTimeHTML(r.created_at) + "</div>" + '<div class="gv-history-right">Сумма ставки: <b>' + fmtNum(r.bet) + "$</b><br>" + '<span class="gv-history-outcome">Мины: <b>' + minesN + "</b> · Открыто: <b>" + opened + "/" + maxSteps + "</b></span><br>" + (isWin ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "$ (x" + fmtCoef(meta.multiplier) + ")</span>" : '<span class="gv-history-lose">Подрыв' + (meta.multiplier != null && opened > 0 ? " на x" + fmtCoef(meta.multiplier) : "") + "</span>") + "</div>" + "</div>" + (meta.roundId ? '<button class="crash-history-fair-btn" type="button" data-mines-round="' + escapeHtml(meta.roundId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" : "") + "</div>";
+    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-avatar"><div class="skel-box"></div>' + lazyImgTag(avatarUrl, name) + "</div>" + '<div class="gv-history-mid">' + '<div class="gv-history-name">' + escapeHtml(name) + "</div>" + historyTimeHTML(r.created_at) + "</div>" + '<div class="gv-history-right">Сумма ставки: <b>' + fmtNum(r.bet) + "⭐️</b><br>" + '<span class="gv-history-outcome">Мины: <b>' + minesN + "</b> · Открыто: <b>" + opened + "/" + maxSteps + "</b></span><br>" + (isWin ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "⭐️ (x" + fmtCoef(meta.multiplier) + ")</span>" : '<span class="gv-history-lose">Подрыв' + (meta.multiplier != null && opened > 0 ? " на x" + fmtCoef(meta.multiplier) : "") + "</span>") + "</div>" + "</div>" + (meta.roundId ? '<button class="crash-history-fair-btn" type="button" data-mines-round="' + escapeHtml(meta.roundId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" : "") + "</div>";
 }
 
 function loadMinesHistory(scope, append) {
@@ -16182,7 +16327,7 @@ function minesRoundPlayerRowHTML(detail) {
     const name = isMe ? currentUser.displayName || "Игрок" : detail.username || "Игрок";
     const avatarUrl = isMe ? currentUser.avatarUrl : "/api/avatar/" + detail.userId;
     const isWin = detail.result === "win";
-    return '<div class="crash-player-row' + (isMe ? " me" : "") + '">' + '<div class="crash-player-avatar"><img src="' + avatarUrl + '" alt="" loading="lazy"></div>' + '<div class="crash-player-mid">' + '<div class="crash-player-name"><span class="crash-player-name-text">' + escapeHtml(name) + "</span>" + (isMe ? ' <span class="lb-you-tag">Вы</span>' : "") + "</div>" + '<div class="crash-player-sub">Ставка: ' + fmtNum(detail.bet) + "$ · Мины: " + (detail.minesCount != null ? detail.minesCount : "—") + "</div>" + "</div>" + (detail.multiplier != null ? '<div class="crash-player-mult">x' + fmtCoef(detail.multiplier) + "</div>" : "") + '<div class="crash-player-value">' + (isWin ? "+" + fmtNum(detail.winAmount) + "$" : "Проигрыш") + "</div>" + "</div>";
+    return '<div class="crash-player-row' + (isMe ? " me" : "") + '">' + '<div class="crash-player-avatar"><img src="' + avatarUrl + '" alt="" loading="lazy"></div>' + '<div class="crash-player-mid">' + '<div class="crash-player-name"><span class="crash-player-name-text">' + escapeHtml(name) + "</span>" + (isMe ? ' <span class="lb-you-tag">Вы</span>' : "") + "</div>" + '<div class="crash-player-sub">Ставка: ' + fmtNum(detail.bet) + "⭐️ · Мины: " + (detail.minesCount != null ? detail.minesCount : "—") + "</div>" + "</div>" + (detail.multiplier != null ? '<div class="crash-player-mult">x' + fmtCoef(detail.multiplier) + "</div>" : "") + '<div class="crash-player-value">' + (isWin ? "+" + fmtNum(detail.winAmount) + "⭐️" : "Проигрыш") + "</div>" + "</div>";
 }
 
 function minesRoundBoardSkeletonHTML() {
@@ -16192,7 +16337,7 @@ function minesRoundBoardSkeletonHTML() {
 }
 
 function minesRoundPlayerSkeletonHTML() {
-    return '<div class="crash-player-row skel">' + '<div class="skel-box crash-player-avatar"></div>' + '<div class="crash-player-name text-skel" style="width:60%;">игрок</div>' + '<div class="crash-player-value text-skel" style="width:44px;">0$</div>' + "</div>";
+    return '<div class="crash-player-row skel">' + '<div class="skel-box crash-player-avatar"></div>' + '<div class="crash-player-name text-skel" style="width:60%;">игрок</div>' + '<div class="crash-player-value text-skel" style="width:44px;">0⭐️</div>' + "</div>";
 }
 
 function openMinesRoundModal(publicId) {
@@ -16465,7 +16610,7 @@ function setupKenoMultRowScroll(rowId) {
 function kenoStatusHTML() {
     if (kenoMode === "result" && kenoLastResult) {
         const r = kenoLastResult;
-        const outcomeHtml = r.win ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.winAmount) + "$ (x" + fmtCoef(r.multiplier) + ")</span>" : '<span class="gv-history-lose">Проигрыш</span>';
+        const outcomeHtml = r.win ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.winAmount) + "⭐️ (x" + fmtCoef(r.multiplier) + ")</span>" : '<span class="gv-history-lose">Проигрыш</span>';
         return "Совпадений: <b>" + r.hits + " / " + r.picks.length + "</b> · " + outcomeHtml;
     }
     return "Выбрано чисел: <b>" + kenoPicks.length + " / " + KENO_MAX_PICKS + "</b>";
@@ -16640,11 +16785,11 @@ function playKeno() {
         return;
     }
     if (state.underMin) {
-        showToast("Минимальная ставка — " + fmtNum(betMin("keno")) + "$", "error");
+        showToast("Минимальная ставка — " + fmtNum(betMin("keno")) + "⭐️", "error");
         return;
     }
     if (state.overMax) {
-        showToast("Максимальная ставка — " + fmtNum(betMax("keno")) + "$", "error");
+        showToast("Максимальная ставка — " + fmtNum(betMax("keno")) + "⭐️", "error");
         return;
     }
     kenoAutoHideDone();
@@ -16694,7 +16839,7 @@ function playKeno() {
             setKenoStartBtn("again");
             const startBtn = document.getElementById("kenoStartBtn");
             if (startBtn) startBtn.classList.remove("dim");
-            if (data.win) showGameWinToast(data.winAmount, "Выигрыш ", "$!");
+            if (data.win) showGameWinToast(data.winAmount, "Выигрыш ", "⭐️!");
             else showGameLoseToast("Не повезло — попробуйте ещё раз");
             loadKenoHistory(null, true);
         });
@@ -16734,7 +16879,7 @@ function kenoHistoryRowHTML(r) {
     const avatarUrl = isMe ? currentUser.avatarUrl : "/api/avatar/" + r.user_id;
     const picksN = meta.picks ? meta.picks.length : "—";
     const hits = meta.hits != null ? meta.hits : "—";
-    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-avatar"><div class="skel-box"></div>' + lazyImgTag(avatarUrl, name) + "</div>" + '<div class="gv-history-mid">' + '<div class="gv-history-name"><span class="gv-history-name-text">' + escapeHtml(name) + "</span>" + botBadge + "</div>" + historyTimeHTML(r.created_at) + "</div>" + '<div class="gv-history-right">Сумма ставки: <b>' + fmtNum(r.bet) + "$</b><br>" + '<span class="gv-history-outcome">Выбрано: <b>' + picksN + "</b> · Совпадений: <b>" + hits + "</b></span><br>" + (isWin ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "$ (x" + fmtCoef(meta.multiplier) + ")</span>" : '<span class="gv-history-lose">Проигрыш</span>') + "</div>" + "</div>" + (meta.roundId ? '<button class="crash-history-fair-btn" type="button" data-keno-round="' + escapeHtml(meta.roundId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" : "") + "</div>";
+    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-avatar"><div class="skel-box"></div>' + lazyImgTag(avatarUrl, name) + "</div>" + '<div class="gv-history-mid">' + '<div class="gv-history-name"><span class="gv-history-name-text">' + escapeHtml(name) + "</span>" + botBadge + "</div>" + historyTimeHTML(r.created_at) + "</div>" + '<div class="gv-history-right">Сумма ставки: <b>' + fmtNum(r.bet) + "⭐️</b><br>" + '<span class="gv-history-outcome">Выбрано: <b>' + picksN + "</b> · Совпадений: <b>" + hits + "</b></span><br>" + (isWin ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "⭐️ (x" + fmtCoef(meta.multiplier) + ")</span>" : '<span class="gv-history-lose">Проигрыш</span>') + "</div>" + "</div>" + (meta.roundId ? '<button class="crash-history-fair-btn" type="button" data-keno-round="' + escapeHtml(meta.roundId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" : "") + "</div>";
 }
 
 function loadKenoHistory(scope, append) {
@@ -16813,7 +16958,7 @@ function kenoRoundPlayerRowHTML(detail) {
     const name = isMe ? currentUser.displayName || "Игрок" : detail.username || "Игрок";
     const avatarUrl = isMe ? currentUser.avatarUrl : "/api/avatar/" + detail.userId;
     const isWin = detail.result === "win";
-    return '<div class="crash-player-row' + (isMe ? " me" : "") + '">' + '<div class="crash-player-avatar"><img src="' + avatarUrl + '" alt="" loading="lazy"></div>' + '<div class="crash-player-mid">' + '<div class="crash-player-name"><span class="crash-player-name-text">' + escapeHtml(name) + "</span>" + (isMe ? ' <span class="lb-you-tag">Вы</span>' : "") + "</div>" + '<div class="crash-player-sub">Ставка: ' + fmtNum(detail.bet) + "$ · Совпадений: " + (detail.hits != null ? detail.hits : "—") + " / " + ((detail.picks || []).length) + "</div>" + "</div>" + (detail.multiplier != null ? '<div class="crash-player-mult">x' + fmtCoef(detail.multiplier) + "</div>" : "") + '<div class="crash-player-value">' + (isWin ? "+" + fmtNum(detail.winAmount) + "$" : "Проигрыш") + "</div>" + "</div>";
+    return '<div class="crash-player-row' + (isMe ? " me" : "") + '">' + '<div class="crash-player-avatar"><img src="' + avatarUrl + '" alt="" loading="lazy"></div>' + '<div class="crash-player-mid">' + '<div class="crash-player-name"><span class="crash-player-name-text">' + escapeHtml(name) + "</span>" + (isMe ? ' <span class="lb-you-tag">Вы</span>' : "") + "</div>" + '<div class="crash-player-sub">Ставка: ' + fmtNum(detail.bet) + "⭐️ · Совпадений: " + (detail.hits != null ? detail.hits : "—") + " / " + ((detail.picks || []).length) + "</div>" + "</div>" + (detail.multiplier != null ? '<div class="crash-player-mult">x' + fmtCoef(detail.multiplier) + "</div>" : "") + '<div class="crash-player-value">' + (isWin ? "+" + fmtNum(detail.winAmount) + "⭐️" : "Проигрыш") + "</div>" + "</div>";
 }
 
 function kenoRoundBoardSkeletonHTML() {
@@ -16961,7 +17106,7 @@ function kenoAutoWord(n) {
 
 function kenoAutoSigned(n) {
     const v = Math.round(n * 100) / 100;
-    return (v > 0 ? "+" : v < 0 ? "−" : "") + fmtNum(Math.abs(v)) + "$";
+    return (v > 0 ? "+" : v < 0 ? "−" : "") + fmtNum(Math.abs(v)) + "⭐️";
 }
 
 function kenoAutoSettings() {
@@ -17023,15 +17168,15 @@ function kenoAutoSummaryText() {
     const parts = ["до " + total + " " + kenoAutoWord(total)];
     const stops = [];
     if (s.stopWin) stops.push("первый выигрыш");
-    if (kenoAutoNum(s.profit) > 0) stops.push("прибыль +" + s.profit + "$");
-    if (kenoAutoNum(s.loss) > 0) stops.push("убыток −" + s.loss + "$");
-    if (kenoAutoNum(s.bigWin) > 0) stops.push("выигрыш от " + s.bigWin + "$");
+    if (kenoAutoNum(s.profit) > 0) stops.push("прибыль +" + s.profit + "⭐️");
+    if (kenoAutoNum(s.loss) > 0) stops.push("убыток −" + s.loss + "⭐️");
+    if (kenoAutoNum(s.bigWin) > 0) stops.push("выигрыш от " + s.bigWin + "⭐️");
     if (stops.length) parts.push("стоп: " + stops.join(", "));
     parts.push(s.picks === "random" ? "новые случайные числа каждый раунд" : "ваши числа");
     if (s.onLoss === "up") parts.push("после проигрыша +" + s.lossPct + "%");
     if (s.onWin === "reset") parts.push("после выигрыша — начальная ставка");
     else if (s.onWin === "up") parts.push("после выигрыша +" + s.winPct + "%");
-    if (kenoAutoNum(s.cap) > 0) parts.push("потолок " + s.cap + "$");
+    if (kenoAutoNum(s.cap) > 0) parts.push("потолок " + s.cap + "⭐️");
     parts.push(KENO_AUTO_SPEEDS[s.speed].label.toLowerCase() + " скорость");
     return parts.join(" · ");
 }
@@ -17050,7 +17195,7 @@ function kenoAutoSetupHTML() {
     const cfg = kenoAutoCfg;
     if (cfg && !cfg.enabled) return '<div class="upg-auto-off">Авто-игра сейчас отключена администратором. Играйте вручную.</div>';
     const rounds = KENO_AUTO_ROUNDS.map(n => '<button class="upg-chip' + (s.rounds === n ? " on" : "") + '" type="button" data-kn-rounds="' + n + '">' + (n ? n : "∞") + "</button>").join("");
-    const field = (key, sign, name, ph) => '<label class="upg-field"><span class="upg-field-name">' + name + '</span><span class="upg-input"><em>' + sign + '</em><input type="text" inputmode="decimal" autocomplete="off" maxlength="9" data-kn-in="' + key + '" placeholder="' + ph + '" value="' + escapeHtml(s[key]) + '"><b>$</b></span></label>';
+    const field = (key, sign, name, ph) => '<label class="upg-field"><span class="upg-field-name">' + name + '</span><span class="upg-input"><em>' + sign + '</em><input type="text" inputmode="decimal" autocomplete="off" maxlength="9" data-kn-in="' + key + '" placeholder="' + ph + '" value="' + escapeHtml(s[key]) + '"><b>⭐️</b></span></label>';
     const seg = (key, items, cur) => '<div class="upg-seg" data-kn-seg="' + key + '">' + items.map(it => '<button class="upg-seg-btn' + (cur === it[0] ? " on" : "") + '" type="button" data-kn-val="' + it[0] + '">' + it[1] + "</button>").join("") + "</div>";
     const pct = which => {
         const mode = which === "loss" ? s.onLoss : s.onWin;
@@ -17262,7 +17407,7 @@ function kenoAutoAlive(run) {
 
 function kenoAutoLiveHTML() {
     const tile = (label, id) => '<div class="upgrade-stat"><span>' + label + '</span><b id="' + id + '">—</b></div>';
-    return '<div class="upg-auto keno-auto-live-card"><div class="upg-live" id="knLive">' + '<div class="upg-live-top"><span class="upg-live-tag" id="knLiveTag">Авто-игра</span><span class="upg-live-round" id="knLiveRound"></span></div>' + '<div class="upg-live-bar"><i id="knLiveBar"></i></div>' + '<div class="upg-live-net-wrap"><span class="upg-live-net-cap">Итог серии</span><b class="upg-live-net" id="knLiveNet">0$</b></div>' + '<div class="upg-live-stats">' + tile("Победы", "knLiveWins") + tile("Поражения", "knLiveLoss") + tile("Ставка", "knLiveBet") + "</div>" + '<div class="upg-live-dots" id="knLiveDots"></div>' + '<div class="upg-live-reason" id="knLiveReason" hidden></div>' + "</div></div>";
+    return '<div class="upg-auto keno-auto-live-card"><div class="upg-live" id="knLive">' + '<div class="upg-live-top"><span class="upg-live-tag" id="knLiveTag">Авто-игра</span><span class="upg-live-round" id="knLiveRound"></span></div>' + '<div class="upg-live-bar"><i id="knLiveBar"></i></div>' + '<div class="upg-live-net-wrap"><span class="upg-live-net-cap">Итог серии</span><b class="upg-live-net" id="knLiveNet">0⭐️</b></div>' + '<div class="upg-live-stats">' + tile("Победы", "knLiveWins") + tile("Поражения", "knLiveLoss") + tile("Ставка", "knLiveBet") + "</div>" + '<div class="upg-live-dots" id="knLiveDots"></div>' + '<div class="upg-live-reason" id="knLiveReason" hidden></div>' + "</div></div>";
 }
 
 function kenoAutoPaintLive(newDot) {
@@ -17279,7 +17424,7 @@ function kenoAutoPaintLive(newDot) {
     netEl.className = "upg-live-net" + (net > 0 ? " pos" : net < 0 ? " neg" : "");
     byId("knLiveWins").textContent = String(run.wins);
     byId("knLiveLoss").textContent = String(run.losses);
-    byId("knLiveBet").textContent = fmtNum(run.bet) + "$";
+    byId("knLiveBet").textContent = fmtNum(run.bet) + "⭐️";
     byId("knLiveDots").innerHTML = run.dots.slice(-28).map((w, i, a) => '<i class="' + (w ? "w" : "l") + (newDot && i === a.length - 1 ? " new" : "") + '"></i>').join("");
     const live = byId("knLive");
     if (live) live.classList.toggle("done", !run.active);
@@ -17351,11 +17496,11 @@ function kenoAutoStart() {
         return;
     }
     if (state.underMin) {
-        showToast("Минимальная ставка — " + fmtNum(betMin("keno")) + "$", "error");
+        showToast("Минимальная ставка — " + fmtNum(betMin("keno")) + "⭐️", "error");
         return;
     }
     if (state.overMax) {
-        showToast("Максимальная ставка — " + fmtNum(betMax("keno")) + "$", "error");
+        showToast("Максимальная ставка — " + fmtNum(betMax("keno")) + "⭐️", "error");
         return;
     }
     let pickCount = kenoPicks.length;
@@ -17376,7 +17521,7 @@ function kenoAutoStart() {
         maxBet: 0
     };
     if (cfg.maxBet > 0 && state.bet > cfg.maxBet + 1e-9) {
-        showToast("В авто-игре ставка не больше " + fmtNum(cfg.maxBet) + "$", "error");
+        showToast("В авто-игре ставка не больше " + fmtNum(cfg.maxBet) + "⭐️", "error");
         return;
     }
     if (p.cap && state.bet > p.cap + 1e-9) {
@@ -17466,7 +17611,7 @@ function kenoAutoStart() {
         run.total = p.rounds ? Math.min(p.rounds, d.maxRounds) : d.maxRounds;
         if (d.maxBet > 0 && run.bet > d.maxBet + 1e-9) {
             kenoAutoStartFailed(run, {
-                error: "В авто-игре ставка не больше " + fmtNum(d.maxBet) + "$"
+                error: "В авто-игре ставка не больше " + fmtNum(d.maxBet) + "⭐️"
             });
             return;
         }
@@ -17736,8 +17881,8 @@ function kenoAutoAbort(reason) {
 function kenoAutoToast(run) {
     if (!run.round) return;
     const net = Math.round((run.returned - run.staked) * 100) / 100;
-    if (net > 0) showGameWinToast(net, "Итог серии +", "$");
-    else if (net < 0) showGameLoseToast("Итог серии: −" + fmtNum(-net) + "$");
+    if (net > 0) showGameWinToast(net, "Итог серии +", "⭐️");
+    else if (net < 0) showGameLoseToast("Итог серии: −" + fmtNum(-net) + "⭐️");
     else showToast("Серия окончена: вы в нуле", "warning");
 }
 
@@ -17922,18 +18067,18 @@ function pkAutoSummaryText(g) {
     const parts = ["до " + total + " " + kenoAutoWord(total)];
     const bet = pkAutoNum(s.bet);
     const mult = pkAutoTable(g)[sel.length];
-    if (bet > 0 && mult) parts.push("забираете x" + fmtCoef(mult) + " = " + fmtNum(Math.round(bet * mult * 100) / 100) + "$");
+    if (bet > 0 && mult) parts.push("забираете x" + fmtCoef(mult) + " = " + fmtNum(Math.round(bet * mult * 100) / 100) + "⭐️");
     const stops = [];
     if (s.stopWin) stops.push("первый выигрыш");
-    if (pkAutoNum(s.profit) > 0) stops.push("прибыль +" + s.profit + "$");
-    if (pkAutoNum(s.loss) > 0) stops.push("убыток −" + s.loss + "$");
-    if (pkAutoNum(s.bigWin) > 0) stops.push("выигрыш от " + s.bigWin + "$");
+    if (pkAutoNum(s.profit) > 0) stops.push("прибыль +" + s.profit + "⭐️");
+    if (pkAutoNum(s.loss) > 0) stops.push("убыток −" + s.loss + "⭐️");
+    if (pkAutoNum(s.bigWin) > 0) stops.push("выигрыш от " + s.bigWin + "⭐️");
     if (stops.length) parts.push("стоп: " + stops.join(", "));
     parts.push(s.picks === "random" ? "новые случайные " + G.unit + " каждый раунд" : "ваш выбор");
     if (s.onLoss === "up") parts.push("после проигрыша +" + s.lossPct + "%");
     if (s.onWin === "reset") parts.push("после выигрыша — начальная ставка");
     else if (s.onWin === "up") parts.push("после выигрыша +" + s.winPct + "%");
-    if (pkAutoNum(s.cap) > 0) parts.push("потолок " + s.cap + "$");
+    if (pkAutoNum(s.cap) > 0) parts.push("потолок " + s.cap + "⭐️");
     parts.push(PK_AUTO_SPEEDS[s.speed].label.toLowerCase() + " скорость");
     return parts.join(" · ");
 }
@@ -17953,7 +18098,7 @@ function pkAutoSetupHTML(g) {
     const G = PK_AUTO_GAMES[g];
     if (!cfg.enabled) return '<div class="upg-auto-off">Авто-игра сейчас отключена администратором. Играйте вручную.</div>';
     const rounds = PK_AUTO_ROUNDS.map(n => '<button class="upg-chip' + (s.rounds === n ? " on" : "") + '" type="button" data-pk-rounds="' + n + '">' + (n ? n : "∞") + "</button>").join("");
-    const field = (key, sign, name, ph) => '<label class="upg-field"><span class="upg-field-name">' + name + '</span><span class="upg-input"><em>' + sign + '</em><input type="text" inputmode="decimal" autocomplete="off" maxlength="9" data-pk-in="' + key + '" placeholder="' + ph + '" value="' + escapeHtml(s[key]) + '"><b>$</b></span></label>';
+    const field = (key, sign, name, ph) => '<label class="upg-field"><span class="upg-field-name">' + name + '</span><span class="upg-input"><em>' + sign + '</em><input type="text" inputmode="decimal" autocomplete="off" maxlength="9" data-pk-in="' + key + '" placeholder="' + ph + '" value="' + escapeHtml(s[key]) + '"><b>⭐️</b></span></label>';
     const seg = (key, items, cur) => '<div class="upg-seg" data-pk-seg="' + key + '">' + items.map(it => '<button class="upg-seg-btn' + (cur === it[0] ? " on" : "") + '" type="button" data-pk-val="' + it[0] + '">' + it[1] + "</button>").join("") + "</div>";
     const pct = which => {
         const mode = which === "loss" ? s.onLoss : s.onWin;
@@ -17972,7 +18117,7 @@ function pkAutoSetupHTML(g) {
     const warn = pkAutoWarnText(g);
     const sel = pkAutoSel[g];
     const picked = '<div class="pk-auto-picked">' + (G.title === "Мины" ? "Выбрано клеток: " : "Выбрано уровней: ") + "<b>" + sel.length + "</b> из " + G.maxLen() + "</div>";
-    return '<div class="upg-auto-head"><span class="upg-auto-title">' + UPG_AUTO_ICON + 'Авто-игра</span><span class="upg-auto-limit">' + "до " + cfg.maxRounds + " " + kenoAutoWord(cfg.maxRounds) + " за серию</span></div>" + picked + '<div class="gv-label">Ставка в каждом раунде</div>' + '<label class="upg-field"><span class="upg-input"><em>$</em><input type="text" inputmode="decimal" autocomplete="off" maxlength="9" data-pk-in="bet" placeholder="0" value="' + escapeHtml(s.bet) + '"><b>$</b></span></label>' + '<div class="upg-pct-row">' + betChips + "</div>" + '<div class="gv-label">Количество раундов</div>' + '<div class="upg-chip-row">' + rounds + "</div>" + '<div class="gv-label">' + (g === "mines" ? "Клетки в каждом раунде" : "Путь в каждом раунде") + "</div>" + seg("picks", [
+    return '<div class="upg-auto-head"><span class="upg-auto-title">' + UPG_AUTO_ICON + 'Авто-игра</span><span class="upg-auto-limit">' + "до " + cfg.maxRounds + " " + kenoAutoWord(cfg.maxRounds) + " за серию</span></div>" + picked + '<div class="gv-label">Ставка в каждом раунде</div>' + '<label class="upg-field"><span class="upg-input"><em>⭐️</em><input type="text" inputmode="decimal" autocomplete="off" maxlength="9" data-pk-in="bet" placeholder="0" value="' + escapeHtml(s.bet) + '"><b>⭐️</b></span></label>' + '<div class="upg-pct-row">' + betChips + "</div>" + '<div class="gv-label">Количество раундов</div>' + '<div class="upg-chip-row">' + rounds + "</div>" + '<div class="gv-label">' + (g === "mines" ? "Клетки в каждом раунде" : "Путь в каждом раунде") + "</div>" + seg("picks", [
         ["mine", "Мой выбор"],
         ["random", "Случайный"]
     ], s.picks) + '<div class="gv-label">Остановить, если</div>' + '<div class="upg-stops">' + '<button class="upg-toggle' + (s.stopWin ? " on" : "") + '" type="button" data-pk-toggle="stopWin"><span>Выпал первый выигрыш</span><i class="upg-sw"></i></button>' + field("profit", "+", "Цель по прибыли", "выкл.") + field("loss", "−", "Стоп-лосс", "выкл.") + field("bigWin", "≥", "Крупный выигрыш", "выкл.") + "</div>" + '<div class="gv-label">Ставка после проигрыша</div>' + seg("onLoss", [
@@ -18217,7 +18362,7 @@ function pkAutoLiveBoxHTML() {
 
 function pkAutoLiveHTML() {
     const tile = (label, id) => '<div class="upgrade-stat"><span>' + label + '</span><b id="' + id + '">—</b></div>';
-    return '<div class="upg-auto keno-auto-live-card"><div class="upg-live" id="pkLive">' + '<div class="upg-live-top"><span class="upg-live-tag" id="pkLiveTag">Авто-игра</span><span class="upg-live-round" id="pkLiveRound"></span></div>' + '<div class="upg-live-bar"><i id="pkLiveBar"></i></div>' + '<div class="upg-live-net-wrap"><span class="upg-live-net-cap">Итог серии</span><b class="upg-live-net" id="pkLiveNet">0$</b></div>' + '<div class="upg-live-stats">' + tile("Победы", "pkLiveWins") + tile("Поражения", "pkLiveLoss") + tile("Ставка", "pkLiveBet") + "</div>" + '<div class="upg-live-dots" id="pkLiveDots"></div>' + '<div class="upg-live-reason" id="pkLiveReason" hidden></div>' + "</div></div>";
+    return '<div class="upg-auto keno-auto-live-card"><div class="upg-live" id="pkLive">' + '<div class="upg-live-top"><span class="upg-live-tag" id="pkLiveTag">Авто-игра</span><span class="upg-live-round" id="pkLiveRound"></span></div>' + '<div class="upg-live-bar"><i id="pkLiveBar"></i></div>' + '<div class="upg-live-net-wrap"><span class="upg-live-net-cap">Итог серии</span><b class="upg-live-net" id="pkLiveNet">0⭐️</b></div>' + '<div class="upg-live-stats">' + tile("Победы", "pkLiveWins") + tile("Поражения", "pkLiveLoss") + tile("Ставка", "pkLiveBet") + "</div>" + '<div class="upg-live-dots" id="pkLiveDots"></div>' + '<div class="upg-live-reason" id="pkLiveReason" hidden></div>' + "</div></div>";
 }
 
 function pkAutoPaintLive(newDot) {
@@ -18233,7 +18378,7 @@ function pkAutoPaintLive(newDot) {
     netEl.className = "upg-live-net" + (net > 0 ? " pos" : net < 0 ? " neg" : "");
     byId("pkLiveWins").textContent = String(run.wins);
     byId("pkLiveLoss").textContent = String(run.losses);
-    byId("pkLiveBet").textContent = fmtNum(run.bet) + "$";
+    byId("pkLiveBet").textContent = fmtNum(run.bet) + "⭐️";
     byId("pkLiveDots").innerHTML = run.dots.slice(-28).map((w, i, a) => '<i class="' + (w ? "w" : "l") + (newDot && i === a.length - 1 ? " new" : "") + '"></i>').join("");
     const live = byId("pkLive");
     if (live) live.classList.toggle("done", !run.active);
@@ -18431,17 +18576,17 @@ function pkAutoStart() {
         return;
     }
     if (bet < betMin(G.limit) - 1e-9) {
-        showToast("Минимальная ставка — " + fmtNum(betMin(G.limit)) + "$", "error");
+        showToast("Минимальная ставка — " + fmtNum(betMin(G.limit)) + "⭐️", "error");
         return;
     }
     if (bet > betMax(G.limit) + 1e-9) {
-        showToast("Максимальная ставка — " + fmtNum(betMax(G.limit)) + "$", "error");
+        showToast("Максимальная ставка — " + fmtNum(betMax(G.limit)) + "⭐️", "error");
         return;
     }
     const p = pkAutoParse(g);
     if (!p) return;
     if (cfg.maxBet > 0 && bet > cfg.maxBet + 1e-9) {
-        showToast("В авто-игре ставка не больше " + fmtNum(cfg.maxBet) + "$", "error");
+        showToast("В авто-игре ставка не больше " + fmtNum(cfg.maxBet) + "⭐️", "error");
         return;
     }
     if (p.cap && bet > p.cap + 1e-9) {
@@ -18529,7 +18674,7 @@ function pkAutoStart() {
         run.total = p.rounds ? Math.min(p.rounds, d.maxRounds) : d.maxRounds;
         if (d.maxBet > 0 && run.bet > d.maxBet + 1e-9) {
             pkAutoStartFailed(run, {
-                error: "В авто-игре ставка не больше " + fmtNum(d.maxBet) + "$"
+                error: "В авто-игре ставка не больше " + fmtNum(d.maxBet) + "⭐️"
             });
             return;
         }
@@ -18894,8 +19039,8 @@ function pkAutoAbort(reason) {
 function pkAutoToast(run) {
     if (!run.round) return;
     const net = Math.round((run.returned - run.staked) * 100) / 100;
-    if (net > 0) showGameWinToast(net, "Итог серии +", "$");
-    else if (net < 0) showGameLoseToast("Итог серии: −" + fmtNum(-net) + "$");
+    if (net > 0) showGameWinToast(net, "Итог серии +", "⭐️");
+    else if (net < 0) showGameLoseToast("Итог серии: −" + fmtNum(-net) + "⭐️");
     else showToast("Серия окончена: вы в нуле", "warning");
 }
 
@@ -19091,10 +19236,10 @@ function updateHiloChoices() {
 
 function hiloStatusHTML() {
     if (hiloActive) {
-        return hiloCanCashout ? "Заберёте: <b>" + fmtNum(hiloCashoutAmount) + "$</b> (x" + fmtCoef(hiloMultiplier) + ")" : "Угадайте первую карту, чтобы разблокировать «Забрать»";
+        return hiloCanCashout ? "Заберёте: <b>" + fmtNum(hiloCashoutAmount) + "⭐️</b> (x" + fmtCoef(hiloMultiplier) + ")" : "Угадайте первую карту, чтобы разблокировать «Забрать»";
     }
     if (hiloFinishedInfo) {
-        return hiloFinishedInfo.win ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(hiloFinishedInfo.winAmount) + "$ (x" + fmtCoef(hiloFinishedInfo.multiplier) + ")</span>" : '<span class="gv-history-lose">Не угадали — ставка сгорела</span>';
+        return hiloFinishedInfo.win ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(hiloFinishedInfo.winAmount) + "⭐️ (x" + fmtCoef(hiloFinishedInfo.multiplier) + ")</span>" : '<span class="gv-history-lose">Не угадали — ставка сгорела</span>';
     }
     return "";
 }
@@ -19120,7 +19265,7 @@ function setHiloStartBtn(mode) {
     if (!btn) return;
     btn.classList.remove("dim");
     if (mode === "start") btn.textContent = "Начать игру";
-    else if (mode === "active") btn.textContent = hiloCanCashout ? "Забрать " + fmtNum(hiloCashoutAmount) + "$ (x" + fmtCoef(hiloMultiplier) + ")" : "Угадайте карту";
+    else if (mode === "active") btn.textContent = hiloCanCashout ? "Забрать " + fmtNum(hiloCashoutAmount) + "⭐️ (x" + fmtCoef(hiloMultiplier) + ")" : "Угадайте карту";
     else if (mode === "again") btn.textContent = "Создать новую игру";
 }
 
@@ -19128,7 +19273,7 @@ function updateHiloCashoutBtn() {
     if (!hiloActive) return;
     const btn = document.getElementById("hiloStartBtn");
     if (!btn) return;
-    btn.textContent = hiloCanCashout ? "Забрать " + fmtNum(hiloCashoutAmount) + "$ (x" + fmtCoef(hiloMultiplier) + ")" : "Угадайте карту";
+    btn.textContent = hiloCanCashout ? "Забрать " + fmtNum(hiloCashoutAmount) + "⭐️ (x" + fmtCoef(hiloMultiplier) + ")" : "Угадайте карту";
     btn.classList.toggle("dim", !hiloCanCashout || hiloBusy);
 }
 
@@ -19217,11 +19362,11 @@ function playHilo() {
         return;
     }
     if (state.underMin) {
-        showToast("Минимальная ставка — " + fmtNum(betMin("hilo")) + "$", "error");
+        showToast("Минимальная ставка — " + fmtNum(betMin("hilo")) + "⭐️", "error");
         return;
     }
     if (state.overMax) {
-        showToast("Максимальная ставка — " + fmtNum(betMax("hilo")) + "$", "error");
+        showToast("Максимальная ставка — " + fmtNum(betMax("hilo")) + "⭐️", "error");
         return;
     }
     hiloBusy = true;
@@ -19282,7 +19427,7 @@ function hiloFinish(data) {
     setHiloPanelLocked(false);
     setHiloStartBtn("again");
     updateHiloStatus();
-    if (data.win) showGameWinToast(data.winAmount, "Выигрыш ", "$!");
+    if (data.win) showGameWinToast(data.winAmount, "Выигрыш ", "⭐️!");
     else showGameLoseToast("Не угадали — ставка сгорела");
     loadHiloHistory(null, true);
 }
@@ -19369,7 +19514,7 @@ function initHiloGame(data) {
         hiloBet = st.bet;
         applyHiloState(st);
         const betInput = gvBody.querySelector(".gv-bet-input");
-        if (betInput) betInput.value = st.bet + "$";
+        if (betInput) betInput.value = st.bet + "⭐️";
         setHiloPanelLocked(true);
         setHiloStartBtn("active");
         const choicesWrap = document.getElementById("hiloChoices");
@@ -19388,7 +19533,7 @@ function hiloHistoryRowHTML(r) {
     const name = isMe ? currentUser.displayName || "Игрок" : r.username || "Игрок";
     const avatarUrl = isMe ? currentUser.avatarUrl : "/api/avatar/" + r.user_id;
     const steps = meta.cards ? meta.cards.length - 1 : "—";
-    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-avatar"><div class="skel-box"></div>' + lazyImgTag(avatarUrl, name) + "</div>" + '<div class="gv-history-mid">' + '<div class="gv-history-name"><span class="gv-history-name-text">' + escapeHtml(name) + "</span>" + botBadge + "</div>" + historyTimeHTML(r.created_at) + "</div>" + '<div class="gv-history-right">Сумма ставки: <b>' + fmtNum(r.bet) + "$</b><br>" + '<span class="gv-history-outcome">Верных шагов: <b>' + steps + "</b></span><br>" + (isWin ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "$ (x" + fmtCoef(meta.multiplier) + ")</span>" : '<span class="gv-history-lose">Проигрыш</span>') + "</div>" + "</div>" + (meta.roundId ? '<button class="crash-history-fair-btn" type="button" data-hilo-round="' + escapeHtml(meta.roundId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" : "") + "</div>";
+    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-avatar"><div class="skel-box"></div>' + lazyImgTag(avatarUrl, name) + "</div>" + '<div class="gv-history-mid">' + '<div class="gv-history-name"><span class="gv-history-name-text">' + escapeHtml(name) + "</span>" + botBadge + "</div>" + historyTimeHTML(r.created_at) + "</div>" + '<div class="gv-history-right">Сумма ставки: <b>' + fmtNum(r.bet) + "⭐️</b><br>" + '<span class="gv-history-outcome">Верных шагов: <b>' + steps + "</b></span><br>" + (isWin ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "⭐️ (x" + fmtCoef(meta.multiplier) + ")</span>" : '<span class="gv-history-lose">Проигрыш</span>') + "</div>" + "</div>" + (meta.roundId ? '<button class="crash-history-fair-btn" type="button" data-hilo-round="' + escapeHtml(meta.roundId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" : "") + "</div>";
 }
 
 function loadHiloHistory(scope, append) {
@@ -19464,7 +19609,7 @@ function hiloRoundPlayerRowHTML(detail) {
     const avatarUrl = isMe ? currentUser.avatarUrl : "/api/avatar/" + detail.userId;
     const isWin = detail.result === "win";
     const steps = (detail.cards || []).length - 1;
-    return '<div class="crash-player-row' + (isMe ? " me" : "") + '">' + '<div class="crash-player-avatar"><img src="' + avatarUrl + '" alt="" loading="lazy"></div>' + '<div class="crash-player-mid">' + '<div class="crash-player-name"><span class="crash-player-name-text">' + escapeHtml(name) + "</span>" + (isMe ? ' <span class="lb-you-tag">Вы</span>' : "") + "</div>" + '<div class="crash-player-sub">Ставка: ' + fmtNum(detail.bet) + "$ · Верных шагов: " + steps + "</div>" + "</div>" + (detail.multiplier != null ? '<div class="crash-player-mult">x' + fmtCoef(detail.multiplier) + "</div>" : "") + '<div class="crash-player-value">' + (isWin ? "+" + fmtNum(detail.winAmount) + "$" : "Проигрыш") + "</div>" + "</div>";
+    return '<div class="crash-player-row' + (isMe ? " me" : "") + '">' + '<div class="crash-player-avatar"><img src="' + avatarUrl + '" alt="" loading="lazy"></div>' + '<div class="crash-player-mid">' + '<div class="crash-player-name"><span class="crash-player-name-text">' + escapeHtml(name) + "</span>" + (isMe ? ' <span class="lb-you-tag">Вы</span>' : "") + "</div>" + '<div class="crash-player-sub">Ставка: ' + fmtNum(detail.bet) + "⭐️ · Верных шагов: " + steps + "</div>" + "</div>" + (detail.multiplier != null ? '<div class="crash-player-mult">x' + fmtCoef(detail.multiplier) + "</div>" : "") + '<div class="crash-player-value">' + (isWin ? "+" + fmtNum(detail.winAmount) + "⭐️" : "Проигрыш") + "</div>" + "</div>";
 }
 
 function hiloRoundBoardSkeletonHTML() {
@@ -19674,10 +19819,10 @@ function updateRbChoices() {
 
 function rbStatusHTML() {
     if (rbActive) {
-        return rbCanCashout ? "Заберёте: <b>" + fmtNum(rbCashoutAmount) + "$</b> (x" + fmtCoef(rbMultiplier) + ")" : "Сделайте первый прогноз, чтобы разблокировать «Забрать»";
+        return rbCanCashout ? "Заберёте: <b>" + fmtNum(rbCashoutAmount) + "⭐️</b> (x" + fmtCoef(rbMultiplier) + ")" : "Сделайте первый прогноз, чтобы разблокировать «Забрать»";
     }
     if (rbFinishedInfo) {
-        return rbFinishedInfo.win ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(rbFinishedInfo.winAmount) + "$ (x" + fmtCoef(rbFinishedInfo.multiplier) + ")</span>" : '<span class="gv-history-lose">Не угадали — ставка сгорела</span>';
+        return rbFinishedInfo.win ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(rbFinishedInfo.winAmount) + "⭐️ (x" + fmtCoef(rbFinishedInfo.multiplier) + ")</span>" : '<span class="gv-history-lose">Не угадали — ставка сгорела</span>';
     }
     return "";
 }
@@ -19703,7 +19848,7 @@ function setRbStartBtn(mode) {
     if (!btn) return;
     btn.classList.remove("dim");
     if (mode === "start") btn.textContent = "Начать игру";
-    else if (mode === "active") btn.textContent = rbCanCashout ? "Забрать " + fmtNum(rbCashoutAmount) + "$ (x" + fmtCoef(rbMultiplier) + ")" : "Сделайте прогноз";
+    else if (mode === "active") btn.textContent = rbCanCashout ? "Забрать " + fmtNum(rbCashoutAmount) + "⭐️ (x" + fmtCoef(rbMultiplier) + ")" : "Сделайте прогноз";
     else if (mode === "again") btn.textContent = "Создать новую игру";
 }
 
@@ -19711,7 +19856,7 @@ function updateRbCashoutBtn() {
     if (!rbActive) return;
     const btn = document.getElementById("redblackStartBtn");
     if (!btn) return;
-    btn.textContent = rbCanCashout ? "Забрать " + fmtNum(rbCashoutAmount) + "$ (x" + fmtCoef(rbMultiplier) + ")" : "Сделайте прогноз";
+    btn.textContent = rbCanCashout ? "Забрать " + fmtNum(rbCashoutAmount) + "⭐️ (x" + fmtCoef(rbMultiplier) + ")" : "Сделайте прогноз";
     btn.classList.toggle("dim", !rbCanCashout || rbBusy);
 }
 
@@ -19811,11 +19956,11 @@ function playRedBlack() {
         return;
     }
     if (state.underMin) {
-        showToast("Минимальная ставка — " + fmtNum(betMin("redblack")) + "$", "error");
+        showToast("Минимальная ставка — " + fmtNum(betMin("redblack")) + "⭐️", "error");
         return;
     }
     if (state.overMax) {
-        showToast("Максимальная ставка — " + fmtNum(betMax("redblack")) + "$", "error");
+        showToast("Максимальная ставка — " + fmtNum(betMax("redblack")) + "⭐️", "error");
         return;
     }
     rbBusy = true;
@@ -19876,7 +20021,7 @@ function rbFinish(data) {
     setRbPanelLocked(false);
     setRbStartBtn("again");
     updateRbStatus();
-    if (data.win) showGameWinToast(data.winAmount, "Выигрыш ", "$!");
+    if (data.win) showGameWinToast(data.winAmount, "Выигрыш ", "⭐️!");
     else showGameLoseToast("Не угадали — ставка сгорела");
     loadRedBlackHistory(null, true);
 }
@@ -19965,7 +20110,7 @@ function initRedBlackGame(data) {
         rbBet = st.bet;
         applyRbState(st);
         const betInput = gvBody.querySelector(".gv-bet-input");
-        if (betInput) betInput.value = st.bet + "$";
+        if (betInput) betInput.value = st.bet + "⭐️";
         setRbPanelLocked(true);
         setRbStartBtn("active");
         const choicesWrap = document.getElementById("rbChoices");
@@ -19989,7 +20134,7 @@ function rbHistoryRowHTML(r) {
     const name = isMe ? currentUser.displayName || "Игрок" : r.username || "Игрок";
     const avatarUrl = isMe ? currentUser.avatarUrl : "/api/avatar/" + r.user_id;
     const steps = meta.cards ? meta.cards.length - 1 : "—";
-    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-avatar"><div class="skel-box"></div>' + lazyImgTag(avatarUrl, name) + "</div>" + '<div class="gv-history-mid">' + '<div class="gv-history-name"><span class="gv-history-name-text">' + escapeHtml(name) + "</span>" + botBadge + "</div>" + historyTimeHTML(r.created_at) + "</div>" + '<div class="gv-history-right">Сумма ставки: <b>' + fmtNum(r.bet) + "$</b><br>" + '<span class="gv-history-outcome">Верных шагов: <b>' + steps + "</b></span><br>" + (isWin ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "$ (x" + fmtCoef(meta.multiplier) + ")</span>" : '<span class="gv-history-lose">Проигрыш</span>') + "</div>" + "</div>" + (meta.roundId ? '<button class="crash-history-fair-btn" type="button" data-redblack-round="' + escapeHtml(meta.roundId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" : "") + "</div>";
+    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-avatar"><div class="skel-box"></div>' + lazyImgTag(avatarUrl, name) + "</div>" + '<div class="gv-history-mid">' + '<div class="gv-history-name"><span class="gv-history-name-text">' + escapeHtml(name) + "</span>" + botBadge + "</div>" + historyTimeHTML(r.created_at) + "</div>" + '<div class="gv-history-right">Сумма ставки: <b>' + fmtNum(r.bet) + "⭐️</b><br>" + '<span class="gv-history-outcome">Верных шагов: <b>' + steps + "</b></span><br>" + (isWin ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "⭐️ (x" + fmtCoef(meta.multiplier) + ")</span>" : '<span class="gv-history-lose">Проигрыш</span>') + "</div>" + "</div>" + (meta.roundId ? '<button class="crash-history-fair-btn" type="button" data-redblack-round="' + escapeHtml(meta.roundId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" : "") + "</div>";
 }
 
 function loadRedBlackHistory(scope, append) {
@@ -20065,7 +20210,7 @@ function rbRoundPlayerRowHTML(detail) {
     const avatarUrl = isMe ? currentUser.avatarUrl : "/api/avatar/" + detail.userId;
     const isWin = detail.result === "win";
     const steps = (detail.cards || []).length - 1;
-    return '<div class="crash-player-row' + (isMe ? " me" : "") + '">' + '<div class="crash-player-avatar"><img src="' + avatarUrl + '" alt="" loading="lazy"></div>' + '<div class="crash-player-mid">' + '<div class="crash-player-name"><span class="crash-player-name-text">' + escapeHtml(name) + "</span>" + (isMe ? ' <span class="lb-you-tag">Вы</span>' : "") + "</div>" + '<div class="crash-player-sub">Ставка: ' + fmtNum(detail.bet) + "$ · Верных шагов: " + steps + "</div>" + "</div>" + (detail.multiplier != null ? '<div class="crash-player-mult">x' + fmtCoef(detail.multiplier) + "</div>" : "") + '<div class="crash-player-value">' + (isWin ? "+" + fmtNum(detail.winAmount) + "$" : "Проигрыш") + "</div>" + "</div>";
+    return '<div class="crash-player-row' + (isMe ? " me" : "") + '">' + '<div class="crash-player-avatar"><img src="' + avatarUrl + '" alt="" loading="lazy"></div>' + '<div class="crash-player-mid">' + '<div class="crash-player-name"><span class="crash-player-name-text">' + escapeHtml(name) + "</span>" + (isMe ? ' <span class="lb-you-tag">Вы</span>' : "") + "</div>" + '<div class="crash-player-sub">Ставка: ' + fmtNum(detail.bet) + "⭐️ · Верных шагов: " + steps + "</div>" + "</div>" + (detail.multiplier != null ? '<div class="crash-player-mult">x' + fmtCoef(detail.multiplier) + "</div>" : "") + '<div class="crash-player-value">' + (isWin ? "+" + fmtNum(detail.winAmount) + "⭐️" : "Проигрыш") + "</div>" + "</div>";
 }
 
 function rbRoundBoardSkeletonHTML() {
@@ -20424,10 +20569,10 @@ function ladderStatusHTML() {
     if (ladderActive) {
         const mult = ladderTable[ladderLevel] || 1;
         const cashoutAmount = Math.round(ladderBet * mult * 100) / 100;
-        return "Пройдено уровней: <b>" + ladderLevel + " / " + LADDER_LEVELS + "</b>" + (ladderLevel > 0 ? " · Заберёте: <b>" + fmtNum(cashoutAmount) + "$</b> (x" + fmtCoef(mult) + ")" : "");
+        return "Пройдено уровней: <b>" + ladderLevel + " / " + LADDER_LEVELS + "</b>" + (ladderLevel > 0 ? " · Заберёте: <b>" + fmtNum(cashoutAmount) + "⭐️</b> (x" + fmtCoef(mult) + ")" : "");
     }
     if (ladderFinishedInfo) {
-        return ladderFinishedInfo.win ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(ladderFinishedInfo.winAmount) + "$ (x" + fmtCoef(ladderFinishedInfo.mult) + ")</span>" + " · Пройдено: <b>" + ladderLevel + " / " + LADDER_LEVELS + "</b>" : '<span class="gv-history-lose">Наткнулись на камень на уровне ' + (ladderLevel + 1) + "</span>" + " · Пройдено: <b>" + ladderLevel + " / " + LADDER_LEVELS + "</b>";
+        return ladderFinishedInfo.win ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(ladderFinishedInfo.winAmount) + "⭐️ (x" + fmtCoef(ladderFinishedInfo.mult) + ")</span>" + " · Пройдено: <b>" + ladderLevel + " / " + LADDER_LEVELS + "</b>" : '<span class="gv-history-lose">Наткнулись на камень на уровне ' + (ladderLevel + 1) + "</span>" + " · Пройдено: <b>" + ladderLevel + " / " + LADDER_LEVELS + "</b>";
     }
     return "";
 }
@@ -20536,7 +20681,7 @@ function initLadderGame(data) {
         selectLadderStones(st.stonesCount);
         refreshLadderGridLocks();
         const betInput = gvBody.querySelector(".gv-bet-input");
-        if (betInput) betInput.value = st.bet + "$";
+        if (betInput) betInput.value = st.bet + "⭐️";
         setLadderPanelLocked(true);
         setLadderStartBtn("cashout");
         updateLadderStatus();
@@ -20559,11 +20704,11 @@ function playLadder() {
         return;
     }
     if (state.underMin) {
-        showToast("Минимальная ставка — " + fmtNum(betMin("ladder")) + "$", "error");
+        showToast("Минимальная ставка — " + fmtNum(betMin("ladder")) + "⭐️", "error");
         return;
     }
     if (state.overMax) {
-        showToast("Максимальная ставка — " + fmtNum(betMax("ladder")) + "$", "error");
+        showToast("Максимальная ставка — " + fmtNum(betMax("ladder")) + "⭐️", "error");
         return;
     }
     if (!state.validStones) return;
@@ -20645,7 +20790,9 @@ function pickLadderColumn(col) {
         },
         body: JSON.stringify({
             uid: CURRENT_UID,
-            column: col
+            column: col,
+            level: ladderLevel,
+            roundId: ladderCurrentRoundInfo && ladderCurrentRoundInfo.roundId
         })
     }).then(r => r.json()).then(data => {
         ladderBusy = false;
@@ -20707,7 +20854,8 @@ function cashoutLadder() {
             "Content-Type": "application/json"
         },
         body: JSON.stringify({
-            uid: CURRENT_UID
+            uid: CURRENT_UID,
+            roundId: ladderCurrentRoundInfo && ladderCurrentRoundInfo.roundId
         })
     }).then(r => r.json()).then(data => {
         ladderBusy = false;
@@ -20754,7 +20902,7 @@ function ladderHistoryRowHTML(r) {
     const stonesN = meta.stonesCount != null ? meta.stonesCount : "—";
     const level = meta.level != null ? meta.level : "—";
     const maxLevels = meta.maxLevels != null ? meta.maxLevels : LADDER_LEVELS;
-    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-avatar"><div class="skel-box"></div>' + lazyImgTag(avatarUrl, name) + "</div>" + '<div class="gv-history-mid">' + '<div class="gv-history-name">' + escapeHtml(name) + "</div>" + historyTimeHTML(r.created_at) + "</div>" + '<div class="gv-history-right">Сумма ставки: <b>' + fmtNum(r.bet) + "$</b><br>" + '<span class="gv-history-outcome">Камней: <b>' + stonesN + "</b> · Уровень: <b>" + level + "/" + maxLevels + "</b></span><br>" + (isWin ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "$ (x" + fmtCoef(meta.multiplier) + ")</span>" : '<span class="gv-history-lose">Проигрыш' + (meta.multiplier != null && level > 0 ? " на x" + fmtCoef(meta.multiplier) : "") + "</span>") + "</div>" + "</div>" + (meta.roundId ? '<button class="crash-history-fair-btn" type="button" data-ladder-round="' + escapeHtml(meta.roundId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" : "") + "</div>";
+    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-avatar"><div class="skel-box"></div>' + lazyImgTag(avatarUrl, name) + "</div>" + '<div class="gv-history-mid">' + '<div class="gv-history-name">' + escapeHtml(name) + "</div>" + historyTimeHTML(r.created_at) + "</div>" + '<div class="gv-history-right">Сумма ставки: <b>' + fmtNum(r.bet) + "⭐️</b><br>" + '<span class="gv-history-outcome">Камней: <b>' + stonesN + "</b> · Уровень: <b>" + level + "/" + maxLevels + "</b></span><br>" + (isWin ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "⭐️ (x" + fmtCoef(meta.multiplier) + ")</span>" : '<span class="gv-history-lose">Проигрыш' + (meta.multiplier != null && level > 0 ? " на x" + fmtCoef(meta.multiplier) : "") + "</span>") + "</div>" + "</div>" + (meta.roundId ? '<button class="crash-history-fair-btn" type="button" data-ladder-round="' + escapeHtml(meta.roundId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" : "") + "</div>";
 }
 
 function loadLadderHistory(scope, append) {
@@ -20846,7 +20994,7 @@ function ladderRoundPlayerRowHTML(detail) {
     const name = isMe ? currentUser.displayName || "Игрок" : detail.username || "Игрок";
     const avatarUrl = isMe ? currentUser.avatarUrl : "/api/avatar/" + detail.userId;
     const isWin = detail.result === "win";
-    return '<div class="crash-player-row' + (isMe ? " me" : "") + '">' + '<div class="crash-player-avatar"><img src="' + avatarUrl + '" alt="" loading="lazy"></div>' + '<div class="crash-player-mid">' + '<div class="crash-player-name"><span class="crash-player-name-text">' + escapeHtml(name) + "</span>" + (isMe ? ' <span class="lb-you-tag">Вы</span>' : "") + "</div>" + '<div class="crash-player-sub">Ставка: ' + fmtNum(detail.bet) + "$ · Камней: " + (detail.stonesCount != null ? detail.stonesCount : "—") + "</div>" + "</div>" + (detail.multiplier != null ? '<div class="crash-player-mult">x' + fmtCoef(detail.multiplier) + "</div>" : "") + '<div class="crash-player-value">' + (isWin ? "+" + fmtNum(detail.winAmount) + "$" : "Проигрыш") + "</div>" + "</div>";
+    return '<div class="crash-player-row' + (isMe ? " me" : "") + '">' + '<div class="crash-player-avatar"><img src="' + avatarUrl + '" alt="" loading="lazy"></div>' + '<div class="crash-player-mid">' + '<div class="crash-player-name"><span class="crash-player-name-text">' + escapeHtml(name) + "</span>" + (isMe ? ' <span class="lb-you-tag">Вы</span>' : "") + "</div>" + '<div class="crash-player-sub">Ставка: ' + fmtNum(detail.bet) + "⭐️ · Камней: " + (detail.stonesCount != null ? detail.stonesCount : "—") + "</div>" + "</div>" + (detail.multiplier != null ? '<div class="crash-player-mult">x' + fmtCoef(detail.multiplier) + "</div>" : "") + '<div class="crash-player-value">' + (isWin ? "+" + fmtNum(detail.winAmount) + "⭐️" : "Проигрыш") + "</div>" + "</div>";
 }
 
 function ladderRoundBoardSkeletonHTML() {
@@ -20860,7 +21008,7 @@ function ladderRoundBoardSkeletonHTML() {
 }
 
 function ladderRoundPlayerSkeletonHTML() {
-    return '<div class="crash-player-row skel">' + '<div class="skel-box crash-player-avatar"></div>' + '<div class="crash-player-name text-skel" style="width:60%;">игрок</div>' + '<div class="crash-player-value text-skel" style="width:44px;">0$</div>' + "</div>";
+    return '<div class="crash-player-row skel">' + '<div class="skel-box crash-player-avatar"></div>' + '<div class="crash-player-name text-skel" style="width:60%;">игрок</div>' + '<div class="crash-player-value text-skel" style="width:44px;">0⭐️</div>' + "</div>";
 }
 
 function openLadderRoundModal(publicId) {
@@ -21065,7 +21213,7 @@ function blackjackStatusHTML() {
     if (blackjackActive) {
         if (blackjackHands.length > 1) {
             const totalBet = blackjackHands.reduce((sum, h) => sum + h.bet, 0);
-            return "Рука <b>" + (blackjackActiveHand + 1) + "</b> из " + blackjackHands.length + " · Сумма: <b>" + blackjackPlayerTotal + "</b> · Общая ставка: <b>" + fmtNum(totalBet) + "$</b>";
+            return "Рука <b>" + (blackjackActiveHand + 1) + "</b> из " + blackjackHands.length + " · Сумма: <b>" + blackjackPlayerTotal + "</b> · Общая ставка: <b>" + fmtNum(totalBet) + "⭐️</b>";
         }
         return "Ваша сумма: <b>" + blackjackPlayerTotal + "</b>" + (blackjackDoubled ? " · Ставка удвоена" : "");
     }
@@ -21073,11 +21221,11 @@ function blackjackStatusHTML() {
         const info = blackjackFinishedInfo;
         if (info.split) {
             const net = Math.round((info.winAmount - info.betAmount) * 100) / 100;
-            const head = net > 0 ? '<span class="gv-history-win">Итог: +' + fmtNum(net) + "$</span>" : net < 0 ? '<span class="gv-history-lose">Итог: −' + fmtNum(-net) + "$</span>" : "Итог: ставки возвращены";
-            return head + " · Выплата: <b>" + fmtNum(info.winAmount) + "$</b> · Дилер: " + info.dealerTotal;
+            const head = net > 0 ? '<span class="gv-history-win">Итог: +' + fmtNum(net) + "⭐️</span>" : net < 0 ? '<span class="gv-history-lose">Итог: −' + fmtNum(-net) + "⭐️</span>" : "Итог: ставки возвращены";
+            return head + " · Выплата: <b>" + fmtNum(info.winAmount) + "⭐️</b> · Дилер: " + info.dealerTotal;
         }
-        if (info.result === "win") return '<span class="gv-history-win">Выигрыш: ' + fmtNum(info.winAmount) + "$</span> · " + info.playerTotal + " против " + info.dealerTotal;
-        if (info.result === "push") return "Ничья, ставка возвращена: <b>" + fmtNum(info.winAmount) + "$</b> · " + info.playerTotal + " против " + info.dealerTotal;
+        if (info.result === "win") return '<span class="gv-history-win">Выигрыш: ' + fmtNum(info.winAmount) + "⭐️</span> · " + info.playerTotal + " против " + info.dealerTotal;
+        if (info.result === "push") return "Ничья, ставка возвращена: <b>" + fmtNum(info.winAmount) + "⭐️</b> · " + info.playerTotal + " против " + info.dealerTotal;
         return '<span class="gv-history-lose">Проигрыш</span> · ' + info.playerTotal + " против " + info.dealerTotal;
     }
     return "";
@@ -21112,7 +21260,7 @@ function blackjackSplitHandsHTML() {
         if (finished) {
             if (h.result === "win") {
                 cls += " win";
-                foot = '<span class="bj-hand-win">+' + fmtNum(h.winAmount - h.bet) + "$</span>";
+                foot = '<span class="bj-hand-win">+' + fmtNum(h.winAmount - h.bet) + "⭐️</span>";
             } else if (h.result === "push") {
                 cls += " push";
                 foot = "Ничья";
@@ -21128,7 +21276,7 @@ function blackjackSplitHandsHTML() {
         } else if (active) {
             foot = "Ваш ход";
         }
-        return '<div class="' + cls + '"><div class="blackjack-split-head"><span>Рука ' + (i + 1) + "</span><b>" + h.total + "</b></div>" + '<div class="blackjack-cards blackjack-cards-sm">' + blackjackHandHTML(h.cards, false) + "</div>" + '<div class="blackjack-split-foot"><span>' + fmtNum(h.bet) + "$" + (h.doubled ? " ×2" : "") + "</span>" + (foot ? '<span class="blackjack-split-state">' + foot + "</span>" : "") + "</div></div>";
+        return '<div class="' + cls + '"><div class="blackjack-split-head"><span>Рука ' + (i + 1) + "</span><b>" + h.total + "</b></div>" + '<div class="blackjack-cards blackjack-cards-sm">' + blackjackHandHTML(h.cards, false) + "</div>" + '<div class="blackjack-split-foot"><span>' + fmtNum(h.bet) + "⭐️" + (h.doubled ? " ×2" : "") + "</span>" + (foot ? '<span class="blackjack-split-state">' + foot + "</span>" : "") + "</div></div>";
     }).join("");
 }
 
@@ -21248,11 +21396,11 @@ function playBlackjack() {
         return;
     }
     if (state.underMin) {
-        showToast("Минимальная ставка — " + fmtNum(betMin("blackjack")) + "$", "error");
+        showToast("Минимальная ставка — " + fmtNum(betMin("blackjack")) + "⭐️", "error");
         return;
     }
     if (state.overMax) {
-        showToast("Максимальная ставка — " + fmtNum(betMax("blackjack")) + "$", "error");
+        showToast("Максимальная ставка — " + fmtNum(betMax("blackjack")) + "⭐️", "error");
         return;
     }
     blackjackBusy = true;
@@ -21624,10 +21772,10 @@ function blackjackHistoryRowHTML(r) {
     const playerTotal = handsSplit ? meta.hands.map(h => h.total).join(" / ") : meta.playerTotal != null ? meta.playerTotal : "—";
     const dealerTotal = meta.dealerTotal != null ? meta.dealerTotal : "—";
     let outcomeHtml;
-    if (isWin) outcomeHtml = '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "$</span>";
-    else if (isPush) outcomeHtml = "Ничья: <b>" + fmtNum(r.win_amount) + "$</b>";
+    if (isWin) outcomeHtml = '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "⭐️</span>";
+    else if (isPush) outcomeHtml = "Ничья: <b>" + fmtNum(r.win_amount) + "⭐️</b>";
     else outcomeHtml = '<span class="gv-history-lose">Проигрыш</span>';
-    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-avatar"><div class="skel-box"></div>' + lazyImgTag(avatarUrl, name) + "</div>" + '<div class="gv-history-mid">' + '<div class="gv-history-name"><span class="gv-history-name-text">' + escapeHtml(name) + "</span>" + botBadge + "</div>" + historyTimeHTML(r.created_at) + "</div>" + '<div class="gv-history-right">Сумма ставки: <b>' + fmtNum(r.bet) + "$</b><br>" + '<span class="gv-history-outcome">Вы: <b>' + playerTotal + "</b> · Дилер: <b>" + dealerTotal + "</b>" + (handsSplit ? " · разделение" : "") + "</span><br>" + outcomeHtml + "</div>" + "</div>" + (meta.roundId ? '<button class="crash-history-fair-btn" type="button" data-blackjack-round="' + escapeHtml(meta.roundId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" : "") + "</div>";
+    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-avatar"><div class="skel-box"></div>' + lazyImgTag(avatarUrl, name) + "</div>" + '<div class="gv-history-mid">' + '<div class="gv-history-name"><span class="gv-history-name-text">' + escapeHtml(name) + "</span>" + botBadge + "</div>" + historyTimeHTML(r.created_at) + "</div>" + '<div class="gv-history-right">Сумма ставки: <b>' + fmtNum(r.bet) + "⭐️</b><br>" + '<span class="gv-history-outcome">Вы: <b>' + playerTotal + "</b> · Дилер: <b>" + dealerTotal + "</b>" + (handsSplit ? " · разделение" : "") + "</span><br>" + outcomeHtml + "</div>" + "</div>" + (meta.roundId ? '<button class="crash-history-fair-btn" type="button" data-blackjack-round="' + escapeHtml(meta.roundId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" : "") + "</div>";
 }
 
 function loadBlackjackHistory(scope, append) {
@@ -21668,8 +21816,8 @@ function blackjackRoundHandHTML(cards) {
 function blackjackRoundPlayerHTML(data) {
     if (data.hands && data.hands.length > 1) {
         return data.hands.map((h, i) => {
-            const res = h.result === "win" ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(h.winAmount) + "$</span>" : h.result === "push" ? "Ничья: " + fmtNum(h.winAmount) + "$" : '<span class="gv-history-lose">' + (h.bust ? "Перебор" : "Проигрыш") + "</span>";
-            return '<div class="blackjack-hand-row"><div class="blackjack-hand-label">Рука ' + (i + 1) + " (" + h.total + ") · " + fmtNum(h.bet) + "$" + (h.doubled ? " ×2" : "") + " · " + res + '</div><div class="blackjack-cards">' + blackjackRoundHandHTML(h.cards) + "</div></div>";
+            const res = h.result === "win" ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(h.winAmount) + "⭐️</span>" : h.result === "push" ? "Ничья: " + fmtNum(h.winAmount) + "⭐️" : '<span class="gv-history-lose">' + (h.bust ? "Перебор" : "Проигрыш") + "</span>";
+            return '<div class="blackjack-hand-row"><div class="blackjack-hand-label">Рука ' + (i + 1) + " (" + h.total + ") · " + fmtNum(h.bet) + "⭐️" + (h.doubled ? " ×2" : "") + " · " + res + '</div><div class="blackjack-cards">' + blackjackRoundHandHTML(h.cards) + "</div></div>";
         }).join('<div class="my-games-divider"></div>');
     }
     return '<div class="blackjack-hand-row"><div class="blackjack-hand-label">Игрок (' + data.playerTotal + (data.playerBlackjack ? " BJ" : "") + ')</div><div class="blackjack-cards">' + blackjackRoundHandHTML(data.playerCards) + "</div></div>";
@@ -21687,8 +21835,8 @@ function openBlackjackRoundModal(publicId) {
             body.innerHTML = '<div class="crash-players-empty">Раунд не найден</div>';
             return;
         }
-        const resultLine = data.result === "win" ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(data.winAmount) + "$</span>" : data.result === "push" ? "Ничья: <b>" + fmtNum(data.winAmount) + "$</b>" : '<span class="gv-history-lose">Проигрыш</span>';
-        body.innerHTML = '<div class="blackjack-round-table"><div class="blackjack-hand-row"><div class="blackjack-hand-label">Дилер (' + data.dealerTotal + (data.dealerBlackjack ? " BJ" : "") + ')</div><div class="blackjack-cards">' + blackjackRoundHandHTML(data.dealerCards) + "</div></div>" + '<div class="my-games-divider"></div>' + blackjackRoundPlayerHTML(data) + '<div class="mines-status">' + resultLine + (data.split ? " · Общая ставка: " : " · Ставка: ") + fmtNum(data.bet) + "$" + (data.split ? " (разделение на " + data.hands.length + ")" : data.doubled ? " (удвоена)" : "") + "</div></div>" + '<div class="blackjack-round-fair-gap">' + '<div class="fair-block"><div class="fair-label">UID раунда</div><div class="fair-hash" data-copy="' + escapeHtml(data.roundId || "") + '">' + fairHashHTML(data.roundId || "—") + "</div></div>" + '<div class="fair-block"><div class="fair-label">SHA-256 hash</div><div class="fair-hash" data-copy="' + escapeHtml(data.seedHash || "") + '">' + fairHashHTML(data.seedHash || "—") + "</div></div>" + '<div class="fair-block"><div class="fair-label">Секретный сид</div><div class="fair-hash" data-copy="' + escapeHtml(data.serverSeed || "") + '">' + fairHashHTML(data.serverSeed || "—") + "</div></div>" + "</div>" + blackjackFairFormulaHTML();
+        const resultLine = data.result === "win" ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(data.winAmount) + "⭐️</span>" : data.result === "push" ? "Ничья: <b>" + fmtNum(data.winAmount) + "⭐️</b>" : '<span class="gv-history-lose">Проигрыш</span>';
+        body.innerHTML = '<div class="blackjack-round-table"><div class="blackjack-hand-row"><div class="blackjack-hand-label">Дилер (' + data.dealerTotal + (data.dealerBlackjack ? " BJ" : "") + ')</div><div class="blackjack-cards">' + blackjackRoundHandHTML(data.dealerCards) + "</div></div>" + '<div class="my-games-divider"></div>' + blackjackRoundPlayerHTML(data) + '<div class="mines-status">' + resultLine + (data.split ? " · Общая ставка: " : " · Ставка: ") + fmtNum(data.bet) + "⭐️" + (data.split ? " (разделение на " + data.hands.length + ")" : data.doubled ? " (удвоена)" : "") + "</div></div>" + '<div class="blackjack-round-fair-gap">' + '<div class="fair-block"><div class="fair-label">UID раунда</div><div class="fair-hash" data-copy="' + escapeHtml(data.roundId || "") + '">' + fairHashHTML(data.roundId || "—") + "</div></div>" + '<div class="fair-block"><div class="fair-label">SHA-256 hash</div><div class="fair-hash" data-copy="' + escapeHtml(data.seedHash || "") + '">' + fairHashHTML(data.seedHash || "—") + "</div></div>" + '<div class="fair-block"><div class="fair-label">Секретный сид</div><div class="fair-hash" data-copy="' + escapeHtml(data.serverSeed || "") + '">' + fairHashHTML(data.serverSeed || "—") + "</div></div>" + "</div>" + blackjackFairFormulaHTML();
     }).catch(() => {
         body.innerHTML = '<div class="crash-players-empty">Раунд не найден</div>';
     });
@@ -21884,11 +22032,11 @@ function createBlackjackPvpRoom() {
     const state = blackjackPvpReadyState();
     if (!state.hasBet || !state.enoughBalance || blackjackPvpBusy) return;
     if (state.underMin) {
-        showToast("Минимальная ставка — " + fmtNum(betMin("pvp_blackjack")) + "$", "error");
+        showToast("Минимальная ставка — " + fmtNum(betMin("pvp_blackjack")) + "⭐️", "error");
         return;
     }
     if (state.overMax) {
-        showToast("Максимальная ставка — " + fmtNum(betMax("pvp_blackjack")) + "$", "error");
+        showToast("Максимальная ставка — " + fmtNum(betMax("pvp_blackjack")) + "⭐️", "error");
         return;
     }
     blackjackPvpBusy = true;
@@ -21928,7 +22076,7 @@ function createBlackjackPvpRoom() {
 }
 
 function blackjackPvpWaitingHTML(state) {
-    const overlay = '<span class="blackjack-pvp-avatar blackjack-pvp-avatar-lg">' + lazyImgTag(currentUser.avatarUrl || "", "", "") + "</span>" + '<div class="mines-status">Ждём соперника… Ставка: ' + fmtNum(state.betAmount) + "$ · #" + escapeHtml(state.roomId) + "</div>";
+    const overlay = '<span class="blackjack-pvp-avatar blackjack-pvp-avatar-lg">' + lazyImgTag(currentUser.avatarUrl || "", "", "") + "</span>" + '<div class="mines-status">Ждём соперника… Ставка: ' + fmtNum(state.betAmount) + "⭐️ · #" + escapeHtml(state.roomId) + "</div>";
     return blackjackPvpIdleBoardHTML(overlay) + '<div class="blackjack-allcards-row">' + '<button class="blackjack-allcards-btn" type="button" id="blackjackPvpInviteBtn"><span>Пригласить в игру</span></button>' + '<button class="blackjack-allcards-btn" type="button" id="blackjackPvpCancelBtn"><span>Отменить</span></button>' + "</div>";
 }
 
@@ -22021,8 +22169,8 @@ function blackjackPvpTurnInfoHTML(myDone) {
 
 function blackjackPvpResultLineHTML(state) {
     if (state.status !== "finished") return "";
-    if (state.isDraw) return '<div class="mines-status blackjack-pvp-turn-info">Ничья — ставки возвращены</div>';
-    if (state.winnerId === CURRENT_UID) return '<div class="mines-status blackjack-pvp-turn-info"><span class="gv-history-win">Вы выиграли: ' + fmtNum(state.winAmount) + "$</span></div>";
+    if (state.isDraw) return '<div class="mines-status blackjack-pvp-turn-info">' + blackjackPvpDrawText(state) + "</div>";
+    if (state.winnerId === CURRENT_UID) return '<div class="mines-status blackjack-pvp-turn-info"><span class="gv-history-win">Вы выиграли: ' + fmtNum(state.winAmount) + "⭐️</span></div>";
     return '<div class="mines-status blackjack-pvp-turn-info"><span class="gv-history-lose">Вы проиграли</span></div>';
 }
 
@@ -22254,11 +22402,19 @@ function initBlackjackPvpBody() {
     blackjackPvpRefreshMyRoom();
 }
 
+function blackjackPvpDrawText(r) {
+    const creatorRefund = r.creatorRefund ?? r.betAmount;
+    const opponentRefund = r.opponentRefund ?? r.betAmount;
+    if (r.creatorId === CURRENT_UID) return "Ничья · Возврат: " + fmtNum(creatorRefund) + "⭐️";
+    if (r.opponentId === CURRENT_UID) return "Ничья · Возврат: " + fmtNum(opponentRefund) + "⭐️";
+    return "Ничья · Возвраты: " + fmtNum(creatorRefund) + " / " + fmtNum(opponentRefund) + "⭐️";
+}
+
 function blackjackPvpHistoryOutcomeHTML(r) {
-    if (r.isDraw) return "Ничья: <b>" + fmtNum(r.betAmount) + "$</b>";
+    if (r.isDraw) return blackjackPvpDrawText(r);
     const iWon = r.winnerId === CURRENT_UID;
     const winnerName = r.winnerId === r.creatorId ? r.creatorName : r.opponentName;
-    if (iWon) return '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.winAmount) + "$</span>";
+    if (iWon) return '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.winAmount) + "⭐️</span>";
     return '<span class="gv-history-lose">Победил ' + escapeHtml(winnerName || "соперник") + "</span>";
 }
 
@@ -22267,7 +22423,7 @@ function blackjackPvpHistoryRowHTML(r) {
     const meIsOpponent = r.opponentId === CURRENT_UID;
     const p1 = meIsCreator ? (currentUser.displayName || "Вы") : (r.creatorName || "Игрок 1");
     const p2 = meIsOpponent ? (currentUser.displayName || "Вы") : (r.opponentName || "Игрок 2");
-    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-mid pvp-history-mid">' + "<div>" + '<div class="gv-history-name">' + escapeHtml(p1) + " vs " + escapeHtml(p2) + "</div>" + historyTimeHTML(r.finishedAt || r.createdAt) + "</div>" + pvpHistoryAvatarsHTML(r.creatorId, r.opponentId) + "</div>" + '<div class="gv-history-right">Ставка: <b>' + fmtNum(r.betAmount) + "$</b><br>" + '<span class="gv-history-outcome">' + (r.creatorResult != null ? escapeHtml(r.creatorName) + ": <b>" + r.creatorResult + "</b> · " + escapeHtml(r.opponentName) + ": <b>" + r.opponentResult + "</b>" : "") + "</span><br>" + blackjackPvpHistoryOutcomeHTML(r) + "</div>" + "</div>" + '<button class="crash-history-fair-btn" type="button" data-blackjack-pvp-round="' + escapeHtml(r.roomId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" + "</div>";
+    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-mid pvp-history-mid">' + "<div>" + '<div class="gv-history-name">' + escapeHtml(p1) + " vs " + escapeHtml(p2) + "</div>" + historyTimeHTML(r.finishedAt || r.createdAt) + "</div>" + pvpHistoryAvatarsHTML(r.creatorId, r.opponentId) + "</div>" + '<div class="gv-history-right">Ставка: <b>' + fmtNum(r.betAmount) + "⭐️</b><br>" + '<span class="gv-history-outcome">' + (r.creatorResult != null ? escapeHtml(r.creatorName) + ": <b>" + r.creatorResult + "</b> · " + escapeHtml(r.opponentName) + ": <b>" + r.opponentResult + "</b>" : "") + "</span><br>" + blackjackPvpHistoryOutcomeHTML(r) + "</div>" + "</div>" + '<button class="crash-history-fair-btn" type="button" data-blackjack-pvp-round="' + escapeHtml(r.roomId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" + "</div>";
 }
 
 function loadBlackjackPvpHistory(scope, append) {
@@ -22295,7 +22451,7 @@ function openBlackjackPvpRoundModal(roomId) {
             body.innerHTML = '<div class="crash-players-empty">Раунд не найден</div>';
             return;
         }
-        const resultLine = data.isDraw ? "Ничья · Ставка: " + fmtNum(data.betAmount) + "$" : ('Победил ' + escapeHtml(data.winnerId === data.creatorId ? data.creatorName : data.opponentName) + " · Выигрыш: " + fmtNum(data.winAmount) + "$");
+        const resultLine = data.isDraw ? blackjackPvpDrawText(data) : ('Победил ' + escapeHtml(data.winnerId === data.creatorId ? data.creatorName : data.opponentName) + " · Выигрыш: " + fmtNum(data.winAmount) + "⭐️");
         const winCaptionHTML = '<div class="blackjack-pvp-win-caption gv-history-win">Выиграл PvP игру!</div>';
         const creatorWonHTML = (!data.isDraw && data.winnerId === data.creatorId) ? winCaptionHTML : "";
         const opponentWonHTML = (!data.isDraw && data.winnerId === data.opponentId) ? winCaptionHTML : "";
@@ -22707,7 +22863,7 @@ function refreshUpgradeStats() {
     if (winEl) {
         const betInput = gvBody.querySelector(".gv-bet-input");
         const bet = betInput ? parseFloat(betInput.value) : NaN;
-        winEl.textContent = bet > 0 ? "+" + fmtNum(Math.round(bet * mult * 100) / 100) + "$" : "—";
+        winEl.textContent = bet > 0 ? "+" + fmtNum(Math.round(bet * mult * 100) / 100) + "⭐️" : "—";
     }
 }
 
@@ -22864,7 +23020,7 @@ function spinUpgradeRing(data) {
         } else {
             setUpgradePanelLocked(false);
         }
-        if (win) showGameWinToast(data.winAmount, "Выигрыш +", "$ (x" + fmtCoef(data.multiplier) + ")");
+        if (win) showGameWinToast(data.winAmount, "Выигрыш +", "⭐️ (x" + fmtCoef(data.multiplier) + ")");
         else showGameLoseToast("Не повезло — ставка сгорела");
         loadUpgradeHistory();
     };
@@ -23119,7 +23275,7 @@ function upgradeAutoRoundsWord(n) {
 
 function upgradeAutoSigned(n) {
     const v = Math.round(n * 100) / 100;
-    return (v > 0 ? "+" : v < 0 ? "−" : "") + fmtNum(Math.abs(v)) + "$";
+    return (v > 0 ? "+" : v < 0 ? "−" : "") + fmtNum(Math.abs(v)) + "⭐️";
 }
 
 function upgradeInfoSvg() {
@@ -23217,14 +23373,14 @@ function upgradeAutoSummaryText() {
     const parts = ["до " + total + " " + upgradeAutoRoundsWord(total)];
     const stops = [];
     if (s.stopWin) stops.push("первый выигрыш");
-    if (upgradeAutoNum(s.profit) > 0) stops.push("прибыль +" + s.profit + "$");
-    if (upgradeAutoNum(s.loss) > 0) stops.push("убыток −" + s.loss + "$");
-    if (upgradeAutoNum(s.bigWin) > 0) stops.push("выигрыш от " + s.bigWin + "$");
+    if (upgradeAutoNum(s.profit) > 0) stops.push("прибыль +" + s.profit + "⭐️");
+    if (upgradeAutoNum(s.loss) > 0) stops.push("убыток −" + s.loss + "⭐️");
+    if (upgradeAutoNum(s.bigWin) > 0) stops.push("выигрыш от " + s.bigWin + "⭐️");
     if (stops.length) parts.push("стоп: " + stops.join(", "));
     if (s.onLoss === "up") parts.push("после проигрыша +" + s.lossPct + "%");
     if (s.onWin === "reset") parts.push("после выигрыша — начальная ставка");
     else if (s.onWin === "up") parts.push("после выигрыша +" + s.winPct + "%");
-    if (upgradeAutoNum(s.cap) > 0) parts.push("потолок " + s.cap + "$");
+    if (upgradeAutoNum(s.cap) > 0) parts.push("потолок " + s.cap + "⭐️");
     parts.push(UPG_AUTO_SPEEDS[s.speed].label.toLowerCase() + " скорость");
     return parts.join(" · ");
 }
@@ -23260,7 +23416,7 @@ function upgradeAutoSetupHTML() {
     const cfg = upgradeAutoCfg;
     if (cfg && !cfg.enabled) return '<div class="upg-auto-off">Авто-игра сейчас отключена администратором. Играйте вручную.</div>';
     const rounds = UPG_AUTO_ROUNDS.map(n => '<button class="upg-chip' + (s.rounds === n ? " on" : "") + '" type="button" data-upg-rounds="' + n + '">' + (n ? n : "∞") + "</button>").join("");
-    const field = (key, sign, name, ph) => '<label class="upg-field"><span class="upg-field-name">' + name + '</span><span class="upg-input"><em>' + sign + '</em><input type="text" inputmode="decimal" autocomplete="off" maxlength="9" data-upg-in="' + key + '" placeholder="' + ph + '" value="' + escapeHtml(s[key]) + '"><b>$</b></span></label>';
+    const field = (key, sign, name, ph) => '<label class="upg-field"><span class="upg-field-name">' + name + '</span><span class="upg-input"><em>' + sign + '</em><input type="text" inputmode="decimal" autocomplete="off" maxlength="9" data-upg-in="' + key + '" placeholder="' + ph + '" value="' + escapeHtml(s[key]) + '"><b>⭐️</b></span></label>';
     const seg = (key, items, cur) => '<div class="upg-seg" data-upg-seg="' + key + '">' + items.map(it => '<button class="upg-seg-btn' + (cur === it[0] ? " on" : "") + '" type="button" data-upg-val="' + it[0] + '">' + it[1] + "</button>").join("") + "</div>";
     const pct = which => {
         const mode = which === "loss" ? s.onLoss : s.onWin;
@@ -23287,7 +23443,7 @@ function upgradeAutoSetupHTML() {
 
 function upgradeAutoLiveHTML() {
     const tile = (label, id) => '<div class="upgrade-stat"><span>' + label + '</span><b id="' + id + '">—</b></div>';
-    return '<div class="upg-live" id="upgAutoLive">' + '<div class="upg-live-top"><span class="upg-live-tag" id="upgLiveTag">Авто-игра</span><span class="upg-live-round" id="upgLiveRound"></span></div>' + '<div class="upg-live-bar"><i id="upgLiveBar"></i></div>' + '<div class="upg-live-net-wrap"><span class="upg-live-net-cap">Итог серии</span><b class="upg-live-net" id="upgLiveNet">0$</b></div>' + '<div class="upg-live-stats">' + tile("Победы", "upgLiveWins") + tile("Поражения", "upgLiveLoss") + tile("Ставка", "upgLiveBet") + "</div>" + '<div class="upg-live-dots" id="upgLiveDots"></div>' + '<div class="upg-live-reason" id="upgLiveReason" hidden></div>' + '<div class="upg-live-actions" id="upgLiveActions" hidden><button class="upg-ghost" type="button" data-upg-act="setup">Изменить настройки</button></div>' + "</div>";
+    return '<div class="upg-live" id="upgAutoLive">' + '<div class="upg-live-top"><span class="upg-live-tag" id="upgLiveTag">Авто-игра</span><span class="upg-live-round" id="upgLiveRound"></span></div>' + '<div class="upg-live-bar"><i id="upgLiveBar"></i></div>' + '<div class="upg-live-net-wrap"><span class="upg-live-net-cap">Итог серии</span><b class="upg-live-net" id="upgLiveNet">0⭐️</b></div>' + '<div class="upg-live-stats">' + tile("Победы", "upgLiveWins") + tile("Поражения", "upgLiveLoss") + tile("Ставка", "upgLiveBet") + "</div>" + '<div class="upg-live-dots" id="upgLiveDots"></div>' + '<div class="upg-live-reason" id="upgLiveReason" hidden></div>' + '<div class="upg-live-actions" id="upgLiveActions" hidden><button class="upg-ghost" type="button" data-upg-act="setup">Изменить настройки</button></div>' + "</div>";
 }
 
 function upgradeAutoRenderCard() {
@@ -23338,7 +23494,7 @@ function upgradeAutoPaintLive(newDot) {
     netEl.className = "upg-live-net" + (net > 0 ? " pos" : net < 0 ? " neg" : "");
     byId("upgLiveWins").textContent = String(run.wins);
     byId("upgLiveLoss").textContent = String(run.losses);
-    byId("upgLiveBet").textContent = fmtNum(run.bet) + "$";
+    byId("upgLiveBet").textContent = fmtNum(run.bet) + "⭐️";
     byId("upgLiveDots").innerHTML = run.dots.slice(-28).map((w, i, a) => '<i class="' + (w ? "w" : "l") + (newDot && i === a.length - 1 ? " new" : "") + '"></i>').join("");
     const live = byId("upgAutoLive");
     if (live) live.classList.toggle("done", !run.active);
@@ -23568,11 +23724,11 @@ function upgradeAutoStart() {
         return;
     }
     if (state.underMin) {
-        showToast("Минимальная ставка — " + fmtNum(betMin("upgrade")) + "$", "error");
+        showToast("Минимальная ставка — " + fmtNum(betMin("upgrade")) + "⭐️", "error");
         return;
     }
     if (state.overMax) {
-        showToast("Максимальная ставка — " + fmtNum(betMax("upgrade")) + "$", "error");
+        showToast("Максимальная ставка — " + fmtNum(betMax("upgrade")) + "⭐️", "error");
         return;
     }
     const p = upgradeAutoParse();
@@ -23584,7 +23740,7 @@ function upgradeAutoStart() {
         maxBet: 0
     };
     if (cfg.maxBet > 0 && state.bet > cfg.maxBet + 1e-9) {
-        showToast("В авто-игре ставка не больше " + fmtNum(cfg.maxBet) + "$", "error");
+        showToast("В авто-игре ставка не больше " + fmtNum(cfg.maxBet) + "⭐️", "error");
         return;
     }
     if (p.cap && state.bet > p.cap + 1e-9) {
@@ -23666,7 +23822,7 @@ function upgradeAutoStart() {
         run.total = p.rounds ? Math.min(p.rounds, d.maxRounds) : d.maxRounds;
         if (d.maxBet > 0 && run.bet > d.maxBet + 1e-9) {
             upgradeAutoStartFailed(run, {
-                error: "В авто-игре ставка не больше " + fmtNum(d.maxBet) + "$"
+                error: "В авто-игре ставка не больше " + fmtNum(d.maxBet) + "⭐️"
             });
             return;
         }
@@ -23902,8 +24058,8 @@ function upgradeAutoAbort(reason) {
 function upgradeAutoToast(run) {
     if (!run.round) return;
     const net = Math.round((run.returned - run.staked) * 100) / 100;
-    if (net > 0) showGameWinToast(net, "Итог серии +", "$");
-    else if (net < 0) showGameLoseToast("Итог серии: −" + fmtNum(-net) + "$");
+    if (net > 0) showGameWinToast(net, "Итог серии +", "⭐️");
+    else if (net < 0) showGameLoseToast("Итог серии: −" + fmtNum(-net) + "⭐️");
     else showToast("Серия окончена: вы в нуле", "warning");
 }
 
@@ -23933,11 +24089,11 @@ function playUpgrade() {
         return;
     }
     if (state.underMin) {
-        showToast("Минимальная ставка — " + fmtNum(betMin("upgrade")) + "$", "error");
+        showToast("Минимальная ставка — " + fmtNum(betMin("upgrade")) + "⭐️", "error");
         return;
     }
     if (state.overMax) {
-        showToast("Максимальная ставка — " + fmtNum(betMax("upgrade")) + "$", "error");
+        showToast("Максимальная ставка — " + fmtNum(betMax("upgrade")) + "⭐️", "error");
         return;
     }
     upgradeBusy = true;
@@ -24022,7 +24178,7 @@ function upgradeHistoryRowHTML(r) {
     const avatarUrl = isMe ? currentUser.avatarUrl : "/api/avatar/" + r.user_id;
     const chance = meta.chance != null ? fmtCoef(meta.chance) : "—";
     const roll = meta.roll != null ? fmtCoef(meta.roll) : "—";
-    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-avatar"><div class="skel-box"></div>' + lazyImgTag(avatarUrl, name) + "</div>" + '<div class="gv-history-mid">' + '<div class="gv-history-name"><span class="gv-history-name-text">' + escapeHtml(name) + "</span>" + (meta.auto ? '<span class="upg-auto-tag">АВТО</span>' : "") + botBadge + "</div>" + historyTimeHTML(r.created_at) + "</div>" + '<div class="gv-history-right">Сумма ставки: <b>' + fmtNum(r.bet) + "$</b><br>" + '<span class="gv-history-outcome">Шанс: <b>' + chance + "%</b> · Roll: <b>" + roll + "</b></span><br>" + (isWin ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "$ (x" + fmtCoef(meta.multiplier) + ")</span>" : '<span class="gv-history-lose">Проигрыш</span>') + "</div>" + "</div>" + (meta.roundId ? '<button class="crash-history-fair-btn" type="button" data-upgrade-round="' + escapeHtml(meta.roundId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" : "") + "</div>";
+    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-avatar"><div class="skel-box"></div>' + lazyImgTag(avatarUrl, name) + "</div>" + '<div class="gv-history-mid">' + '<div class="gv-history-name"><span class="gv-history-name-text">' + escapeHtml(name) + "</span>" + (meta.auto ? '<span class="upg-auto-tag">АВТО</span>' : "") + botBadge + "</div>" + historyTimeHTML(r.created_at) + "</div>" + '<div class="gv-history-right">Сумма ставки: <b>' + fmtNum(r.bet) + "⭐️</b><br>" + '<span class="gv-history-outcome">Шанс: <b>' + chance + "%</b> · Roll: <b>" + roll + "</b></span><br>" + (isWin ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "⭐️ (x" + fmtCoef(meta.multiplier) + ")</span>" : '<span class="gv-history-lose">Проигрыш</span>') + "</div>" + "</div>" + (meta.roundId ? '<button class="crash-history-fair-btn" type="button" data-upgrade-round="' + escapeHtml(meta.roundId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" : "") + "</div>";
 }
 
 function loadUpgradeHistory(scope, append) {
@@ -24079,7 +24235,7 @@ function upgradeRoundPlayerRowHTML(detail) {
     const name = isMe ? currentUser.displayName || "Игрок" : detail.username || "Игрок";
     const avatarUrl = isMe ? currentUser.avatarUrl : "/api/avatar/" + detail.userId;
     const isWin = detail.result === "win";
-    return '<div class="crash-player-row' + (isMe ? " me" : "") + '">' + '<div class="crash-player-avatar"><img src="' + avatarUrl + '" alt="" loading="lazy"></div>' + '<div class="crash-player-mid">' + '<div class="crash-player-name"><span class="crash-player-name-text">' + escapeHtml(name) + "</span>" + (isMe ? ' <span class="lb-you-tag">Вы</span>' : "") + "</div>" + '<div class="crash-player-sub">Ставка: ' + fmtNum(detail.bet) + "$" + (detail.chance != null ? " · Шанс: " + fmtCoef(detail.chance) + "%" : "") + "</div>" + "</div>" + (detail.multiplier != null ? '<div class="crash-player-mult">x' + fmtCoef(detail.multiplier) + "</div>" : "") + '<div class="crash-player-value">' + (isWin ? "+" + fmtNum(detail.winAmount) + "$" : "Проигрыш") + "</div>" + "</div>";
+    return '<div class="crash-player-row' + (isMe ? " me" : "") + '">' + '<div class="crash-player-avatar"><img src="' + avatarUrl + '" alt="" loading="lazy"></div>' + '<div class="crash-player-mid">' + '<div class="crash-player-name"><span class="crash-player-name-text">' + escapeHtml(name) + "</span>" + (isMe ? ' <span class="lb-you-tag">Вы</span>' : "") + "</div>" + '<div class="crash-player-sub">Ставка: ' + fmtNum(detail.bet) + "⭐️" + (detail.chance != null ? " · Шанс: " + fmtCoef(detail.chance) + "%" : "") + "</div>" + "</div>" + (detail.multiplier != null ? '<div class="crash-player-mult">x' + fmtCoef(detail.multiplier) + "</div>" : "") + '<div class="crash-player-value">' + (isWin ? "+" + fmtNum(detail.winAmount) + "⭐️" : "Проигрыш") + "</div>" + "</div>";
 }
 
 function openUpgradeRoundModal(publicId) {
@@ -24721,7 +24877,7 @@ const GAME_PVP_CARD_IDS = {
     "слоты": "pvp_slots"
 };
 
-const gameSwitchOff = new Set;
+const gameSwitchOff = new Set(["doghouse"]);
 
 window.gameSwitchOff = gameSwitchOff;
 
@@ -24802,6 +24958,7 @@ function applyGameSwitches(data) {
     if (!data || !data.ok) return;
     const before = Array.from(gameSwitchOff).sort().join(",");
     gameSwitchOff.clear();
+    gameSwitchOff.add("doghouse");
     (data.off || []).forEach(id => gameSwitchOff.add(id));
     gameSwitchOrder = data.order || [];
     gameSwitchVer = typeof data.ver === "number" ? data.ver : gameSwitchVer;
@@ -24910,7 +25067,7 @@ function cfById(id) {
 }
 
 function cfMoney(v) {
-    return fmtNum(v) + "$";
+    return fmtNum(v) + "⭐️";
 }
 
 function cfNow() {
@@ -25336,7 +25493,7 @@ function cfSettle(round) {
         applyBalance(cfPendingBalance);
         cfPendingBalance = null;
     }
-    if (win) showGameWinToast(round.payout, "Выигрыш ", "$!");
+    if (win) showGameWinToast(round.payout, "Выигрыш ", "⭐️!");
     else showGameLoseToast("Не угадали — ставка сгорела");
     haptic("notification", win ? "success" : "warning");
     cfSealChips(round.roundId);
@@ -25413,11 +25570,11 @@ function cfStartRound() {
         return;
     }
     if (st.underMin) {
-        showToast("Минимальная ставка — " + fmtNum(betMin("coinflip")) + "$", "error");
+        showToast("Минимальная ставка — " + fmtNum(betMin("coinflip")) + "⭐️", "error");
         return;
     }
     if (st.overMax) {
-        showToast("Максимальная ставка — " + fmtNum(betMax("coinflip")) + "$", "error");
+        showToast("Максимальная ставка — " + fmtNum(betMax("coinflip")) + "⭐️", "error");
         return;
     }
     cfBusy = true;
@@ -25794,7 +25951,7 @@ function cfRunChecks(d) {
         list.push({
             label: "Выплата",
             passed: Math.abs(pay - d.winAmount) < .0051,
-            detail: d.result === "win" ? "ставка " + cfMoney(d.bet) + " × " + fmtCoef(d.multiplier) + " = " + cfMoney(pay) : "серия проиграна — выплата 0$"
+            detail: d.result === "win" ? "ставка " + cfMoney(d.bet) + " × " + fmtCoef(d.multiplier) + " = " + cfMoney(pay) : "серия проиграна — выплата 0⭐️"
         });
         if (d.startedAt && d.finishAt && d.flipSec) {
             list.push({
@@ -25854,7 +26011,7 @@ function cfRoundPlayerRowHTML(d) {
     const name = isMe ? currentUser.displayName || "Игрок" : d.username || "Игрок";
     const avatarUrl = isMe ? currentUser.avatarUrl : "/api/avatar/" + d.userId;
     const win = d.result === "win";
-    return '<div class="crash-player-row' + (isMe ? " me" : "") + '">' + '<div class="crash-player-avatar">' + (!isMe && d.anon ? "?" : '<img src="' + avatarUrl + '" alt="" loading="lazy">') + "</div>" + '<div class="crash-player-mid">' + '<div class="crash-player-name"><span class="crash-player-name-text">' + escapeHtml(name) + "</span>" + (isMe ? ' <span class="lb-you-tag">Вы</span>' : "") + "</div>" + '<div class="crash-player-sub">Ставка: ' + fmtNum(d.bet) + "$ · серия " + d.steps.filter(s => s.win).length + "</div>" + "</div>" + (win ? '<div class="crash-player-mult">x' + fmtCoef(d.multiplier) + "</div>" : "") + '<div class="crash-player-value">' + (win ? "+" + fmtNum(d.winAmount) + "$" : "Проигрыш") + "</div>" + "</div>";
+    return '<div class="crash-player-row' + (isMe ? " me" : "") + '">' + '<div class="crash-player-avatar">' + (!isMe && d.anon ? "?" : '<img src="' + avatarUrl + '" alt="" loading="lazy">') + "</div>" + '<div class="crash-player-mid">' + '<div class="crash-player-name"><span class="crash-player-name-text">' + escapeHtml(name) + "</span>" + (isMe ? ' <span class="lb-you-tag">Вы</span>' : "") + "</div>" + '<div class="crash-player-sub">Ставка: ' + fmtNum(d.bet) + "⭐️ · серия " + d.steps.filter(s => s.win).length + "</div>" + "</div>" + (win ? '<div class="crash-player-mult">x' + fmtCoef(d.multiplier) + "</div>" : "") + '<div class="crash-player-value">' + (win ? "+" + fmtNum(d.winAmount) + "⭐️" : "Проигрыш") + "</div>" + "</div>";
 }
 
 function cfMountRoundCoin(d, token) {
@@ -26412,7 +26569,7 @@ function clawRefreshStats() {
     if (winEl) {
         const input = gvBody.querySelector(".gv-bet-input");
         const bet = input ? parseFloat(input.value) : NaN;
-        winEl.textContent = t && bet > 0 ? "+" + fmtNum(Math.round(bet * t.multiplier * 100) / 100) + "$" : "—";
+        winEl.textContent = t && bet > 0 ? "+" + fmtNum(Math.round(bet * t.multiplier * 100) / 100) + "⭐️" : "—";
     }
 }
 
@@ -26575,11 +26732,11 @@ function clawFail(token, data) {
 function clawFinish(token, data) {
     clawBusy = false;
     if (typeof data.balance === "number") applyBalance(data.balance);
-    if (data.win) showGameWinToast(data.winAmount, "Выигрыш +", "$ (x" + fmtCoef(data.multiplier) + ")");
+    if (data.win) showGameWinToast(data.winAmount, "Выигрыш +", "⭐️ (x" + fmtCoef(data.multiplier) + ")");
     else showGameLoseToast("Не повезло — игрушка выскользнула");
     if (token !== clawMountToken) return;
     clawSetStage(data.win ? "win" : "lose");
-    clawSetResult(data.win ? "win" : "lose", data.win ? "<b>Достал: " + escapeHtml(data.toyLabel) + "!</b><span>Выигрыш +" + fmtNum(data.winAmount) + "$ (x" + fmtCoef(data.multiplier) + ")</span>" : "<b>Не достал</b><span>" + escapeHtml(data.toyLabel) + " выскользнула — ставка сгорела</span>");
+    clawSetResult(data.win ? "win" : "lose", data.win ? "<b>Достал: " + escapeHtml(data.toyLabel) + "!</b><span>Выигрыш +" + fmtNum(data.winAmount) + "⭐️ (x" + fmtCoef(data.multiplier) + ")</span>" : "<b>Не достал</b><span>" + escapeHtml(data.toyLabel) + " выскользнула — ставка сгорела</span>");
     if (clawIsLite()) {
         const wrap = clawEl("clawWrap");
         const old = clawEl("clawPop");
@@ -26615,11 +26772,11 @@ function playClaw() {
         return;
     }
     if (state.underMin) {
-        showToast("Минимальная ставка — " + fmtNum(betMin("claw")) + "$", "error");
+        showToast("Минимальная ставка — " + fmtNum(betMin("claw")) + "⭐️", "error");
         return;
     }
     if (state.overMax) {
-        showToast("Максимальная ставка — " + fmtNum(betMax("claw")) + "$", "error");
+        showToast("Максимальная ставка — " + fmtNum(betMax("claw")) + "⭐️", "error");
         return;
     }
     clawBusy = true;
@@ -26709,7 +26866,7 @@ function clawHistoryRowHTML(r) {
     const chance = meta.chance != null ? fmtCoef(meta.chance) : "—";
     const toyLabel = meta.toyLabel || (clawToyByKey(meta.toy) || {}).label || "—";
     const toyImg = meta.toy ? '<img class="claw-hist-toy" src="' + clawToyImg(meta.toy) + '" alt="">' : "";
-    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-avatar"><div class="skel-box"></div>' + lazyImgTag(avatarUrl, name) + "</div>" + '<div class="gv-history-mid">' + '<div class="gv-history-name">' + escapeHtml(name) + "</div>" + historyTimeHTML(r.created_at) + "</div>" + '<div class="gv-history-right">Сумма ставки: <b>' + fmtNum(r.bet) + "$</b><br>" + '<span class="gv-history-outcome">' + toyImg + "<b>" + escapeHtml(toyLabel) + "</b> · шанс <b>" + chance + "%</b></span><br>" + (isWin ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "$ (x" + fmtCoef(meta.multiplier) + ")</span>" : '<span class="gv-history-lose">Проигрыш</span>') + "</div>" + "</div>" + (meta.roundId ? '<button class="crash-history-fair-btn" type="button" data-claw-round="' + escapeHtml(meta.roundId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" : "") + "</div>";
+    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-avatar"><div class="skel-box"></div>' + lazyImgTag(avatarUrl, name) + "</div>" + '<div class="gv-history-mid">' + '<div class="gv-history-name">' + escapeHtml(name) + "</div>" + historyTimeHTML(r.created_at) + "</div>" + '<div class="gv-history-right">Сумма ставки: <b>' + fmtNum(r.bet) + "⭐️</b><br>" + '<span class="gv-history-outcome">' + toyImg + "<b>" + escapeHtml(toyLabel) + "</b> · шанс <b>" + chance + "%</b></span><br>" + (isWin ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "⭐️ (x" + fmtCoef(meta.multiplier) + ")</span>" : '<span class="gv-history-lose">Проигрыш</span>') + "</div>" + "</div>" + (meta.roundId ? '<button class="crash-history-fair-btn" type="button" data-claw-round="' + escapeHtml(meta.roundId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" : "") + "</div>";
 }
 
 function loadClawHistory(scope, append) {
@@ -26934,10 +27091,10 @@ function loadSupport() {
     _supportPromise = new Promise((resolve, reject) => {
         const l = document.createElement("link");
         l.rel = "stylesheet";
-        l.href = "support.css?v=" + v;
+        l.href = "/support.css?v=" + v;
         document.head.appendChild(l);
         const s = document.createElement("script");
-        s.src = "support.js?v=" + v;
+        s.src = "/support.js?v=" + v;
         s.onload = () => resolve(window.SUP);
         s.onerror = () => {
             _supportPromise = null;
@@ -27026,7 +27183,7 @@ function csAnimateNums(root) {
 }
 
 function profileStatsRowsHTML(s) {
-    return profileStatRowHTML(liteAsset("/lottie/images/Баланс.lottie"), "Баланс", psNum(s.balance, "money", fmtNum(s.balance) + "$"), "gif") + profileStatRowHTML(liteAsset("/lottie/images/ОборотБаланса.lottie"), "Оборот", psNum(s.turnover, "money", fmtNum(s.turnover) + "$"), "gif") + profileStatRowHTML(liteAsset("/lottie/images/ПроцентПобед.lottie"), "Процент побед", psNum(s.winPercent, "pct", fmtCoef(s.winPercent) + "%"), "gif") + profileStatRowHTML(liteAsset("/lottie/images/ДатаРегистрации.lottie"), "Дата регистрации", formatDate(s.registrationDate), "gif") + profileStatRowHTML(liteAsset("/lottie/images/Депозиты.lottie"), "Депозитов", psNum(s.deposits, "money", fmtNum(s.deposits) + "$"), "gif") + profileStatRowHTML(liteAsset("/lottie/images/Выводы.lottie"), "Выводов", psNum(s.cashouts, "money", fmtNum(s.cashouts) + "$"), "gif") + profileStatRowHTML(liteAsset("/lottie/images/ВыСНами.lottie"), "Вы с нами", s.daysWithUs + " " + s.daysWithUsLabel, "gif");
+    return profileStatRowHTML(liteAsset("/lottie/images/Баланс.lottie"), "Баланс", psNum(s.balance, "money", fmtNum(s.balance) + "⭐️"), "gif") + profileStatRowHTML(liteAsset("/lottie/images/ОборотБаланса.lottie"), "Оборот", psNum(s.turnover, "money", fmtNum(s.turnover) + "⭐️"), "gif") + profileStatRowHTML(liteAsset("/lottie/images/ПроцентПобед.lottie"), "Процент побед", psNum(s.winPercent, "pct", fmtCoef(s.winPercent) + "%"), "gif") + profileStatRowHTML(liteAsset("/lottie/images/ДатаРегистрации.lottie"), "Дата регистрации", formatDate(s.registrationDate), "gif") + profileStatRowHTML(liteAsset("/lottie/images/Депозиты.lottie"), "Депозитов", psNum(s.deposits, "money", fmtNum(s.deposits) + "⭐️"), "gif") + profileStatRowHTML(liteAsset("/lottie/images/Выводы.lottie"), "Выводов", psNum(s.cashouts, "money", fmtNum(s.cashouts) + "⭐️"), "gif") + profileStatRowHTML(liteAsset("/lottie/РазделБонусы/bonus_icon.png"), "Бонусы", psNum(s.bonuses || 0, "money", fmtNum(s.bonuses || 0) + "⭐️"), "gif") + profileStatRowHTML(liteAsset("/lottie/images/ВыСНами.lottie"), "Вы с нами", s.daysWithUs + " " + s.daysWithUsLabel, "gif");
 }
 
 const PS_VIEW_KEY = "eternaProfileStatsView";
@@ -27049,23 +27206,24 @@ function profileStatsChartHTML(s) {
     const win = Math.max(0, Math.min(100, s.winPercent || 0));
     const dep = s.deposits || 0;
     const cash = s.cashouts || 0;
-    const flowMax = Math.max(dep, cash);
+    const bonus = s.bonuses || 0;
+    const flowMax = Math.max(dep, cash, bonus);
     const days = s.daysWithUs || 1;
     const next = PS_DAY_MILESTONES.find(m => m > days);
     const prev = next ? PS_DAY_MILESTONES[PS_DAY_MILESTONES.indexOf(next) - 1] || 0 : days;
     const dpct = next ? Math.max(3, Math.min(100, (days - prev) / (next - prev) * 100)) : 100;
 
     function tile(src, label, cls, to) {
-        return '<div class="cs-tile"><span class="cs-tile-ic ' + cls + '"><span class="skel-box"></span>' + lazyImgTag(src, "", "checks-icon-img") + '</span><div class="cs-tile-text"><small>' + label + '</small><b class="cs-num" data-to="' + to + '" data-kind="money">0$</b></div></div>';
+        return '<div class="cs-tile"><span class="cs-tile-ic ' + cls + '"><span class="skel-box"></span>' + lazyImgTag(src, "", "checks-icon-img") + '</span><div class="cs-tile-text"><small>' + label + '</small><b class="cs-num" data-to="' + to + '" data-kind="money">0⭐️</b></div></div>';
     }
     let html = '<div class="cs-stats ps-stats">';
     html += '<div class="cs-card cs-donut-card ps-donut-card"><div class="cs-donut wl" id="psDonut"' + csRingAttr([
         [win, "green"],
         [win > 0 ? 100 - win : 0, "lose"]
     ]) + '><canvas class="cs-ring"></canvas><div class="cs-donut-in"><b class="cs-num" data-to="' + win + '" data-kind="pct">0%</b><small>побед</small></div></div>' + '<div class="cs-legend"><div class="cs-cap">Процент побед</div>' + '<div class="cs-leg"><i class="win"></i><span>Побед</span><b class="cs-num" data-to="' + win + '" data-kind="pct">0%</b></div>' + '<div class="cs-leg"><i class="lose"></i><span>Поражений</span><b class="cs-num" data-to="' + (win > 0 ? 100 - win : 0) + '" data-kind="pct">0%</b></div>' + '<div class="cs-leg-note">' + (win > 0 ? "По всем сыгранным ставкам" : "Пока нет выигранных ставок") + "</div></div></div>";
-    html += '<div class="cs-tiles">' + tile("/lottie/images/Баланс.png", "Баланс", "gold", s.balance || 0) + tile("/lottie/images/ОборотБаланса.png", "Оборот", "gold", s.turnover || 0) + tile("/lottie/images/Депозиты.png", "Депозитов", "green", dep) + tile("/lottie/images/Выводы.png", "Выводов", "gold", cash) + "</div>";
+    html += '<div class="cs-tiles">' + tile("/lottie/images/Баланс.png", "Баланс", "gold", s.balance || 0) + tile("/lottie/images/ОборотБаланса.png", "Оборот", "gold", s.turnover || 0) + tile("/lottie/images/Депозиты.png", "Депозитов", "green", dep) + tile("/lottie/images/Выводы.png", "Выводов", "gold", cash) + tile("/lottie/РазделБонусы/bonus_icon.png", "Бонусы", "green", s.bonuses || 0) + "</div>";
     const net = dep - cash;
-    html += '<div class="cs-card ps-flat"><div class="cs-cap">Ввод и вывод средств</div><div class="cs-group">' + checksBarRow("Депозитов", "green", dep, flowMax, 150) + checksBarRow("Выводов", "gold", cash, flowMax, 260) + "</div>" + '<div class="cs-profit ' + (net >= 0 ? "pos" : "neg") + '"><span>Внесено − выведено</span><b><i class="cs-arrow"></i><span class="cs-num" data-to="' + net + '" data-kind="profit">0$</span></b></div></div>';
+    html += '<div class="cs-card ps-flat"><div class="cs-cap">Ввод и вывод средств</div><div class="cs-group">' + checksBarRow("Депозитов", "green", dep, flowMax, 150) + checksBarRow("Выводов", "gold", cash, flowMax, 260) + checksBarRow("Бонусы", "green", bonus, flowMax, 370) + "</div>" + '<div class="cs-profit ' + (net >= 0 ? "pos" : "neg") + '"><span>Внесено − выведено</span><b><i class="cs-arrow"></i><span class="cs-num" data-to="' + net + '" data-kind="profit">0⭐️</span></b></div></div>';
     html += '<div class="cs-card ps-flat ps-days"><div class="ps-days-top"><div class="cs-cap">Вы с нами</div><span class="ps-days-date">с ' + escapeHtml(formatDate(s.registrationDate)) + "</span></div>" + '<div class="ps-days-big"><b class="cs-num" data-to="' + days + '" data-kind="int">0</b><small>' + escapeHtml(s.daysWithUsLabel || "дней") + "</small></div>" + '<div class="cs-track"><i class="cs-fill gold" style="--w:' + dpct.toFixed(1) + '%; transition-delay:300ms"></i></div>' + '<div class="ps-days-note">' + (next ? "До отметки в " + next + " дн. — ещё " + (next - days) : "Вы с нами дольше всех отметок — спасибо!") + "</div></div>";
     return html + "</div>";
 }
@@ -27249,7 +27407,7 @@ function tagProfileCheck(btn) {
 function profileStatsSkeletonHTML() {
     let rows = "";
     for (let i = 0; i < 7; i++) {
-        rows += '<div class="profile-stat-row"><div class="profile-stat-label">' + '<span class="skel-box" style="width:18px;height:18px;border-radius:6px;flex-shrink:0;"></span>' + '<span class="text-skel" style="width:100px;">Баланс</span></div>' + '<div class="profile-stat-value text-skel" style="width:60px;">100$</div></div>';
+        rows += '<div class="profile-stat-row"><div class="profile-stat-label">' + '<span class="skel-box" style="width:18px;height:18px;border-radius:6px;flex-shrink:0;"></span>' + '<span class="text-skel" style="width:100px;">Баланс</span></div>' + '<div class="profile-stat-value text-skel" style="width:60px;">100⭐️</div></div>';
     }
     return '<div class="profile-stats-card" id="profileStatsCard">' + profileStatsSwitchHTML(profileStatsView) + '<div class="ps-view ps-list">' + rows + "</div></div>";
 }
@@ -27273,10 +27431,10 @@ function refLinkDisplayHTML(link) {
 }
 
 function refBlockHTML() {
-    const linkHtml = refDataLoaded ? refLinkDisplayHTML(currentUser.refLink) : '<span class="text-skel" style="display:inline-block; width:100%;">https://t.me/casinocgbot?start=xxxxxxxx</span>';
+    const linkHtml = refDataLoaded ? refLinkDisplayHTML(currentUser.refLink) : '<span class="text-skel" style="display:inline-block; width:100%;">https://t.me/mjrstarsbot?start=xxxxxxxx</span>';
     const countHtml = refDataLoaded ? currentUser.refCount : '<span class="text-skel" style="display:inline-block; width:24px;">0</span>';
-    const earnHtml = refDataLoaded ? fmtNum(currentUser.refEarnings) + "$" : '<span class="text-skel" style="display:inline-block; width:48px;">0$</span>';
-    return '<div class="ref-block">' + '<div class="ref-block-title"><span class="ref-title-icon"><span class="skel-box"></span>' + lazyImgTag(liteAsset("/lottie/images/РефСистема.lottie"), "", "") + "</span>Реф. Система</div>" + '<div class="ref-link-wrap">' + '<div class="ref-copied-badge" id="refCopiedBadge">Скопировано!</div>' + '<div class="ref-link-row">' + '<span class="ref-link-text" id="profileRefLink">' + linkHtml + "</span>" + '<button class="fair-copy-btn" type="button" id="profileCopyBtn" title="Скопировать">' + fairCopyIconHTML() + "</button>" + "</div>" + '<button class="ref-share-btn" type="button" data-action="checks-create-inline">' + lazyImgTag(liteAsset(CHECKS_DIR + "СоздатьИнлайн.lottie"), "", "ref-share-btn-icon") + "<span>Поделиться ссылкой</span>" + "</button>" + "</div>" + '<div class="ref-summary-row">' + '<div class="ref-summary-item"><span class="ref-summary-label">Приглашено друзей</span><span class="ref-summary-value" id="refSummaryCount">' + countHtml + "</span></div>" + '<div class="ref-summary-item"><span class="ref-summary-label">Заработано с рефералов</span><span class="ref-summary-value" id="refSummaryEarnings">' + earnHtml + "</span></div>" + "</div>" + '<div class="ref-percents">' + '<div class="ref-percents-title"><span class="ref-title-icon"><span class="skel-box"></span>' + lazyImgTag(liteAsset("/lottie/images/РеферальноеНачисление.lottie"), "", "") + "</span>Реферальные начисления:</div>" + '<div class="ref-percents-line text-skel" id="refPercentDeposit">• 5.0% от депозитов ваших рефералов</div>' + '<div class="ref-percents-line text-skel" id="refPercentGame">• 2.0% от проигрыша ваших рефералов</div>' + "</div>" + '<div class="ref-btn-grid">' + '<button class="ref-action-btn" type="button" data-action="ref-open-list">Мои рефералы</button>' + '<button class="ref-action-btn" type="button" data-action="ref-open-history">История начислений</button>' + '<button class="ref-action-btn" type="button" data-action="ref-open-stats">Подробная статистика</button>' + '<button class="ref-action-btn" type="button" data-action="ref-open-top">Топ 5 рефоводов</button>' + "</div>" + '<div class="ref-notif-row">' + '<div class="ref-notif-text">' + '<b id="refNotifStatus" class="text-skel">Уведомления: ···</b>' + "<span>Получайте уведомления о новых рефералах и начислениях</span>" + "</div>" + '<button class="gv-toggle" type="button" id="refNotifToggle"><span class="gv-toggle-knob"></span></button>' + "</div>" + "</div>";
+    const earnHtml = refDataLoaded ? fmtNum(currentUser.refEarnings) + "⭐️" : '<span class="text-skel" style="display:inline-block; width:48px;">0⭐️</span>';
+    return '<div class="ref-block">' + '<div class="ref-block-title"><span class="ref-title-icon"><span class="skel-box"></span>' + lazyImgTag(liteAsset("/lottie/images/РефСистема.lottie"), "", "") + "</span>Реф. Система</div>" + '<div class="ref-link-wrap">' + '<div class="ref-copied-badge" id="refCopiedBadge">Скопировано!</div>' + '<div class="ref-link-row">' + '<span class="ref-link-text" id="profileRefLink">' + linkHtml + "</span>" + '<button class="fair-copy-btn" type="button" id="profileCopyBtn" title="Скопировать">' + fairCopyIconHTML() + "</button>" + "</div>" + '<button class="ref-share-btn" type="button" data-action="ref-share-link">' + lazyImgTag(liteAsset(CHECKS_DIR + "СоздатьИнлайн.lottie"), "", "ref-share-btn-icon") + "<span>Поделиться ссылкой</span>" + "</button>" + "</div>" + '<div class="ref-summary-row">' + '<div class="ref-summary-item"><span class="ref-summary-label">Приглашено друзей</span><span class="ref-summary-value" id="refSummaryCount">' + countHtml + "</span></div>" + '<div class="ref-summary-item"><span class="ref-summary-label">Заработано с рефералов</span><span class="ref-summary-value" id="refSummaryEarnings">' + earnHtml + "</span></div>" + "</div>" + '<div class="ref-percents">' + '<div class="ref-percents-title"><span class="ref-title-icon"><span class="skel-box"></span>' + lazyImgTag(liteAsset("/lottie/images/РеферальноеНачисление.lottie"), "", "") + "</span>Реферальные начисления:</div>" + '<div class="ref-percents-line text-skel" id="refPercentDeposit">• Доля от депозитов: загрузка…</div>' + '<div class="ref-percents-line text-skel" id="refPercentGame">• Бонус за приглашение: загрузка…</div>' + "</div>" + '<div class="ref-btn-grid">' + '<button class="ref-action-btn" type="button" data-action="ref-open-list">Мои рефералы</button>' + '<button class="ref-action-btn" type="button" data-action="ref-open-history">История начислений</button>' + '<button class="ref-action-btn" type="button" data-action="ref-open-stats">Подробная статистика</button>' + '<button class="ref-action-btn" type="button" data-action="ref-open-top">Топ 5 рефоводов</button>' + '<button class="ref-action-btn" type="button" data-action="ref-withdraw">Перевести на основной баланс</button>' + "</div>" + '<div class="ref-notif-row">' + '<div class="ref-notif-text">' + '<b id="refNotifStatus" class="text-skel">Уведомления: ···</b>' + "<span>Получайте уведомления о новых рефералах и начислениях</span>" + "</div>" + '<button class="gv-toggle" type="button" id="refNotifToggle"><span class="gv-toggle-knob"></span></button>' + "</div>" + "</div>";
 }
 
 function loadReferralHeaderExtras() {
@@ -27291,7 +27449,7 @@ function loadReferralHeaderExtras() {
         }
         const gameEl = document.getElementById("refPercentGame");
         if (gameEl) {
-            gameEl.textContent = "• " + fmtCoef(data.lossPercent) + "% от проигрыша ваших рефералов";
+            gameEl.textContent = "• За приглашение: " + fmtNum(data.signupBase) + " Stars, с Telegram Premium — " + fmtNum(data.signupPremium) + " Stars";
             gameEl.classList.remove("text-skel");
         }
         const countEl = document.getElementById("refSummaryCount");
@@ -27301,7 +27459,7 @@ function loadReferralHeaderExtras() {
         }
         const earnEl = document.getElementById("refSummaryEarnings");
         if (earnEl) {
-            earnEl.textContent = fmtNum(data.totalEarnings) + "$";
+            earnEl.textContent = fmtNum(data.totalEarnings) + "⭐️";
             earnEl.classList.remove("text-skel");
         }
     });
@@ -27350,6 +27508,26 @@ const profileBodyEl = document.getElementById("profileBody");
 
 if (profileBodyEl) {
     profileBodyEl.addEventListener("click", e => {
+        const referralShare = e.target.closest('[data-action="ref-share-link"]');
+        if (referralShare) {
+            if (!currentUser.refLink) return;
+            const link = "https://t.me/share/url?url=" + encodeURIComponent(currentUser.refLink);
+            if (tgWebApp && tgWebApp.openTelegramLink) tgWebApp.openTelegramLink(link);
+            else window.open(link, "_blank", "noopener");
+            return;
+        }
+        const referralWithdraw = e.target.closest('[data-action="ref-withdraw"]');
+        if (referralWithdraw) {
+            if (referralWithdraw.disabled) return;
+            referralWithdraw.disabled = true;
+            fetch("/api/referral/withdraw", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({uid: CURRENT_UID})}).then(response => response.json()).then(data => {
+                if (!data || !data.ok) throw new Error(data && data.error || "Не удалось перевести средства");
+                applyBalance(data.balance);
+                loadReferralHeaderExtras();
+                showToast("Переведено " + fmtNum(data.creditedAmount) + " Stars", "success");
+            }).catch(error => showToast(error.message, "error")).finally(() => referralWithdraw.disabled = false);
+            return;
+        }
         const tagCheckBtn = e.target.closest('[data-action="tag-profile-check"]');
         if (tagCheckBtn) {
             tagProfileCheck(tagCheckBtn);
@@ -27605,13 +27783,13 @@ function privacySettingsHTML(data) {
     const hideOn = !!data.hideFromLeaderboard;
     const clickOn = !!data.clickableProfile;
     const nickStatus = data.displayName ? escapeHtml(data.displayName) : "Не указан";
-    return '<button class="privacy-back-btn" type="button" data-action="privacy-back">‹ Назад</button>' + '<div class="privacy-toggle-row">' + '<div class="privacy-toggle-text"><b>Не показывать меня в топе по обороту и балансу</b><span>Статус: ' + (hideOn ? "Да" : "Нет") + "</span></div>" + '<button class="gv-toggle' + (hideOn ? " on" : "") + '" type="button" data-privacy-toggle="hide"><span class="gv-toggle-knob"></span></button>' + "</div>" + '<div class="privacy-toggle-row">' + '<div class="privacy-toggle-text"><b>Псевдоним</b><span>' + nickStatus + "</span></div>" + '<button class="privacy-nickname-btn" type="button" data-action="privacy-open-nickname"><span class="privacy-btn-icon"><span class="skel-box"></span>' + lazyImgTag(liteAsset("/lottie/images/ДатаРегистрации.lottie"), "", "") + "</span>" + (data.displayName ? "Изменить" : "Установить") + "</button>" + "</div>" + (data.displayName ? '<button class="privacy-delete-btn" type="button" data-action="privacy-delete-nickname"><span class="privacy-btn-icon"><span class="skel-box"></span>' + lazyImgTag("/lottie/images/УдалитьПсевдоним.lottie", "", "") + "</span>Удалить псевдоним</button>" : "") + '<div class="privacy-toggle-row">' + '<div class="privacy-toggle-text"><b>Кликабельный профиль</b><span>Статус: ' + (clickOn ? "Да" : "Нет") + "</span></div>" + '<button class="gv-toggle' + (clickOn ? " on" : "") + '" type="button" data-privacy-toggle="clickable"><span class="gv-toggle-knob"></span></button>' + "</div>";
+    return '<button class="privacy-back-btn" type="button" data-action="privacy-back">‹ Назад</button>' + '<div class="privacy-toggle-row">' + '<div class="privacy-toggle-text"><b>Не показывать меня в рейтингах</b><span>Статус: ' + (hideOn ? "Да" : "Нет") + "</span></div>" + '<button class="gv-toggle' + (hideOn ? " on" : "") + '" type="button" data-privacy-toggle="hide"><span class="gv-toggle-knob"></span></button>' + "</div>" + '<div class="privacy-toggle-row">' + '<div class="privacy-toggle-text"><b>Псевдоним</b><span>' + nickStatus + "</span></div>" + '<button class="privacy-nickname-btn" type="button" data-action="privacy-open-nickname"><span class="privacy-btn-icon"><span class="skel-box"></span>' + lazyImgTag(liteAsset("/lottie/images/ДатаРегистрации.lottie"), "", "") + "</span>" + (data.displayName ? "Изменить" : "Установить") + "</button>" + "</div>" + (data.displayName ? '<button class="privacy-delete-btn" type="button" data-action="privacy-delete-nickname"><span class="privacy-btn-icon"><span class="skel-box"></span>' + lazyImgTag("/lottie/images/УдалитьПсевдоним.lottie", "", "") + "</span>Удалить псевдоним</button>" : "") + '<div class="privacy-toggle-row">' + '<div class="privacy-toggle-text"><b>Кликабельный профиль</b><span>Статус: ' + (clickOn ? "Да" : "Нет") + "</span></div>" + '<button class="gv-toggle' + (clickOn ? " on" : "") + '" type="button" data-privacy-toggle="clickable"><span class="gv-toggle-knob"></span></button>' + "</div>";
 }
 
 function privacyNicknameHTML(data) {
     const hasName = !!data.displayName;
     const backAction = privacyActivateOnSave ? "privacy-back" : "privacy-back-settings";
-    return '<button class="privacy-back-btn" type="button" data-action="' + backAction + '">‹ Назад</button>' + '<div class="privacy-nickname-desc">' + (hasName ? "Текущее отображаемое имя: <b>" + escapeHtml(data.displayName) + "</b>. Отправьте новое, чтобы сменить его за $" + fmtNum(1) + "." : "Установите отображаемое имя (3-20 символов: буквы, цифры и _), чтобы оно показывалось в канале при публикации ваших ставок.") + "</div>" + '<input class="privacy-nickname-input" type="text" id="privacyNicknameInput" maxlength="20" placeholder="Введите имя">' + '<div class="privacy-nickname-cost">Стоимость: $1.00 · Баланс: ' + fmtNum(currentUser.balance || 0) + "$</div>" + '<button class="ref-action-btn" type="button" data-action="privacy-nickname-confirm"><span class="privacy-btn-icon"><span class="skel-box"></span>' + lazyImgTag(liteAsset("/lottie/images/КнопкаПодтвердить.lottie"), "", "") + "</span>Подтвердить</button>" + (hasName ? '<button class="privacy-delete-btn" type="button" data-action="privacy-delete-nickname"><span class="privacy-btn-icon"><span class="skel-box"></span>' + lazyImgTag("/lottie/images/УдалитьПсевдоним.lottie", "", "") + "</span>Удалить псевдоним</button>" : "");
+    return '<button class="privacy-back-btn" type="button" data-action="' + backAction + '">‹ Назад</button>' + '<div class="privacy-nickname-desc">' + (hasName ? "Текущее отображаемое имя: <b>" + escapeHtml(data.displayName) + "</b>. Отправьте новое, чтобы сменить его за ⭐️" + fmtNum(1) + "." : "Установите отображаемое имя (3-20 символов: буквы, цифры и _), чтобы оно показывалось в канале при публикации ваших ставок.") + "</div>" + '<input class="privacy-nickname-input" type="text" id="privacyNicknameInput" maxlength="20" placeholder="Введите имя">' + '<div class="privacy-nickname-cost">Стоимость: ⭐️1.00 · Баланс: ' + fmtNum(currentUser.balance || 0) + "⭐️</div>" + '<button class="ref-action-btn" type="button" data-action="privacy-nickname-confirm"><span class="privacy-btn-icon"><span class="skel-box"></span>' + lazyImgTag(liteAsset("/lottie/images/КнопкаПодтвердить.lottie"), "", "") + "</span>Подтвердить</button>" + (hasName ? '<button class="privacy-delete-btn" type="button" data-action="privacy-delete-nickname"><span class="privacy-btn-icon"><span class="skel-box"></span>' + lazyImgTag("/lottie/images/УдалитьПсевдоним.lottie", "", "") + "</span>Удалить псевдоним</button>" : "");
 }
 
 document.getElementById("privacyModalBody").addEventListener("click", e => {
@@ -27945,14 +28123,15 @@ let refHistoryPeriod = "all",
 
 function refHistoryRowHTML(r) {
     const isDeposit = r.type === "deposit";
+    const isSignup = r.type === "signup";
     const name = escapeHtml(r.referral_name || r.referral_username || "ID" + r.referral_id);
-    return '<div class="ref-history-row">' + '<span class="ref-history-icon ' + (isDeposit ? "in" : "out") + '">' + (isDeposit ? lazyImgTag("/images/СпособПополнения.png", "", "") : lazyImgTag("/lottie/images/ИсторияНачисленияРеф.lottie", "", "")) + "</span>" + '<div class="ref-history-mid">' + "<b>" + (isDeposit ? "От депозита" : "От проигрыша") + " (" + fmtCoef(r.percent) + "%)</b>" + '<span class="ref-history-name">' + name + "</span>" + historyTimeHTML(r.date) + "</div>" + '<div class="ref-history-amount">+' + fmtNum(r.amount) + "$</div>" + "</div>";
+    return '<div class="ref-history-row">' + '<span class="ref-history-icon ' + (isDeposit ? "in" : "out") + '">' + (isDeposit ? lazyImgTag("/images/СпособПополнения.png", "", "") : lazyImgTag("/lottie/images/ИсторияНачисленияРеф.lottie", "", "")) + "</span>" + '<div class="ref-history-mid">' + "<b>" + (isSignup ? "За приглашение" : "От депозита") + (isSignup ? "" : " (" + fmtCoef(r.percent) + "%)") + "</b>" + '<span class="ref-history-name">' + name + "</span>" + historyTimeHTML(r.date) + "</div>" + '<div class="ref-history-amount">+' + fmtNum(r.amount) + "⭐️</div>" + "</div>";
 }
 
 function refHistorySkeletonHTML() {
     let html = "";
     for (let i = 0; i < 4; i++) {
-        html += '<div class="ref-history-row">' + '<span class="skel-box" style="width:30px;height:30px;border-radius:50%;flex-shrink:0;"></span>' + '<div class="ref-history-mid"><span class="text-skel" style="width:120px;">От депозита</span><span class="text-skel" style="width:80px;">Игрок</span></div>' + '<div class="ref-history-amount text-skel" style="width:40px;">10$</div>' + "</div>";
+        html += '<div class="ref-history-row">' + '<span class="skel-box" style="width:30px;height:30px;border-radius:50%;flex-shrink:0;"></span>' + '<div class="ref-history-mid"><span class="text-skel" style="width:120px;">От депозита</span><span class="text-skel" style="width:80px;">Игрок</span></div>' + '<div class="ref-history-amount text-skel" style="width:40px;">10⭐️</div>' + "</div>";
     }
     return html;
 }
@@ -28021,18 +28200,18 @@ function refStatsLine(label, value) {
 
 function refStatsBodyHTML(s) {
     const icon = name => '<span class="ref-title-icon"><span class="skel-box"></span>' + lazyImgTag(liteAsset("/lottie/images/" + name + ".lottie"), "", "") + "</span>";
-    const money = v => psNum(v, "money", fmtNum(v) + "$");
-    return refStatsSectionHTML(icon("ДатаРегистрации") + "Основная статистика", [refStatsLine("Количество рефералов", psNum(s.refCount, "int", s.refCount)), refStatsLine("Общий заработок", money(s.totalEarnings)), refStatsLine("С депозитов (" + fmtCoef(s.depositPercent) + "%)", money(s.depositEarnings)), refStatsLine("С проигрышей (" + fmtCoef(s.lossPercent) + "%)", money(s.gameEarnings))]) + refStatsSectionHTML(icon("ПроцентПобед") + "Недельная статистика", [refStatsLine("Заработок за 7 дней", money(s.weekEarnings))]) + refStatsSectionHTML(icon("ОборотБаланса") + "Детальная статистика", [refStatsLine("Количество начислений", psNum(s.totalCount, "int", s.totalCount)), refStatsLine("От депозитов", psNum(s.depositCount, "int", s.depositCount)), refStatsLine("От проигрышей", psNum(s.gameCount, "int", s.gameCount))]) + refStatsSectionHTML(icon("РеферальноеНачисление") + "Размер начислений", [refStatsLine("Среднее от депозита", money(s.avgDeposit)), refStatsLine("Среднее от проигрыша", money(s.avgGame)), refStatsLine("Максимальное от депозита", money(s.maxDeposit)), refStatsLine("Максимальное от проигрыша", money(s.maxGame))]);
+    const money = v => psNum(v, "money", fmtNum(v) + "⭐️");
+    return refStatsSectionHTML(icon("ДатаРегистрации") + "Основная статистика", [refStatsLine("Количество рефералов", psNum(s.refCount, "int", s.refCount)), refStatsLine("Общий заработок", money(s.totalEarnings)), refStatsLine("С депозитов (" + fmtCoef(s.depositPercent) + "%)", money(s.depositEarnings)), refStatsLine("За приглашения", money(s.signupEarnings))]) + refStatsSectionHTML(icon("ПроцентПобед") + "Недельная статистика", [refStatsLine("Заработок за 7 дней", money(s.weekEarnings))]) + refStatsSectionHTML(icon("ОборотБаланса") + "Детальная статистика", [refStatsLine("Количество начислений", psNum(s.totalCount, "int", s.totalCount)), refStatsLine("От депозитов", psNum(s.depositCount, "int", s.depositCount)), refStatsLine("За приглашения", psNum(s.signupCount, "int", s.signupCount))]) + refStatsSectionHTML(icon("РеферальноеНачисление") + "Размер начислений", [refStatsLine("Среднее от депозита", money(s.avgDeposit)), refStatsLine("Среднее за приглашение", money(s.avgSignup)), refStatsLine("Максимальное от депозита", money(s.maxDeposit)), refStatsLine("Максимальное за приглашение", money(s.maxSignup))]);
 }
 
 function psBarRow(label, cls, value, max, delay, kind) {
     const w = max > 0 ? Math.max(value > 0 ? 3 : 0, value / max * 100) : 0;
-    return '<div class="cs-bar-row"><div class="cs-bar-top"><span>' + label + '</span><b class="cs-num" data-to="' + value + '" data-kind="' + kind + '">' + (kind === "int" ? "0" : "0$") + '</b></div><div class="cs-track"><i class="cs-fill ' + cls + '" style="--w:' + w.toFixed(2) + "%; transition-delay:" + delay + 'ms"></i></div></div>';
+    return '<div class="cs-bar-row"><div class="cs-bar-top"><span>' + label + '</span><b class="cs-num" data-to="' + value + '" data-kind="' + kind + '">' + (kind === "int" ? "0" : "0⭐️") + '</b></div><div class="cs-track"><i class="cs-fill ' + cls + '" style="--w:' + w.toFixed(2) + "%; transition-delay:" + delay + 'ms"></i></div></div>';
 }
 
 function refStatsChartHTML(s) {
     const dep = s.depositEarnings || 0;
-    const game = s.gameEarnings || 0;
+    const game = s.signupEarnings || 0;
     const sum = dep + game;
     const pct = sum > 0 ? dep / sum * 100 : 0;
     const total = s.totalEarnings || 0;
@@ -28040,19 +28219,19 @@ function refStatsChartHTML(s) {
     const fs = totalText.length <= 6 ? 18 : totalText.length <= 8 ? 15 : totalText.length <= 10 ? 13 : 11;
 
     function tile(icon, label, cls, to, kind) {
-        return '<div class="cs-tile"><span class="cs-tile-ic ' + cls + '"><span class="skel-box"></span>' + lazyImgTag("/lottie/images/" + icon + ".png", "", "checks-icon-img") + '</span><div class="cs-tile-text"><small>' + label + '</small><b class="cs-num" data-to="' + to + '" data-kind="' + kind + '">' + (kind === "int" ? "0" : "0$") + "</b></div></div>";
+        return '<div class="cs-tile"><span class="cs-tile-ic ' + cls + '"><span class="skel-box"></span>' + lazyImgTag("/lottie/images/" + icon + ".png", "", "checks-icon-img") + '</span><div class="cs-tile-text"><small>' + label + '</small><b class="cs-num" data-to="' + to + '" data-kind="' + kind + '">' + (kind === "int" ? "0" : "0⭐️") + "</b></div></div>";
     }
     let html = '<div class="cs-stats ps-stats">';
     html += '<div class="cs-card cs-donut-card ps-donut-card"><div class="cs-donut" id="rsDonut"' + csRingAttr([
         [dep, "gold"],
         [game, "green"]
-    ]) + '><canvas class="cs-ring"></canvas><div class="cs-donut-in"><b class="cs-num" style="font-size:' + fs + 'px" data-to="' + total + '" data-kind="money">0$</b><small>заработок</small></div></div>' + '<div class="cs-legend"><div class="cs-cap">Источники дохода</div>' + '<div class="cs-leg"><i class="gold"></i><span>Депозит</span><b class="cs-num" data-to="' + dep + '" data-kind="money">0$</b></div>' + '<div class="cs-leg"><i class="green"></i><span>Проигрыш</span><b class="cs-num" data-to="' + game + '" data-kind="money">0$</b></div>' + '<div class="cs-leg-note">' + fmtCoef(s.depositPercent) + "% с депозитов, " + fmtCoef(s.lossPercent) + "% с проигрышей</div></div></div>";
+    ]) + '><canvas class="cs-ring"></canvas><div class="cs-donut-in"><b class="cs-num" style="font-size:' + fs + 'px" data-to="' + total + '" data-kind="money">0⭐️</b><small>заработок</small></div></div>' + '<div class="cs-legend"><div class="cs-cap">Источники дохода</div>' + '<div class="cs-leg"><i class="gold"></i><span>Депозит</span><b class="cs-num" data-to="' + dep + '" data-kind="money">0⭐️</b></div>' + '<div class="cs-leg"><i class="green"></i><span>Приглашения</span><b class="cs-num" data-to="' + game + '" data-kind="money">0⭐️</b></div>' + '<div class="cs-leg-note">' + fmtCoef(s.depositPercent) + "% с депозитов и бонусы за приглашения</div></div></div>";
     html += '<div class="cs-tiles">' + tile("РефСистема", "Рефералов", "green", s.refCount || 0, "int") + tile("РеферальноеНачисление", "Общий заработок", "gold", total, "money") + tile("ПроцентПобед", "За 7 дней", "green", s.weekEarnings || 0, "money") + tile("ОборотБаланса", "Начислений", "gold", s.totalCount || 0, "int") + "</div>";
-    const cntMax = Math.max(s.depositCount || 0, s.gameCount || 0);
-    html += '<div class="cs-card ps-flat"><div class="cs-cap">Количество начислений</div><div class="cs-group">' + psBarRow("От депозитов", "gold", s.depositCount || 0, cntMax, 150, "int") + psBarRow("От проигрышей", "green", s.gameCount || 0, cntMax, 260, "int") + "</div>" + '<div class="cs-profit pos"><span>Всего начислений</span><b><i class="cs-arrow"></i><span class="cs-num" data-to="' + (s.totalCount || 0) + '" data-kind="int">0</span></b></div></div>';
-    const avgMax = Math.max(s.avgDeposit || 0, s.avgGame || 0);
-    const maxMax = Math.max(s.maxDeposit || 0, s.maxGame || 0);
-    html += '<div class="cs-card ps-flat"><div class="cs-cap">Размер начислений</div>' + '<div class="cs-group"><div class="cs-group-cap">Среднее</div>' + psBarRow("От депозита", "gold", s.avgDeposit || 0, avgMax, 380, "money") + psBarRow("От проигрыша", "green", s.avgGame || 0, avgMax, 490, "money") + "</div>" + '<div class="cs-group"><div class="cs-group-cap">Максимальное</div>' + psBarRow("От депозита", "gold", s.maxDeposit || 0, maxMax, 600, "money") + psBarRow("От проигрыша", "green", s.maxGame || 0, maxMax, 710, "money") + "</div></div>";
+    const cntMax = Math.max(s.depositCount || 0, s.signupCount || 0);
+    html += '<div class="cs-card ps-flat"><div class="cs-cap">Количество начислений</div><div class="cs-group">' + psBarRow("От депозитов", "gold", s.depositCount || 0, cntMax, 150, "int") + psBarRow("За приглашения", "green", s.signupCount || 0, cntMax, 260, "int") + "</div>" + '<div class="cs-profit pos"><span>Всего начислений</span><b><i class="cs-arrow"></i><span class="cs-num" data-to="' + (s.totalCount || 0) + '" data-kind="int">0</span></b></div></div>';
+    const avgMax = Math.max(s.avgDeposit || 0, s.avgSignup || 0);
+    const maxMax = Math.max(s.maxDeposit || 0, s.maxSignup || 0);
+    html += '<div class="cs-card ps-flat"><div class="cs-cap">Размер начислений</div>' + '<div class="cs-group"><div class="cs-group-cap">Среднее</div>' + psBarRow("От депозита", "gold", s.avgDeposit || 0, avgMax, 380, "money") + psBarRow("За приглашение", "green", s.avgSignup || 0, avgMax, 490, "money") + "</div>" + '<div class="cs-group"><div class="cs-group-cap">Максимальное</div>' + psBarRow("От депозита", "gold", s.maxDeposit || 0, maxMax, 600, "money") + psBarRow("За приглашение", "green", s.maxSignup || 0, maxMax, 710, "money") + "</div></div>";
     return html + "</div>";
 }
 
@@ -28200,7 +28379,7 @@ function backPillHTML(action) {
 }
 
 function walletBalancePillHTML() {
-    const amountHtml = userDataLoaded ? formatMoney(currentUser.balance) : "$ 000.00";
+    const amountHtml = balanceAmountHTML(currentUser.balance, !userDataLoaded);
     return '<div class="balance-pill"><span class="amount' + (userDataLoaded ? "" : " text-skel") + '">' + amountHtml + '</span><div class="coin-toggle">' + (sourceCoinToggle ? sourceCoinToggle.innerHTML : "") + "</div></div>";
 }
 
@@ -28216,7 +28395,7 @@ function walletTxRowHTML(r) {
 function walletHistorySkeletonHTML() {
     let html = "";
     for (let i = 0; i < 4; i++) {
-        html += '<div class="wv-table-row">' + '<div class="wv-tx-type"><span class="skel-box" style="width:26px;height:26px;border-radius:50%;flex-shrink:0;"></span>' + '<span class="wv-tx-type-text"><span class="text-skel" style="width:70px;">Пополнение</span><span class="text-skel" style="width:50px;">CryptoBot</span></span></div>' + '<div class="text-skel" style="width:56px;">28.08.2026</div>' + '<div class="text-skel" style="width:56px;">Успешно</div>' + '<div class="wv-amount text-skel" style="width:40px; margin-left:auto;">100$</div>' + "</div>";
+        html += '<div class="wv-table-row">' + '<div class="wv-tx-type"><span class="skel-box" style="width:26px;height:26px;border-radius:50%;flex-shrink:0;"></span>' + '<span class="wv-tx-type-text"><span class="text-skel" style="width:70px;">Пополнение</span><span class="text-skel" style="width:50px;">CryptoBot</span></span></div>' + '<div class="text-skel" style="width:56px;">28.08.2026</div>' + '<div class="text-skel" style="width:56px;">Успешно</div>' + '<div class="wv-amount text-skel" style="width:40px; margin-left:auto;">100⭐️</div>' + "</div>";
     }
     return html;
 }
@@ -28267,8 +28446,8 @@ function walletPromoCardHTML(d) {
     const extra = [];
     if (d.kind === "balance" && d.wagerMult > 0) extra.push("вейджер x" + fmtCoef(d.wagerMult));
     if (d.kind === "deposit") {
-        if (d.minDeposit > 0) extra.push("пополнение от " + fmtCoef(d.minDeposit) + "$");
-        if (d.maxBonus > 0) extra.push("бонус до " + fmtCoef(d.maxBonus) + "$");
+        if (d.minDeposit > 0) extra.push("пополнение от " + fmtCoef(d.minDeposit) + "⭐️");
+        if (d.maxBonus > 0) extra.push("бонус до " + fmtCoef(d.maxBonus) + "⭐️");
         if (d.wagerMult > 0) extra.push("вейджер x" + fmtCoef(d.wagerMult));
         if (d.validHours > 0) extra.push("награда ждёт пополнения " + fmtCoef(d.validHours) + " ч");
     }
@@ -28329,9 +28508,9 @@ function walletPromoInit() {
 function walletPromoSuccessHTML(d) {
     let sub = "";
     if (d.kind === "deposit") {
-        sub = "Бонус придёт сам при следующем пополнении" + (d.minDeposit > 0 ? " от " + fmtCoef(d.minDeposit) + "$" : "") + (d.expiresAt > 0 ? ", награда ждёт до " + walletDateText(d.expiresAt) : "") + (d.maxBonus > 0 ? ". Бонус до " + fmtCoef(d.maxBonus) + "$" : "");
+        sub = "Бонус придёт сам при следующем пополнении" + (d.minDeposit > 0 ? " от " + fmtCoef(d.minDeposit) + "⭐️" : "") + (d.expiresAt > 0 ? ", награда ждёт до " + walletDateText(d.expiresAt) : "") + (d.maxBonus > 0 ? ". Бонус до " + fmtCoef(d.maxBonus) + "⭐️" : "");
     } else if (d.wagerRequired > 0) {
-        sub = "Для вывода отыграйте " + fmtCoef(d.wagerRequired) + "$ (x" + fmtCoef(d.wagerMult) + ")";
+        sub = "Для вывода отыграйте " + fmtCoef(d.wagerRequired) + "⭐️ (x" + fmtCoef(d.wagerMult) + ")";
     } else {
         sub = "Деньги уже на балансе";
     }
@@ -28396,27 +28575,27 @@ function walletPromoActivate() {
 
 function walletBoostsHTML(list) {
     if (!list || !list.length) return "";
-    return '<div class="wv-boosts">' + list.map(b => '<div class="wv-boost"><b>' + escapeHtml(b.text) + "</b><span>" + (b.kind === "win" ? "сработает на первом выигрыше" : "сработает на следующем пополнении" + (b.minDeposit > 0 ? " от " + fmtCoef(b.minDeposit) + "$" : "")) + (b.expiresAt > 0 ? " · до " + walletDateText(b.expiresAt) : " · без срока") + (b.maxBonus > 0 ? " · бонус до " + fmtCoef(b.maxBonus) + "$" : "") + "</span></div>").join("") + "</div>";
+    return '<div class="wv-boosts">' + list.map(b => '<div class="wv-boost"><b>' + escapeHtml(b.text) + "</b><span>" + (b.kind === "win" ? "сработает на первом выигрыше" : "сработает на следующем пополнении" + (b.minDeposit > 0 ? " от " + fmtCoef(b.minDeposit) + "⭐️" : "")) + (b.expiresAt > 0 ? " · до " + walletDateText(b.expiresAt) : " · без срока") + (b.maxBonus > 0 ? " · бонус до " + fmtCoef(b.maxBonus) + "⭐️" : "") + "</span></div>").join("") + "</div>";
 }
 
 function walletFrozenDetailsHTML(f) {
     let h = "";
     f.withdrawals.forEach(w => {
-        h += '<div class="wv-fz-item"><span class="wv-fz-ic"><span class="skel-box"></span>' + lazyImgTag(liteAsset("/lottie/images/Выводы.lottie"), "", "") + '</span><div class="wv-fz-t"><b>Заявка на вывод №' + w.id + '</b><span>' + escapeHtml(w.method) + " · " + escapeHtml(w.statusText) + " · " + walletDateText(w.createdAt) + '</span></div><div class="wv-fz-a">' + fmtNum(w.amount) + " $</div></div>";
+        h += '<div class="wv-fz-item"><span class="wv-fz-ic"><span class="skel-box"></span>' + lazyImgTag(liteAsset("/lottie/images/Выводы.lottie"), "", "") + '</span><div class="wv-fz-t"><b>Заявка на вывод №' + w.id + '</b><span>' + escapeHtml(w.method) + " · " + escapeHtml(w.statusText) + " · " + walletDateText(w.createdAt) + '</span></div><div class="wv-fz-a">' + fmtNum(w.amount) + " ⭐️</div></div>";
     });
     f.checks.forEach(c => {
-        h += '<div class="wv-fz-item"><span class="wv-fz-ic"><span class="skel-box"></span>' + lazyImgTag(liteAsset("/lottie/images/ПредупреждениеОшибка.lottie"), "", "") + '</span><div class="wv-fz-t"><b>Чек ' + escapeHtml(c.code) + '</b><span>Заблокирован администрацией' + (c.multi ? " · активаций осталось " + c.left : "") + '</span></div><div class="wv-fz-a">' + fmtNum(c.amount) + " $</div></div>";
+        h += '<div class="wv-fz-item"><span class="wv-fz-ic"><span class="skel-box"></span>' + lazyImgTag(liteAsset("/lottie/images/ПредупреждениеОшибка.lottie"), "", "") + '</span><div class="wv-fz-t"><b>Чек ' + escapeHtml(c.code) + '</b><span>Заблокирован администрацией' + (c.multi ? " · активаций осталось " + c.left : "") + '</span></div><div class="wv-fz-a">' + fmtNum(c.amount) + " ⭐️</div></div>";
     });
     f.wagers.forEach(w => {
-        h += '<div class="wv-fz-wager"><div class="wv-fz-wh"><span class="wv-fz-ic"><span class="skel-box"></span>' + lazyImgTag(liteAsset("/lottie/images/ОборотБаланса.lottie"), "", "") + '</span><div class="wv-fz-t"><b>' + escapeHtml(w.title) + "</b><span>" + escapeHtml(w.reason) + '</span></div><div class="wv-fz-a">' + fmtNum(w.left) + ' $</div></div><div class="wv-fz-bar"><i style="width:' + w.pct + '%"></i></div><div class="wv-fz-cap"><span>Отыграно ' + fmtNum(w.done) + " из " + fmtNum(w.required) + " $</span><span>осталось " + fmtNum(w.left) + " $</span></div>" + (w.gamesRequired > 0 ? '<div class="wv-fz-cap"><span>Игр: ' + w.gamesDone + " из " + w.gamesRequired + "</span><span>осталось " + w.gamesLeft + "</span></div>" : "") + "</div>";
+        h += '<div class="wv-fz-wager"><div class="wv-fz-wh"><span class="wv-fz-ic"><span class="skel-box"></span>' + lazyImgTag(liteAsset("/lottie/images/ОборотБаланса.lottie"), "", "") + '</span><div class="wv-fz-t"><b>' + escapeHtml(w.title) + "</b><span>" + escapeHtml(w.reason) + '</span></div><div class="wv-fz-a">' + fmtNum(w.left) + ' ⭐️</div></div><div class="wv-fz-bar"><i style="width:' + w.pct + '%"></i></div><div class="wv-fz-cap"><span>Отыграно ' + fmtNum(w.done) + " из " + fmtNum(w.required) + " ⭐️</span><span>осталось " + fmtNum(w.left) + " ⭐️</span></div>" + (w.gamesRequired > 0 ? '<div class="wv-fz-cap"><span>Игр: ' + w.gamesDone + " из " + w.gamesRequired + "</span><span>осталось " + w.gamesLeft + "</span></div>" : "") + "</div>";
     });
     return h;
 }
 
 function walletFrozenHTML(f) {
     if (!f || !f.enabled) return "";
-    const sum = f.total > 0 ? fmtNum(f.total) + " $" : "Отыграть " + fmtNum(f.wagerLeft) + " $";
-    return '<div class="wv-frozen' + (walletFrozenOpen ? " open" : "") + '" id="wvFrozen"><div class="wv-frozen-head"><span class="wv-frozen-ic"><span class="skel-box"></span>' + lazyImgTag(liteAsset("/lottie/images/Баланс.lottie"), "", "") + "</span><b>Замороженный счёт:</b></div>" + '<button class="wv-frozen-row" type="button" data-action="wallet-frozen-toggle"><span class="wv-frozen-sum">' + sum + '</span><span class="wv-frozen-more">Подробнее <i>›</i></span>' + (f.total > 0 && f.wagerLeft > 0 ? '<span class="wv-frozen-sub">и ещё отыграть ' + fmtNum(f.wagerLeft) + " $</span>" : "") + "</button>" + '<div class="wv-frozen-body">' + walletFrozenDetailsHTML(f) + "</div></div>";
+    const sum = f.total > 0 ? fmtNum(f.total) + " ⭐️" : "Отыграть " + fmtNum(f.wagerLeft) + " ⭐️";
+    return '<div class="wv-frozen' + (walletFrozenOpen ? " open" : "") + '" id="wvFrozen"><div class="wv-frozen-head"><span class="wv-frozen-ic"><span class="skel-box"></span>' + lazyImgTag(liteAsset("/lottie/images/Баланс.lottie"), "", "") + "</span><b>Замороженный счёт:</b></div>" + '<button class="wv-frozen-row" type="button" data-action="wallet-frozen-toggle"><span class="wv-frozen-sum">' + sum + '</span><span class="wv-frozen-more">Подробнее <i>›</i></span>' + (f.total > 0 && f.wagerLeft > 0 ? '<span class="wv-frozen-sub">и ещё отыграть ' + fmtNum(f.wagerLeft) + " ⭐️</span>" : "") + "</button>" + '<div class="wv-frozen-body">' + walletFrozenDetailsHTML(f) + "</div></div>";
 }
 
 function loadWalletInfo() {
@@ -28432,19 +28611,19 @@ function loadWalletInfo() {
 
 function walletStatusHTML(r) {
     const s = r.status || "success";
-    if (s === "pending" || s === "processing") return '<div class="wv-status pending">⏳ ' + escapeHtml(r.statusText || "На рассмотрении") + "</div>";
-    if (s === "rejected" || s === "failed") return '<div class="wv-status failed" title="' + escapeHtml(r.reason || "") + '">✕ ' + escapeHtml(r.statusText || "Отклонена") + "</div>";
+    if (s === "pending" || s === "processing" || s === "active" || s === "creating") return '<div class="wv-status pending">⏳ ' + escapeHtml(r.statusText || "На рассмотрении") + "</div>";
+    if (s === "rejected" || s === "failed" || s === "cancelled" || s === "expired") return '<div class="wv-status failed" title="' + escapeHtml(r.reason || "") + '">✕ ' + escapeHtml(r.statusText || "Отклонена") + "</div>";
     return '<div class="wv-status success">✓ Успешно</div>';
 }
 
 function walletAmountHTML(r, isOut) {
     const s = r.status || "success";
-    if (s === "rejected" || s === "failed") return '<div class="wv-amount struck">' + fmtNum(r.amount) + "$" + (r.refunded ? '<small>возвращено</small>' : "") + "</div>";
-    return '<div class="wv-amount' + (s === "pending" || s === "processing" ? " waiting" : "") + '">' + (isOut ? "−" : "+") + fmtNum(r.amount) + "$</div>";
+    if (s === "rejected" || s === "failed" || s === "cancelled" || s === "expired") return '<div class="wv-amount struck">' + fmtNum(r.amount) + "⭐️" + (r.refunded ? '<small>возвращено</small>' : "") + "</div>";
+    return '<div class="wv-amount' + (s === "pending" || s === "processing" || s === "active" || s === "creating" ? " waiting" : "") + '">' + (isOut ? "−" : "+") + fmtNum(r.amount) + "⭐️</div>";
 }
 
 function renderWalletMain() {
-    return '<div class="wv-topbar-brand">' + backPillHTML("wallet-exit") + '<div class="brand"><span class="brand-name text-skel" id="wvBrandName">Игрок</span><div class="brand-mark" id="wvBrandMark"><div class="skel-box"></div></div></div>' + "</div>" + '<h2 class="wv-title">Кошелек</h2>' + '<div class="wallet-balance-card">' + '<div class="wallet-balance-label">Баланс:</div>' + '<div class="wallet-balance-amount' + (userDataLoaded ? "" : " text-skel") + '">' + (userDataLoaded ? formatMoney(currentUser.balance) : "$ 000.00") + "</div>" + '<div class="wallet-balance-icon">' + (sourceCoinToggle && sourceCoinToggle.querySelector("img") ? '<img src="' + sourceCoinToggle.querySelector("img").src + '" alt="">' : "") + "</div>" + '<div class="wallet-brand-row"><div class="wallet-brand-mark" id="wvBalanceBrandMark"><div class="skel-box"></div></div><span class="text-skel" id="wvBalanceBrandName">Игрок</span></div>' + '<div class="wallet-actions">' + '<button class="wallet-action-btn" type="button" data-action="wallet-deposit">Пополнить</button>' + '<button class="wallet-action-btn" type="button" data-action="wallet-withdraw">Вывести</button>' + "</div>" + "</div>" + walletPromoHTML() + '<div id="wvFrozenSlot"></div>' + '<h3 class="wv-history-title">История транзакций</h3>' + '<div class="wv-filter-tabs" id="wvFilterTabs">' + '<button class="wv-filter-tab' + (walletHistoryFilter === "all" ? " active" : "") + '" type="button" data-wv-filter="all">Все</button>' + '<button class="wv-filter-tab' + (walletHistoryFilter === "deposit" ? " active" : "") + '" type="button" data-wv-filter="deposit">Депозиты</button>' + '<button class="wv-filter-tab' + (walletHistoryFilter === "withdrawal" ? " active" : "") + '" type="button" data-wv-filter="withdrawal">Выводы</button>' + "</div>" + '<div class="wv-table">' + '<div class="wv-table-head"><div>Тип транзакции</div><div>Дата</div><div>Статус</div><div style="text-align:right;">Сумма</div></div>' + '<div class="wv-table-body" id="wvHistoryBody">' + walletHistorySkeletonHTML() + "</div>" + "</div>" + '<div class="wv-pagination">' + '<button class="wv-page-btn" type="button" id="wvPagePrev">‹</button>' + '<button class="wv-page-label wv-page-label-btn" type="button" id="wvPageLabel">1 из 1</button>' + '<button class="wv-page-btn" type="button" id="wvPageNext">›</button>' + "</div>";
+    return '<div class="wv-topbar-brand">' + backPillHTML("wallet-exit") + '<div class="brand"><span class="brand-name text-skel" id="wvBrandName">Игрок</span><div class="brand-mark" id="wvBrandMark"><div class="skel-box"></div></div></div>' + "</div>" + '<h2 class="wv-title">Кошелек</h2>' + '<div class="wallet-balance-card">' + '<div class="wallet-balance-label">Баланс:</div>' + '<div class="wallet-balance-amount' + (userDataLoaded ? "" : " text-skel") + '">' + balanceAmountHTML(currentUser.balance, !userDataLoaded) + "</div>" + '<div class="wallet-balance-icon">' + (sourceCoinToggle && sourceCoinToggle.querySelector("img") ? '<img src="' + sourceCoinToggle.querySelector("img").src + '" alt="">' : "") + "</div>" + '<div class="wallet-brand-row"><div class="wallet-brand-mark" id="wvBalanceBrandMark"><div class="skel-box"></div></div><span class="text-skel" id="wvBalanceBrandName">Игрок</span></div>' + '<div class="wallet-actions">' + '<button class="wallet-action-btn" type="button" data-action="wallet-deposit">Пополнить</button>' + '<button class="wallet-action-btn" type="button" data-action="wallet-withdraw">Вывести</button>' + "</div>" + "</div>" + walletPromoHTML() + '<div id="wvFrozenSlot"></div>' + '<h3 class="wv-history-title">История транзакций</h3>' + '<div class="wv-filter-tabs" id="wvFilterTabs">' + '<button class="wv-filter-tab' + (walletHistoryFilter === "all" ? " active" : "") + '" type="button" data-wv-filter="all">Все</button>' + '<button class="wv-filter-tab' + (walletHistoryFilter === "deposit" ? " active" : "") + '" type="button" data-wv-filter="deposit">Депозиты</button>' + '<button class="wv-filter-tab' + (walletHistoryFilter === "withdrawal" ? " active" : "") + '" type="button" data-wv-filter="withdrawal">Выводы</button>' + "</div>" + '<div class="wv-table">' + '<div class="wv-table-head"><div>Тип транзакции</div><div>Дата</div><div>Статус</div><div style="text-align:right;">Сумма</div></div>' + '<div class="wv-table-body" id="wvHistoryBody">' + walletHistorySkeletonHTML() + "</div>" + "</div>" + '<div class="wv-pagination">' + '<button class="wv-page-btn" type="button" id="wvPagePrev">‹</button>' + '<button class="wv-page-label wv-page-label-btn" type="button" id="wvPageLabel">1 из 1</button>' + '<button class="wv-page-btn" type="button" id="wvPageNext">›</button>' + "</div>";
 }
 
 function renderWallet() {
@@ -28492,7 +28671,7 @@ const DEPOSIT_METHOD_LABELS = {
     stars: {
         label: "Пополнить Звёздами",
         short: "Stars",
-        icon: '<img src="images/TelegramStars.png" alt="">'
+        icon: '<img src="images/TelegramStars.png" width="24" height="24" style="width:24px;height:24px;object-fit:contain" alt="">'
     }
 };
 
@@ -28677,8 +28856,8 @@ function depositPromoTermsText(m) {
     const p = depositState.promo;
     const parts = [];
     if (m && m.coins && m.coins.length) parts.push("монеты: " + depositCoinList(m.coins));
-    if (p.minDeposit > 0) parts.push("от " + depositFmt4(p.minDeposit) + "$");
-    if (p.maxBonus > 0) parts.push("бонус не больше " + depositFmt4(p.maxBonus) + "$");
+    if (p.minDeposit > 0) parts.push("от " + depositFmt4(p.minDeposit) + "⭐️");
+    if (p.maxBonus > 0) parts.push("бонус не больше " + depositFmt4(p.maxBonus) + "⭐️");
     if (p.wagerMult > 0) parts.push("вейджер ×" + depositFmt4(p.wagerMult) + " от суммы с бонусом");
     return parts.join(" · ");
 }
@@ -28717,8 +28896,8 @@ function depositTagTermsText() {
     const t = depositState.tagPromo;
     const parts = [];
     if (t.wagerMult > 0) parts.push("вейджер ×" + depositFmt4(t.wagerMult) + " от суммы с бонусом");
-    if (t.minDeposit > 0) parts.push("от " + depositFmt4(t.minDeposit) + "$");
-    if (t.maxBonus > 0) parts.push("бонус не больше " + depositFmt4(t.maxBonus) + "$");
+    if (t.minDeposit > 0) parts.push("от " + depositFmt4(t.minDeposit) + "⭐️");
+    if (t.maxBonus > 0) parts.push("бонус не больше " + depositFmt4(t.maxBonus) + "⭐️");
     return parts.join(" · ");
 }
 
@@ -28737,11 +28916,11 @@ function depositTagPreviewInfo(amount) {
     const r = depositTagBonus(amount);
     if (!r) return null;
     if (r.below) return {
-        text: "С припиской — от " + depositFmt4(r.min) + "$",
+        text: "С припиской — от " + depositFmt4(r.min) + "⭐️",
         off: true
     };
     return {
-        text: "С припиской +" + depositFmt4(r.bonus) + "$ · на баланс " + depositFmt4(r.total) + "$" + (r.capped ? " (максимальный бонус)" : ""),
+        text: "С припиской +" + depositFmt4(r.bonus) + "⭐️ · на баланс " + depositFmt4(r.total) + "⭐️" + (r.capped ? " (максимальный бонус)" : ""),
         off: false
     };
 }
@@ -28759,7 +28938,7 @@ function depositTagWaitingHTML() {
     if (!r || r.below) return "";
     const t = depositState.tagPromo;
     const both = !!depositPromoWaitingHTML();
-    return '<div class="deposit-invoice-promo">' + depositPromoIcon() + "<span>С припиской +" + depositFmt4(t.percent) + "%: +" + depositFmt4(r.bonus) + "$ · на баланс " + depositFmt4(r.total) + "$" + (r.wager > 0 ? " · вейджер ×" + depositFmt4(t.wagerMult) : "") + (both ? " · начисляется один бонус, выгоднее" : "") + "</span></div>";
+    return '<div class="deposit-invoice-promo">' + depositPromoIcon() + "<span>С припиской +" + depositFmt4(t.percent) + "%: +" + depositFmt4(r.bonus) + "⭐️ · на баланс " + depositFmt4(r.total) + "⭐️" + (r.wager > 0 ? " · вейджер ×" + depositFmt4(t.wagerMult) : "") + (both ? " · начисляется один бонус, выгоднее" : "") + "</span></div>";
 }
 
 function depositPromoIcon() {
@@ -28778,11 +28957,11 @@ function depositPromoPreviewInfo(amount) {
     const r = depositPromoBonus(amount);
     if (!r) return null;
     if (r.below) return {
-        text: "Бонус по акции — от " + depositFmt4(r.min) + "$",
+        text: "Бонус по акции — от " + depositFmt4(r.min) + "⭐️",
         off: true
     };
     return {
-        text: "Бонус по акции +" + depositFmt4(r.bonus) + "$ · на баланс " + depositFmt4(r.total) + "$" + (r.capped ? " (максимальный бонус)" : ""),
+        text: "Бонус по акции +" + depositFmt4(r.bonus) + "⭐️ · на баланс " + depositFmt4(r.total) + "⭐️" + (r.capped ? " (максимальный бонус)" : ""),
         off: false
     };
 }
@@ -28831,13 +29010,13 @@ function depositPromoWaitingHTML() {
             note = " · при оплате: " + escapeHtml(depositCoinList(coins));
         }
     }
-    return '<div class="deposit-invoice-promo">' + depositPromoIcon() + "<span>Бонус по акции +" + depositFmt4(p.percent) + "%: +" + depositFmt4(r.bonus) + "$ · на баланс " + depositFmt4(r.total) + "$" + note + (r.wager > 0 ? " · вейджер ×" + depositFmt4(p.wagerMult) : "") + "</span></div>";
+    return '<div class="deposit-invoice-promo">' + depositPromoIcon() + "<span>Бонус по акции +" + depositFmt4(p.percent) + "%: +" + depositFmt4(r.bonus) + "⭐️ · на баланс " + depositFmt4(r.total) + "⭐️" + note + (r.wager > 0 ? " · вейджер ×" + depositFmt4(p.wagerMult) : "") + "</span></div>";
 }
 
 function depositPromoSuccessHTML() {
     const c = depositState.creditPromo;
     if (!c || !(c.bonus > 0)) return "";
-    return '<div class="deposit-success-promo"><div class="deposit-success-promo-row">' + depositPromoIcon() + "<span>" + (c.tag ? "Бонус за приписку" : "Бонус за депозит") + " +" + depositFmt4(c.percent) + "% успешно начислен: +" + depositFmt4(c.bonus) + "$</span></div><small>Всего зачислено: " + depositFmt4(c.total) + "$</small></div>";
+    return '<div class="deposit-success-promo"><div class="deposit-success-promo-row">' + depositPromoIcon() + "<span>" + (c.tag ? "Бонус за приписку" : "Бонус за депозит") + " +" + depositFmt4(c.percent) + "% успешно начислен: +" + depositFmt4(c.bonus) + "⭐️</span></div><small>Всего зачислено: " + depositFmt4(c.total) + "⭐️</small></div>";
 }
 
 function depositMainStepHTML() {
@@ -28846,7 +29025,7 @@ function depositMainStepHTML() {
         cryptobot: true,
         xrocket: true,
         sbp: false,
-        tonkeeper: true,
+        tonkeeper: false,
         laveshka: false,
         stars: true
     };
@@ -28854,16 +29033,16 @@ function depositMainStepHTML() {
     if (limits && enabled.sbp) mins.push(limits.min_deposit_sbp || 1);
     if (enabled.laveshka === true && depositState.laveshka && depositState.laveshka.minUsd) mins.push(depositState.laveshka.minUsd);
     const min = Math.min.apply(null, mins);
-    const order = ["cryptobot", "xrocket", "sbp", "tonkeeper", "laveshka", "stars"];
-    const rows = order.filter(m => m === "laveshka" ? enabled.laveshka === true : enabled[m] !== false).map(m => {
+    const order = ["cryptobot", "xrocket", "stars", "tonkeeper", "sbp", "laveshka"];
+    const rows = order.filter(m => m === "tonkeeper" || (m === "laveshka" ? enabled.laveshka === true : enabled[m] !== false)).map(m => {
         const info = DEPOSIT_METHOD_LABELS[m];
         const promoMethod = depositPromoMethodInfo(m);
         const tagMethod = depositTagMethodInfo(m);
         const promoBadge = promoMethod ? '<span class="deposit-method-promo">+' + depositFmt4(depositState.promo.percent) + "%</span>" : tagMethod ? '<span class="deposit-method-promo">+' + depositFmt4(depositState.tagPromo.percent) + "%</span>" : "";
-        return '<button class="deposit-method-btn" type="button" data-deposit-method="' + m + '">' + '<span class="deposit-method-center">' + '<span class="deposit-method-icon">' + info.icon + "</span>" + "<span>" + info.label + "</span>" + promoBadge + "</span>" + '<span class="deposit-method-arrow"><svg viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>' + "</button>";
+        return '<button class="deposit-method-btn" type="button" data-deposit-method="' + m + '"' + (m === "tonkeeper" ? ' disabled aria-disabled="true"' : "") + '>' + '<span class="deposit-method-center">' + '<span class="deposit-method-icon">' + info.icon + "</span>" + "<span>" + info.label + (m === "tonkeeper" ? " · временно недоступно" : "") + "</span>" + promoBadge + "</span>" + '<span class="deposit-method-arrow"><svg viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>' + "</button>";
     }).join("");
-    const quickBtns = DEPOSIT_QUICK_AMOUNTS.map(v => '<button class="deposit-quick-btn" type="button" data-deposit-quick="' + v + '">' + v + "$</button>").join("");
-    return depositPromoBannerHTML() + depositTagBannerHTML() + '<div class="deposit-hint center">Укажите сумму пополнения</div>' + '<div class="deposit-amount-row">' + '<input class="deposit-amount-input" id="depositAmountInput" type="text" inputmode="decimal" placeholder="0$" ' + 'value="' + (depositState.amount ? String(depositState.amount) + "$" : "") + '" ' + 'data-raw-amount="' + (depositState.amount || "") + '">' + "</div>" + '<div class="deposit-limits-hint">Минимум — от ' + fmtNum(min) + "$ в зависимости от способа оплаты</div>" + depositPromoPreviewHTML(depositState.amount) + depositTagPreviewHTML(depositState.amount) + '<div class="deposit-error" id="depositError"></div>' + '<div class="deposit-quick-label">' + lazyImgTag("/lottie/images/ПопулярныеИгры.lottie", "", "") + "Популярное</div>" + '<div class="deposit-quick-row">' + quickBtns + "</div>" + '<div class="deposit-method-label"><img src="images/СпособПополнения.png" alt="" onerror="this.remove()">Способ пополнения</div>' + '<div class="deposit-method-list">' + (rows || '<div class="dice-history-empty">Нет доступных способов оплаты</div>') + "</div>";
+    const quickBtns = DEPOSIT_QUICK_AMOUNTS.map(v => '<button class="deposit-quick-btn" type="button" data-deposit-quick="' + v + '">' + v + "⭐️</button>").join("");
+    return depositPromoBannerHTML() + depositTagBannerHTML() + '<div class="deposit-hint center">Укажите сумму пополнения</div>' + '<div class="deposit-amount-row">' + '<input class="deposit-amount-input" id="depositAmountInput" type="text" inputmode="decimal" placeholder="0⭐️" ' + 'value="' + (depositState.amount ? String(depositState.amount) + "⭐️" : "") + '" ' + 'data-raw-amount="' + (depositState.amount || "") + '">' + "</div>" + '<div class="deposit-limits-hint">Минимум — от ' + fmtNum(min) + "⭐️ в зависимости от способа оплаты</div>" + depositPromoPreviewHTML(depositState.amount) + depositTagPreviewHTML(depositState.amount) + '<div class="deposit-error" id="depositError"></div>' + '<div class="deposit-quick-label">' + lazyImgTag("/lottie/images/ПопулярныеИгры.lottie", "", "") + "Популярное</div>" + '<div class="deposit-quick-row">' + quickBtns + "</div>" + '<div class="deposit-method-label"><img src="images/СпособПополнения.png" alt="" onerror="this.remove()">Способ пополнения</div>' + '<div class="deposit-method-list">' + (rows || '<div class="dice-history-empty">Нет доступных способов оплаты</div>') + "</div>";
 }
 
 function depositCurrencyStepHTML() {
@@ -28889,13 +29068,13 @@ function depositSbpTimerText() {
 function depositSbpWaitingHTML() {
     const inv = depositState.sbpInvoice;
     if (!inv) {
-        return '<div class="deposit-waiting">' + '<div class="deposit-spinner"></div>' + '<div class="deposit-waiting-title">Создаём счёт на оплату…</div>' + '<div class="deposit-waiting-text">Сумма: ' + fmtNum(depositState.amount) + "$ через СБП</div>" + '<button class="gv-start-btn deposit-secondary-btn" type="button" id="depositSbpLeave">Назад</button>' + "</div>";
+        return '<div class="deposit-waiting">' + '<div class="deposit-spinner"></div>' + '<div class="deposit-waiting-title">Создаём счёт на оплату…</div>' + '<div class="deposit-waiting-text">Сумма: ' + fmtNum(depositState.amount) + "⭐️ через СБП</div>" + '<button class="gv-start-btn deposit-secondary-btn" type="button" id="depositSbpLeave">Назад</button>' + "</div>";
     }
     const paid = inv.state === "processing";
-    const feeLine = (inv.feePercent ? '<div class="deposit-invoice-meta">Комиссия СБП (' + fmtNum(inv.feePercent) + "%): " + fmtNum(inv.feeAmount) + "$</div>" : "") + depositPromoWaitingHTML() + depositTagWaitingHTML();
+    const feeLine = (inv.feePercent ? '<div class="deposit-invoice-meta">Комиссия СБП (' + fmtNum(inv.feePercent) + "%): " + fmtNum(inv.feeAmount) + "⭐️</div>" : "") + depositPromoWaitingHTML() + depositTagWaitingHTML();
     const status = paid ? '<div class="deposit-invoice-status"><span class="deposit-spinner-sm"></span>Платёж получен, зачисляем…</div>' : '<div class="deposit-invoice-status"><span class="deposit-spinner-sm"></span>Ожидаем оплату · осталось <b id="depositSbpTimer">' + depositSbpTimerText() + "</b></div>";
     const buttons = paid ? "" : '<button class="gv-start-btn deposit-go-btn" type="button" data-deposit-open="' + escapeHtml(inv.payUrl) + '">Оплатить</button>' + (inv.directUrl ? '<button class="gv-start-btn deposit-secondary-btn" type="button" data-deposit-open="' + escapeHtml(inv.directUrl) + '">Открыть СБП</button>' : "");
-    return '<div class="deposit-waiting deposit-invoice">' + '<div class="deposit-invoice-card">' + '<div class="deposit-invoice-label">Счёт создан</div>' + '<div class="deposit-invoice-amount">' + fmtNum(inv.rubAmount) + " ₽</div>" + '<div class="deposit-invoice-meta">На баланс: ' + fmtNum(inv.amount) + "$ · 1 USDT = " + Number(inv.rate).toFixed(2) + " ₽</div>" + feeLine + status + "</div>" + buttons + '<div class="deposit-waiting-text">После оплаты баланс пополнится автоматически — это окно можно не закрывать. Сообщение об оплате придёт в личные сообщения.</div>' + '<button class="gv-start-btn deposit-secondary-btn" type="button" id="depositSbpLeave">Назад к способам</button>' + "</div>";
+    return '<div class="deposit-waiting deposit-invoice">' + '<div class="deposit-invoice-card">' + '<div class="deposit-invoice-label">Счёт создан</div>' + '<div class="deposit-invoice-amount">' + fmtNum(inv.rubAmount) + " ₽</div>" + '<div class="deposit-invoice-meta">На баланс: ' + fmtNum(inv.amount) + "⭐️ · 1 USDT = " + Number(inv.rate).toFixed(2) + " ₽</div>" + feeLine + status + "</div>" + buttons + '<div class="deposit-waiting-text">После оплаты баланс пополнится автоматически — это окно можно не закрывать. Сообщение об оплате придёт в личные сообщения.</div>' + '<button class="gv-start-btn deposit-secondary-btn" type="button" id="depositSbpLeave">Назад к способам</button>' + "</div>";
 }
 
 const DEPOSIT_SBP_FAIL_TEXTS = {
@@ -28925,19 +29104,19 @@ function depositSbpFailStepHTML() {
 function depositLaveFeeHTML() {
     const f = depositState.method === "laveshka" ? depositState.laveFee : null;
     if (!f || !(f.percent > 0)) return "";
-    return '<div class="deposit-invoice-meta">Комиссия Лавэшка (' + fmtNum(f.percent) + "%): " + fmtNum(f.amount) + "$ · к оплате " + fmtNum(f.total) + "$</div>";
+    return '<div class="deposit-invoice-meta">Комиссия Лавэшка (' + fmtNum(f.percent) + "%): " + fmtNum(f.amount) + "⭐️ · к оплате " + fmtNum(f.total) + "⭐️</div>";
 }
 
 function depositWaitingStepHTML() {
     if (depositState.method === "sbp") return depositSbpWaitingHTML();
     if (depositState.method === "laveshka" && !depositState.payUrl) {
-        return '<div class="deposit-waiting">' + '<div class="deposit-spinner"></div>' + '<div class="deposit-waiting-title">Создаём счёт на оплату…</div>' + '<div class="deposit-waiting-text">Сумма: ' + fmtNum(depositState.amount) + "$ через Лавэшку</div>" + '<button class="gv-start-btn deposit-secondary-btn" type="button" id="depositSbpLeave">Назад</button>' + "</div>";
+        return '<div class="deposit-waiting">' + '<div class="deposit-spinner"></div>' + '<div class="deposit-waiting-title">Создаём счёт на оплату…</div>' + '<div class="deposit-waiting-text">Сумма: ' + fmtNum(depositState.amount) + "⭐️ через Лавэшку</div>" + '<button class="gv-start-btn deposit-secondary-btn" type="button" id="depositSbpLeave">Назад</button>' + "</div>";
     }
     if (depositState.payUrl) {
         const provider = depositState.method === "xrocket" ? "xRocket" : depositState.method === "laveshka" ? "Лавэшка" : "CryptoBot";
-        return '<div class="deposit-waiting deposit-invoice">' + '<div class="deposit-invoice-card">' + '<div class="deposit-invoice-label">Счёт создан</div>' + '<div class="deposit-invoice-amount">' + fmtNum(depositState.amount) + "$</div>" + '<div class="deposit-invoice-meta">Оплата через ' + provider + "</div>" + depositLaveFeeHTML() + depositPromoWaitingHTML() + depositTagWaitingHTML() + '<div class="deposit-invoice-status"><span class="deposit-spinner-sm"></span>Ожидаем оплату' + (depositState.invoiceDeadline ? ' · осталось <b id="depositInvoiceTimer">' + depositInvoiceTimerText() + "</b>" : "") + "</div>" + "</div>" + '<button class="gv-start-btn deposit-go-btn" type="button" data-deposit-open="' + escapeHtml(depositState.payUrl) + '">Перейти к оплате</button>' + '<div class="deposit-waiting-text">После оплаты баланс пополнится автоматически — это окно можно не закрывать.</div>' + '<button class="gv-start-btn pvp-danger-btn" type="button" id="depositCancelWaiting">Отменить счёт</button>' + "</div>";
+        return '<div class="deposit-waiting deposit-invoice">' + '<div class="deposit-invoice-card">' + '<div class="deposit-invoice-label">Счёт создан</div>' + '<div class="deposit-invoice-amount">' + fmtNum(depositState.amount) + "⭐️</div>" + '<div class="deposit-invoice-meta">Оплата через ' + provider + "</div>" + depositLaveFeeHTML() + depositPromoWaitingHTML() + depositTagWaitingHTML() + '<div class="deposit-invoice-status"><span class="deposit-spinner-sm"></span>Ожидаем оплату' + (depositState.invoiceDeadline ? ' · осталось <b id="depositInvoiceTimer">' + depositInvoiceTimerText() + "</b>" : "") + "</div>" + "</div>" + '<button class="gv-start-btn deposit-go-btn" type="button" data-deposit-open="' + escapeHtml(depositState.payUrl) + '">Перейти к оплате</button>' + '<div class="deposit-waiting-text">После оплаты баланс пополнится автоматически — это окно можно не закрывать.</div>' + '<button class="gv-start-btn pvp-danger-btn" type="button" id="depositCancelWaiting">Отменить счёт</button>' + "</div>";
     }
-    return '<div class="deposit-waiting">' + '<div class="deposit-spinner"></div>' + '<div class="deposit-waiting-title">Сумма: ' + fmtNum(depositState.amount) + "$</div>" + '<div class="deposit-waiting-text">Ожидаем оплату — завершите платёж на открывшейся странице, баланс пополнится автоматически, это окно можно не закрывать.</div>' + '<button class="gv-start-btn pvp-danger-btn" type="button" id="depositCancelWaiting" style="margin-top:6px;">Отменить счёт</button>' + "</div>";
+    return '<div class="deposit-waiting">' + '<div class="deposit-spinner"></div>' + '<div class="deposit-waiting-title">Сумма: ' + fmtNum(depositState.amount) + "⭐️</div>" + '<div class="deposit-waiting-text">Ожидаем оплату — завершите платёж на открывшейся странице, баланс пополнится автоматически, это окно можно не закрывать.</div>' + '<button class="gv-start-btn pvp-danger-btn" type="button" id="depositCancelWaiting" style="margin-top:6px;">Отменить счёт</button>' + "</div>";
 }
 
 function depositCancelConfirmStepHTML() {
@@ -28945,7 +29124,7 @@ function depositCancelConfirmStepHTML() {
 }
 
 function depositSuccessStepHTML() {
-    return '<div class="deposit-success">' + "" + lazyImgTag(liteAsset("/lottie/СистемаЧеков/УспешноАктивированЧек.lottie"), "", "deposit-success-icon") + "" + '<div class="deposit-success-title">' + lazyImgTag("/lottie/images/ВыСНами.lottie", "", "deposit-success-title-icon") + "Баланс пополнен!</div>" + '<div class="deposit-success-amount">+' + fmtNum(depositState.creditedAmount != null ? depositState.creditedAmount : depositState.amount) + "$</div>" + depositPromoSuccessHTML() + depositWagerNoteHTML() + '<button class="gv-start-btn" type="button" id="depositSuccessClose" style="margin-top:10px;">Готово</button>' + "</div>";
+    return '<div class="deposit-success">' + "" + lazyImgTag(liteAsset("/lottie/СистемаЧеков/УспешноАктивированЧек.lottie"), "", "deposit-success-icon") + "" + '<div class="deposit-success-title">' + lazyImgTag("/lottie/images/ВыСНами.lottie", "", "deposit-success-title-icon") + "Баланс пополнен!</div>" + '<div class="deposit-success-amount">+' + fmtNum(depositState.creditedAmount != null ? depositState.creditedAmount : depositState.amount) + "⭐️</div>" + depositPromoSuccessHTML() + depositWagerNoteHTML() + '<button class="gv-start-btn" type="button" id="depositSuccessClose" style="margin-top:10px;">Готово</button>' + "</div>";
 }
 
 function renderDepositStep() {
@@ -29029,7 +29208,7 @@ function depositInvoiceExpired() {
 function depositWagerNoteHTML() {
     const w = depositState.wager;
     if (!w || !(w.mult > 0) || !(w.amount > 0)) return "";
-    return '<div class="deposit-success-wager">Вейджер ×' + fmtNum(w.mult) + ": отыграйте " + fmtNum(w.amount) + "$ ставками, чтобы выводить средства</div>";
+    return '<div class="deposit-success-wager">Вейджер ×' + fmtNum(w.mult) + ": отыграйте " + fmtNum(w.amount) + "⭐️ ставками, чтобы выводить средства</div>";
 }
 
 function depositStartPolling(checkFn) {
@@ -29300,17 +29479,24 @@ function depositCreateStars() {
             return;
         }
         const link = data.invoiceLink;
+        depositState.invoiceId = data.invoiceId;
+        depositState.invoiceDeadline = Date.now() + data.expiresIn * 1000;
+        const check = () => fetch("/api/deposit/stars/status?invoiceId=" + encodeURIComponent(data.invoiceId)).then(r => r.json());
+        depositStartPolling(check);
         depositState.step = "waiting";
         renderDepositStep();
         if (tgWebApp && tgWebApp.openInvoice) {
             tgWebApp.openInvoice(link, status => {
                 if (status === "paid") {
-                    depositState.creditedAmount = depositState.amount;
-                    depositState.wager = null;
-                    haptic("notification", "success");
-                    depositState.step = "success";
-                    renderDepositStep();
-                    setTimeout(loadUserState, 1200);
+                    check().then(result => {
+                        if (result && result.ok && result.paid) {
+                            depositState.creditedAmount = result.creditedAmount;
+                            depositState.step = "success";
+                            depositStopPolling();
+                            renderDepositStep();
+                            loadUserState();
+                        }
+                    }).catch(() => {});
                 } else if (status === "cancelled" || status === "failed") {
                     depositState.step = "main";
                     renderDepositStep();
@@ -29351,8 +29537,8 @@ function depositConfirmCancel() {
         depositState.step = method === "xrocket" ? "currency" : method === "tonkeeper" ? "tonkeeper" : "main";
         renderDepositStep();
     };
-    if (method === "cryptobot" && invoiceId) {
-        fetch("/api/deposit/cryptobot/cancel", {
+    if ((method === "cryptobot" || method === "xrocket") && invoiceId) {
+        fetch("/api/deposit/" + method + "/cancel", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
@@ -29361,7 +29547,18 @@ function depositConfirmCancel() {
                 uid: CURRENT_UID,
                 invoiceId: invoiceId
             })
-        }).then(finish).catch(finish);
+        }).then(response => response.json()).then(data => {
+            if (!data || !data.ok) throw new Error(data && data.error || "Не удалось отменить счёт");
+            if (data.paid) {
+                depositState.creditedAmount = data.creditedAmount;
+                depositState.step = "success";
+                renderDepositStep();
+                loadUserState();
+            } else finish();
+        }).catch(error => {
+            showToast(error.message || "Проверьте статус оплаты", "error");
+            depositStartPolling(() => fetch("/api/deposit/" + method + "/status?invoiceId=" + encodeURIComponent(invoiceId)).then(response => response.json()));
+        });
     } else if (method === "laveshka" && invoiceId) {
         fetch("/api/deposit/laveshka/cancel", {
             method: "POST",
@@ -29483,7 +29680,7 @@ function wdNum(v, dec) {
 }
 
 function wdUsd(v) {
-    return fmtNum(v) + "$";
+    return fmtNum(v) + "⭐️";
 }
 
 function wdNewReqId() {
@@ -30348,7 +30545,7 @@ wvBody.addEventListener("click", e => {
         const input = document.getElementById("depositAmountInput");
         if (input) {
             const v = quickBtn.dataset.depositQuick;
-            input.value = v + "$";
+            input.value = v + "⭐️";
             input.dataset.rawAmount = v;
             input.focus();
             depositUpdatePromoPreview();
@@ -30361,8 +30558,7 @@ wvBody.addEventListener("click", e => {
     if (methodBtn) {
         const method = methodBtn.dataset.depositMethod;
         if (method === "tonkeeper") {
-            depositState.method = method;
-            depositShowTonkeeper();
+            showToast("Пополнение через Tonkeeper временно недоступно", "warning");
             return;
         }
         const input = document.getElementById("depositAmountInput");
@@ -30375,7 +30571,7 @@ wvBody.addEventListener("click", e => {
             return;
         }
         if (val > DEPOSIT_MAX_AMOUNT) {
-            errEl.textContent = "Максимальная сумма пополнения — " + DEPOSIT_MAX_AMOUNT + "$";
+            errEl.textContent = "Максимальная сумма пополнения — " + DEPOSIT_MAX_AMOUNT + "⭐️";
             errEl.classList.add("show");
             haptic("notification", "error");
             return;
@@ -30383,20 +30579,20 @@ wvBody.addEventListener("click", e => {
         if (method === "laveshka" && depositState.laveshka) {
             const lv = depositState.laveshka;
             if (lv.maxUsd && val > lv.maxUsd) {
-                errEl.textContent = "Максимальная сумма для Лавэшки — " + fmtNum(lv.maxUsd) + "$";
+                errEl.textContent = "Максимальная сумма для Лавэшки — " + fmtNum(lv.maxUsd) + "⭐️";
                 errEl.classList.add("show");
                 haptic("notification", "error");
                 return;
             }
             if (lv.minUsd && val < lv.minUsd) {
-                errEl.textContent = "Минимальная сумма для Лавэшки — " + fmtNum(lv.minUsd) + "$";
+                errEl.textContent = "Минимальная сумма для Лавэшки — " + fmtNum(lv.minUsd) + "⭐️";
                 errEl.classList.add("show");
                 haptic("notification", "error");
                 return;
             }
         }
         if (method === "sbp" && depositState.sbp && depositState.sbp.maxUsd && val > depositState.sbp.maxUsd) {
-            errEl.textContent = "Максимальная сумма для СБП — " + fmtNum(depositState.sbp.maxUsd) + "$";
+            errEl.textContent = "Максимальная сумма для СБП — " + fmtNum(depositState.sbp.maxUsd) + "⭐️";
             errEl.classList.add("show");
             haptic("notification", "error");
             return;
@@ -30404,7 +30600,7 @@ wvBody.addEventListener("click", e => {
         const limits = depositState.limits || {};
         const minForMethod = limits[DEPOSIT_METHOD_LIMIT_KEY[method]];
         if (minForMethod != null && val < minForMethod) {
-            errEl.textContent = "Минимальная сумма для этого способа — " + fmtNum(minForMethod) + "$";
+            errEl.textContent = "Минимальная сумма для этого способа — " + fmtNum(minForMethod) + "⭐️";
             errEl.classList.add("show");
             haptic("notification", "error");
             return;
@@ -30528,7 +30724,7 @@ wvBody.addEventListener("input", e => {
         raw = String(DEPOSIT_MAX_AMOUNT);
         dotUsed = false;
     }
-    const newValue = raw ? raw + "$" : "";
+    const newValue = raw ? raw + "⭐️" : "";
     input.dataset.rawAmount = raw;
     input.value = newValue;
     const newCaret = Math.min(sigBeforeCaret, raw.length);
@@ -30992,7 +31188,7 @@ function dogHouseHistoryRowHTML(r) {
     const spins = Number(meta.played || meta.spins || 0);
     const outcome = meta.kind === "buy" ? "Покупка бонуса" + (spins ? " · " + spins + " сп." : "") : spins ? "Бонусная игра · " + spins + " сп." : isWin ? "Выигрышная комбинация" : "Без выигрыша";
     const coef = Number(r.bet) > 0 ? Number(r.win_amount) / Number(r.bet) : 0;
-    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-avatar"><div class="skel-box"></div>' + lazyImgTag(currentUser.avatarUrl, name) + "</div>" + '<div class="gv-history-mid">' + '<div class="gv-history-name">' + escapeHtml(name) + "</div>" + historyTimeHTML(r.created_at) + "</div>" + '<div class="gv-history-right">Сумма ставки: <b>' + fmtNum(r.bet) + "$</b><br>" + '<span class="gv-history-outcome">Исход: <b>' + outcome + "</b></span><br>" + (isWin ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "$ (x" + fmtCoef(coef) + ")</span>" : '<span class="gv-history-lose">Проигрыш</span>') + "</div>" + "</div>" + "</div>";
+    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-avatar"><div class="skel-box"></div>' + lazyImgTag(currentUser.avatarUrl, name) + "</div>" + '<div class="gv-history-mid">' + '<div class="gv-history-name">' + escapeHtml(name) + "</div>" + historyTimeHTML(r.created_at) + "</div>" + '<div class="gv-history-right">Сумма ставки: <b>' + fmtNum(r.bet) + "⭐️</b><br>" + '<span class="gv-history-outcome">Исход: <b>' + outcome + "</b></span><br>" + (isWin ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "⭐️ (x" + fmtCoef(coef) + ")</span>" : '<span class="gv-history-lose">Проигрыш</span>') + "</div>" + "</div>" + "</div>";
 }
 
 function myGamesRowHTML(gameKey, r, emojiIdxCounters) {
@@ -31453,7 +31649,7 @@ const balanceModal = document.getElementById("balanceModal");
 
 function openBalanceModal() {
     const balanceModalAmount = document.getElementById("balanceModalAmount");
-    if (balanceModalAmount) balanceModalAmount.textContent = formatMoney(currentUser.balance);
+    if (balanceModalAmount) setBalanceAmount(balanceModalAmount, currentUser.balance);
     balanceModal.classList.add("active");
 }
 
@@ -31849,7 +32045,7 @@ function gvInputBet() {
 
 function gvSetBet(bet) {
     const input = gvBetInputEl();
-    if (input) input.value = gvRound2(bet) + "$";
+    if (input) input.value = gvRound2(bet) + "⭐️";
 }
 
 function gvAmountText(v) {
@@ -32017,8 +32213,8 @@ function gvRepeatBetNow(cfg) {
 function gvRepeatBarHTML(cfg, bet) {
     const s = gvRepeatSteps(cfg.limit, bet);
     const cls = v => v > currentUser.balance + 1e-9 ? " short" : "";
-    const side = (dir, icon, v) => '<button class="gv-repeat-btn' + cls(v) + '" type="button" data-repeat="' + dir + '" data-amount="' + v + '"><img src="' + icon + '" alt=""><span>' + gvAmountText(v) + "$</span></button>";
-    return '<div class="gv-repeat-cur">Ставка: <b>' + gvAmountText(bet) + "$</b></div>" + side("down", GV_REPEAT_ICONS.minus, s.smaller) + '<button class="gv-repeat-btn main' + cls(bet) + '" type="button" data-repeat="same" data-amount="' + bet + '"><img src="' + GV_REPEAT_ICONS.repeat + '" alt=""><span>Повторить</span></button>' + side("up", GV_REPEAT_ICONS.plus, s.bigger);
+    const side = (dir, icon, v) => '<button class="gv-repeat-btn' + cls(v) + '" type="button" data-repeat="' + dir + '" data-amount="' + v + '"><img src="' + icon + '" alt=""><span>' + gvAmountText(v) + "⭐️</span></button>";
+    return '<div class="gv-repeat-cur">Ставка: <b>' + gvAmountText(bet) + "⭐️</b></div>" + side("down", GV_REPEAT_ICONS.minus, s.smaller) + '<button class="gv-repeat-btn main' + cls(bet) + '" type="button" data-repeat="same" data-amount="' + bet + '"><img src="' + GV_REPEAT_ICONS.repeat + '" alt=""><span>Повторить</span></button>' + side("up", GV_REPEAT_ICONS.plus, s.bigger);
 }
 
 function gvRepeatRefresh() {
@@ -32097,7 +32293,7 @@ function gvRepeatAdjust(bar, cfg, cur, dir) {
     const steps = gvRepeatSteps(cfg.limit, cur);
     const bet = dir === "down" ? steps.smaller : steps.bigger;
     if (bet === cur) {
-        showToast(dir === "down" ? "Минимальная ставка — " + gvAmountText(betMin(cfg.limit)) + "$" : "Максимальная ставка — " + gvAmountText(betMax(cfg.limit)) + "$", "warning");
+        showToast(dir === "down" ? "Минимальная ставка — " + gvAmountText(betMin(cfg.limit)) + "⭐️" : "Максимальная ставка — " + gvAmountText(betMax(cfg.limit)) + "⭐️", "warning");
         return;
     }
     const base = gvRound2(Number(cfg.bet()) || 0);
@@ -32109,10 +32305,10 @@ function gvRepeatAdjust(bar, cfg, cur, dir) {
     bar.dataset.bet = String(bet);
     bar.innerHTML = gvRepeatBarHTML(cfg, bet);
     if (bet > currentUser.balance + 1e-9) {
-        showToast("Ставка " + gvAmountText(bet) + "$ — на балансе недостаточно средств", "warning");
+        showToast("Ставка " + gvAmountText(bet) + "⭐️ — на балансе недостаточно средств", "warning");
         return;
     }
-    showToast((dir === "down" ? "Ставка уменьшена: " : "Ставка увеличена: ") + gvAmountText(cur) + "$ → " + gvAmountText(bet) + "$", "success");
+    showToast((dir === "down" ? "Ставка уменьшена: " : "Ставка увеличена: ") + gvAmountText(cur) + "⭐️ → " + gvAmountText(bet) + "⭐️", "success");
 }
 
 function gvRepeatClick(btn) {
@@ -32132,7 +32328,7 @@ function gvRepeatClick(btn) {
         return;
     }
     if (bet > currentUser.balance + 1e-9) {
-        showToast("Недостаточно средств для ставки " + fmtNum(bet) + "$ — введите другую сумму", "error");
+        showToast("Недостаточно средств для ставки " + fmtNum(bet) + "⭐️ — введите другую сумму", "error");
         haptic("notification", "error");
         cfg.fresh();
         if (cfg.ask) cfg.ask();
@@ -32243,7 +32439,7 @@ gvBody.addEventListener("click", e => {
         else if (action === "double") val = Math.min(currentUser.balance, limMax, Math.round((val || limMin) * 2 * 100) / 100);
         else if (action === "max") val = Math.min(Math.floor(currentUser.balance * 100) / 100, limMax);
         else if (action === "set") val = Math.min(Math.floor(currentUser.balance * 100) / 100, limMax, parseFloat(chip.dataset.amount) || val);
-        input.value = val + "$";
+        input.value = val + "⭐️";
         if (currentGame === "кости") updateDiceStartState();
         if (currentGame === "слоты") updateSlotsStartState();
         if (currentGame === "боулинг") updateBowlStartState();
@@ -32947,7 +33143,7 @@ gvBody.addEventListener("click", e => {
 
 function clampAmountCaret(el) {
     const val = el.value;
-    if (!val.endsWith("$")) return;
+    if (!val.endsWith("⭐️")) return;
     const max = val.length - 1;
     if (el.selectionStart > max || el.selectionEnd > max) {
         el.setSelectionRange(max, max);
@@ -33454,7 +33650,7 @@ function formatLeaderScore(category, score) {
     const n = Number(score) || 0;
     const metric = leadersMetricOf(category);
     const isCount = category === "wins" && metric !== "sum" || category === "losses" && metric === "count";
-    return isCount ? String(Math.round(n)) : formatMoney(n);
+    return category === "balance" ? balanceAmountHTML(n) : isCount ? String(Math.round(n)) : formatMoney(n);
 }
 
 function lbIso(y, m, d) {
@@ -34893,7 +35089,7 @@ function updateCrashFlightVisual(state) {
 function crashPlayersSkeletonHTML() {
     return '<div class="crash-players-title text-skel" style="width:70px;">Live</div>' + '<div class="crash-players-list">' + Array.from({
         length: 3
-    }).map(() => '<div class="crash-player-row skel">' + '<div class="skel-box crash-player-avatar"></div>' + '<div class="crash-player-name text-skel" style="width:60%;">игрок</div>' + '<div class="crash-player-value text-skel" style="width:44px;">0$</div>' + "</div>").join("") + "</div>";
+    }).map(() => '<div class="crash-player-row skel">' + '<div class="skel-box crash-player-avatar"></div>' + '<div class="crash-player-name text-skel" style="width:60%;">игрок</div>' + '<div class="crash-player-value text-skel" style="width:44px;">0⭐️</div>' + "</div>").join("") + "</div>";
 }
 
 function crashPlayersHTML(state, isHistoryView) {
@@ -34909,11 +35105,11 @@ function crashPlayersHTML(state, isHistoryView) {
         const cashed = p.cashedOut;
         let valueText, multText, rowClass;
         if (cashed) {
-            valueText = "+" + fmtNum(p.winAmount) + "$";
+            valueText = "+" + fmtNum(p.winAmount) + "⭐️";
             multText = "x" + fmtMult(p.cashoutMult);
             rowClass = " cashed";
         } else if (state.status === "flying") {
-            valueText = fmtNum(Math.round(p.bet * liveMult * 100) / 100) + "$";
+            valueText = fmtNum(Math.round(p.bet * liveMult * 100) / 100) + "⭐️";
             multText = "x" + fmtMult(liveMult);
             rowClass = "";
         } else if (state.status === "crashed") {
@@ -34921,11 +35117,11 @@ function crashPlayersHTML(state, isHistoryView) {
             multText = "";
             rowClass = " lost";
         } else {
-            valueText = fmtNum(p.bet) + "$";
+            valueText = fmtNum(p.bet) + "⭐️";
             multText = "";
             rowClass = "";
         }
-        return '<div class="crash-player-row' + rowClass + (isMe ? " me" : "") + '">' + '<div class="crash-player-avatar"><img src="/api/avatar/' + p.id + '" alt="" loading="lazy"></div>' + '<div class="crash-player-mid">' + '<div class="crash-player-name"><span class="crash-player-name-text">' + escapeHtml(p.username) + "</span>" + (isMe ? ' <span class="lb-you-tag">Вы</span>' : "") + "</div>" + '<div class="crash-player-sub">Ставка: ' + fmtNum(p.bet) + "$</div>" + "</div>" + (multText ? '<div class="crash-player-mult">' + multText + "</div>" : '<div class="crash-player-mult"></div>') + '<div class="crash-player-value">' + valueText + "</div>" + "</div>";
+        return '<div class="crash-player-row' + rowClass + (isMe ? " me" : "") + '">' + '<div class="crash-player-avatar"><img src="/api/avatar/' + p.id + '" alt="" loading="lazy"></div>' + '<div class="crash-player-mid">' + '<div class="crash-player-name"><span class="crash-player-name-text">' + escapeHtml(p.username) + "</span>" + (isMe ? ' <span class="lb-you-tag">Вы</span>' : "") + "</div>" + '<div class="crash-player-sub">Ставка: ' + fmtNum(p.bet) + "⭐️</div>" + "</div>" + (multText ? '<div class="crash-player-mult">' + multText + "</div>" : '<div class="crash-player-mult"></div>') + '<div class="crash-player-value">' + valueText + "</div>" + "</div>";
     }).join("") + "</div>";
 }
 
@@ -34959,7 +35155,7 @@ function crashBetBtnState(state) {
     if (state.myBet) {
         if (state.myBet.cashedOut) {
             return {
-                text: "Забрано x" + fmtMult(state.myBet.cashoutMult) + " (+" + fmtNum(state.myBet.winAmount) + "$)",
+                text: "Забрано x" + fmtMult(state.myBet.cashoutMult) + " (+" + fmtNum(state.myBet.winAmount) + "⭐️)",
                 mode: "off done"
             };
         }
@@ -35337,7 +35533,7 @@ function crashDoCashout() {
         applyBalance(data.balance);
         crashState = data;
         renderCrashDynamic(false);
-        showGameWinToast(data.winAmount, "Забрано x" + fmtMult(data.mult) + " (+", "$)", CRASH_WIN_GIF);
+        showGameWinToast(data.winAmount, "Забрано x" + fmtMult(data.mult) + " (+", "⭐️)", CRASH_WIN_GIF);
     }).catch(() => {
         crashBusy = false;
         showToast("Не удалось связаться с сервером", "error");
@@ -35355,7 +35551,7 @@ function crashHistoryRowHTML(r) {
     const name = isMe ? currentUser.displayName || "Игрок" : r.username || "Игрок";
     const avatarUrl = isMe ? currentUser.avatarUrl : "/api/avatar/" + r.user_id;
     const outcomeText = isWin ? "Забрано на: <b>x" + fmtMult(meta.cashoutMult) + "</b>" : meta.crashPoint != null ? "Крах на: <b>x" + fmtMult(meta.crashPoint) + "</b>" : "Не успел забрать";
-    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-avatar"><div class="skel-box"></div>' + lazyImgTag(avatarUrl, name) + "</div>" + '<div class="gv-history-mid">' + '<div class="gv-history-name">' + escapeHtml(name) + "</div>" + historyTimeHTML(r.created_at) + "</div>" + '<div class="gv-history-right">Сумма ставки: <b>' + fmtNum(r.bet) + "$</b><br>" + '<span class="gv-history-outcome">' + outcomeText + "</span><br>" + (isWin ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "$</span>" : '<span class="gv-history-lose">Проигрыш</span>') + "</div>" + "</div>" + (meta.roundId ? '<button class="crash-history-fair-btn" type="button" data-crash-round="' + escapeHtml(meta.roundId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" : "") + "</div>";
+    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-avatar"><div class="skel-box"></div>' + lazyImgTag(avatarUrl, name) + "</div>" + '<div class="gv-history-mid">' + '<div class="gv-history-name">' + escapeHtml(name) + "</div>" + historyTimeHTML(r.created_at) + "</div>" + '<div class="gv-history-right">Сумма ставки: <b>' + fmtNum(r.bet) + "⭐️</b><br>" + '<span class="gv-history-outcome">' + outcomeText + "</span><br>" + (isWin ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "⭐️</span>" : '<span class="gv-history-lose">Проигрыш</span>') + "</div>" + "</div>" + (meta.roundId ? '<button class="crash-history-fair-btn" type="button" data-crash-round="' + escapeHtml(meta.roundId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" : "") + "</div>";
 }
 
 function loadCrashHistory(scope, append) {
@@ -35467,21 +35663,21 @@ function rouletteMyBetsHTML(state) {
     const resolved = state.status === "resolved";
     const total = bets.concat(queued).reduce((sum, b) => sum + b.bet, 0);
     const chip = (b, isQueued) => {
-        let tail = fmtNum(b.bet) + "$";
+        let tail = fmtNum(b.bet) + "⭐️";
         let cls = "";
         if (isQueued) tail += " · в очереди";
         else if (resolved) {
             if (b.winAmount > 0) {
                 cls = " win";
-                tail = "+" + fmtNum(b.winAmount) + "$";
+                tail = "+" + fmtNum(b.winAmount) + "⭐️";
             } else {
                 cls = " lose";
-                tail = "−" + fmtNum(b.bet) + "$";
+                tail = "−" + fmtNum(b.bet) + "⭐️";
             }
         }
         return '<span class="wheel-my-bet' + cls + '"><i class="c-' + b.color + '"></i>' + ROULETTE_COLOR_LABEL[b.color] + " <b>" + tail + "</b></span>";
     };
-    return '<div class="gv-label">Ваши ставки · всего ' + fmtNum(Math.round(total * 100) / 100) + "$</div>" + '<div class="wheel-my-bets-list">' + bets.map(b => chip(b, false)).join("") + queued.map(b => chip(b, true)).join("") + "</div>";
+    return '<div class="gv-label">Ваши ставки · всего ' + fmtNum(Math.round(total * 100) / 100) + "⭐️</div>" + '<div class="wheel-my-bets-list">' + bets.map(b => chip(b, false)).join("") + queued.map(b => chip(b, true)).join("") + "</div>";
 }
 
 function updateRouletteMyBets(state) {
@@ -35505,7 +35701,7 @@ function updateRouletteBetSummary() {
         return;
     }
     el.style.display = "";
-    el.innerHTML = "Выбрано: <b>" + wheelCountWord(count) + "</b> · всего <b>" + fmtNum(Math.round(amount * count * 100) / 100) + "$</b>";
+    el.innerHTML = "Выбрано: <b>" + wheelCountWord(count) + "</b> · всего <b>" + fmtNum(Math.round(amount * count * 100) / 100) + "⭐️</b>";
 }
 
 function rouletteColorsRowHTML(state) {
@@ -35513,7 +35709,7 @@ function rouletteColorsRowHTML(state) {
     const placed = roulettePlacedMap(state);
     return '<div class="roulette-colors-row" id="rouletteColorsRow">' + outcomes.map(o => {
         const mine = placed[o.color];
-        return '<button class="roulette-color-btn roulette-color-' + o.color + (rouletteSelColors.has(o.color) ? " selected" : "") + (mine ? " placed" : "") + '" ' + 'type="button" data-roulette-color="' + o.color + '">' + '<span class="roulette-color-name">' + ROULETTE_COLOR_LABEL[o.color] + "</span>" + '<span class="roulette-color-mult">' + (mine ? "✓ " + fmtNum(mine.bet) + "$" : "x" + fmtMult(o.mult)) + "</span>" + "</button>";
+        return '<button class="roulette-color-btn roulette-color-' + o.color + (rouletteSelColors.has(o.color) ? " selected" : "") + (mine ? " placed" : "") + '" ' + 'type="button" data-roulette-color="' + o.color + '">' + '<span class="roulette-color-name">' + ROULETTE_COLOR_LABEL[o.color] + "</span>" + '<span class="roulette-color-mult">' + (mine ? "✓ " + fmtNum(mine.bet) + "⭐️" : "x" + fmtMult(o.mult)) + "</span>" + "</button>";
     }).join("") + "</div>";
 }
 
@@ -35656,7 +35852,7 @@ function rouletteAnimateStrip(state, instant) {
 }
 
 function rouletteBetsColHTML(color, list, total) {
-    return '<div class="roulette-bets-col roulette-bets-col-' + color + '">' + '<div class="roulette-bets-col-head">' + '<span class="roulette-bets-col-swatch roulette-cell-' + color + '"></span>' + '<span class="roulette-bets-col-total">Общая сумма ставок: <b>' + fmtNum(total) + "$</b></span>" + "</div>" + '<div class="roulette-bets-col-list">' + (list.length ? list.slice(0, 10).map((p, i) => '<div class="roulette-bets-row' + (p.id === CURRENT_UID ? " me" : "") + '">' + '<span class="roulette-bets-row-i">' + (i + 1) + "</span>" + '<div class="roulette-bets-row-avatar"><img src="/api/avatar/' + p.id + '" alt="" loading="lazy"></div>' + '<span class="roulette-bets-row-name">' + escapeHtml(p.username) + "</span>" + '<span class="roulette-bets-row-amount">' + fmtNum(p.bet) + "$</span>" + "</div>").join("") : '<div class="roulette-bets-empty">Пока пусто</div>') + "</div>" + "</div>";
+    return '<div class="roulette-bets-col roulette-bets-col-' + color + '">' + '<div class="roulette-bets-col-head">' + '<span class="roulette-bets-col-swatch roulette-cell-' + color + '"></span>' + '<span class="roulette-bets-col-total">Общая сумма ставок: <b>' + fmtNum(total) + "⭐️</b></span>" + "</div>" + '<div class="roulette-bets-col-list">' + (list.length ? list.slice(0, 10).map((p, i) => '<div class="roulette-bets-row' + (p.id === CURRENT_UID ? " me" : "") + '">' + '<span class="roulette-bets-row-i">' + (i + 1) + "</span>" + '<div class="roulette-bets-row-avatar"><img src="/api/avatar/' + p.id + '" alt="" loading="lazy"></div>' + '<span class="roulette-bets-row-name">' + escapeHtml(p.username) + "</span>" + '<span class="roulette-bets-row-amount">' + fmtNum(p.bet) + "⭐️</span>" + "</div>").join("") : '<div class="roulette-bets-empty">Пока пусто</div>') + "</div>" + "</div>";
 }
 
 function rouletteBetsHTML(state) {
@@ -35731,7 +35927,7 @@ function rouletteBetBtnState(state) {
     if (mine.length && state.status === "resolved") {
         const won = mine.reduce((sum, b) => sum + (b.winAmount || 0), 0);
         return {
-            text: won > 0 ? "Выигрыш +" + fmtNum(won) + "$" : mine.length > 1 ? "Ставки не сыграли" : "Ставка не сыграла",
+            text: won > 0 ? "Выигрыш +" + fmtNum(won) + "⭐️" : mine.length > 1 ? "Ставки не сыграли" : "Ставка не сыграла",
             mode: "off done"
         };
     }
@@ -35755,7 +35951,7 @@ function rouletteBetBtnState(state) {
     }
     const amount = rouletteCurrentBetAmount();
     return {
-        text: count > 1 && amount > 0 ? "Поставить " + fmtNum(Math.round(amount * count * 100) / 100) + "$ · " + wheelCountWord(count) : "Сделать ставку",
+        text: count > 1 && amount > 0 ? "Поставить " + fmtNum(Math.round(amount * count * 100) / 100) + "⭐️ · " + wheelCountWord(count) : "Сделать ставку",
         mode: "bet"
     };
 }
@@ -35856,7 +36052,7 @@ function loadRouletteState() {
             const staked = data.myBets.reduce((sum, b) => sum + b.bet, 0);
             const won = data.myBets.reduce((sum, b) => sum + (b.winAmount || 0), 0);
             if (won >= staked) showGameWinToast(won);
-            else if (won > 0) showToast("Выплата +" + fmtNum(won) + "$ из " + fmtNum(Math.round(staked * 100) / 100) + "$ ставок", "warning");
+            else if (won > 0) showToast("Выплата +" + fmtNum(won) + "⭐️ из " + fmtNum(Math.round(staked * 100) / 100) + "⭐️ ставок", "warning");
             else showGameLoseToast(data.myBets.length > 1 ? "Ставки не сыграли" : "Ставка не сыграла");
         }
         if (statusChanged && data.status === "waiting") {
@@ -35919,7 +36115,7 @@ function rouletteBetBtnClick() {
     const count = rouletteSelColors.size;
     const total = Math.round(bet * count * 100) / 100;
     if (total > currentUser.balance) {
-        showToast(count > 1 ? "Недостаточно средств: нужно " + fmtNum(total) + "$ (" + wheelCountWord(count) + " по " + fmtNum(bet) + "$)" : "Недостаточно средств на балансе", "error");
+        showToast(count > 1 ? "Недостаточно средств: нужно " + fmtNum(total) + "⭐️ (" + wheelCountWord(count) + " по " + fmtNum(bet) + "⭐️)" : "Недостаточно средств на балансе", "error");
         return;
     } {
         const limitIssue = betLimitIssue("roulette", bet);
@@ -35981,7 +36177,7 @@ function rouletteHistoryRowHTML(r) {
     const avatarUrl = isMe ? currentUser.avatarUrl : "/api/avatar/" + r.user_id;
     const myColorLabel = meta.myColor ? ROULETTE_COLOR_LABEL[meta.myColor] : "—";
     const outcomeColorLabel = meta.outcomeColor ? rouletteColorIconHTML(meta.outcomeColor) + " " + ROULETTE_COLOR_LABEL[meta.outcomeColor] : "—";
-    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-avatar"><div class="skel-box"></div>' + lazyImgTag(avatarUrl, name) + "</div>" + '<div class="gv-history-mid">' + '<div class="gv-history-name">' + escapeHtml(name) + "</div>" + historyTimeHTML(r.created_at) + "</div>" + '<div class="gv-history-right">Ставка на: <b>' + myColorLabel + "</b><br>" + '<span class="gv-history-outcome">Выпало: ' + outcomeColorLabel + "</span><br>" + (isWin ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "$</span>" : '<span class="gv-history-lose">Проигрыш</span>') + "</div>" + "</div>" + (meta.roundId ? '<button class="crash-history-fair-btn" type="button" data-roulette-round="' + escapeHtml(meta.roundId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" : "") + "</div>";
+    return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-avatar"><div class="skel-box"></div>' + lazyImgTag(avatarUrl, name) + "</div>" + '<div class="gv-history-mid">' + '<div class="gv-history-name">' + escapeHtml(name) + "</div>" + historyTimeHTML(r.created_at) + "</div>" + '<div class="gv-history-right">Ставка на: <b>' + myColorLabel + "</b><br>" + '<span class="gv-history-outcome">Выпало: ' + outcomeColorLabel + "</span><br>" + (isWin ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "⭐️</span>" : '<span class="gv-history-lose">Проигрыш</span>') + "</div>" + "</div>" + (meta.roundId ? '<button class="crash-history-fair-btn" type="button" data-roulette-round="' + escapeHtml(meta.roundId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" : "") + "</div>";
 }
 
 function loadRouletteHistory(scope, append) {
@@ -36126,7 +36322,7 @@ function rouletteRoundBetsHTML(bets, outcomeColor) {
     return '<div class="crash-players-title"><span>Ставки раунда</span><span>' + bets.length + "</span></div>" + '<div class="crash-players-list">' + bets.map(p => {
         const isMe = p.id === CURRENT_UID;
         const isWin = p.color === outcomeColor;
-        return '<div class="crash-player-row' + (isWin ? " cashed" : " lost") + (isMe ? " me" : "") + '">' + '<div class="crash-player-avatar"><img src="/api/avatar/' + p.id + '" alt="" loading="lazy"></div>' + '<div class="crash-player-mid">' + '<div class="crash-player-name"><span class="crash-player-name-text">' + escapeHtml(p.username) + "</span>" + (isMe ? ' <span class="lb-you-tag">Вы</span>' : "") + "</div>" + '<div class="crash-player-sub">Ставка на: ' + rouletteColorIconHTML(p.color) + " " + ROULETTE_COLOR_LABEL[p.color] + " · " + fmtNum(p.bet) + "$</div>" + "</div>" + '<div class="crash-player-value">' + (isWin ? "+" + fmtNum(p.winAmount) + "$" : "Проигрыш") + "</div>" + "</div>";
+        return '<div class="crash-player-row' + (isWin ? " cashed" : " lost") + (isMe ? " me" : "") + '">' + '<div class="crash-player-avatar"><img src="/api/avatar/' + p.id + '" alt="" loading="lazy"></div>' + '<div class="crash-player-mid">' + '<div class="crash-player-name"><span class="crash-player-name-text">' + escapeHtml(p.username) + "</span>" + (isMe ? ' <span class="lb-you-tag">Вы</span>' : "") + "</div>" + '<div class="crash-player-sub">Ставка на: ' + rouletteColorIconHTML(p.color) + " " + ROULETTE_COLOR_LABEL[p.color] + " · " + fmtNum(p.bet) + "⭐️</div>" + "</div>" + '<div class="crash-player-value">' + (isWin ? "+" + fmtNum(p.winAmount) + "⭐️" : "Проигрыш") + "</div>" + "</div>";
     }).join("") + "</div>";
 }
 
@@ -36892,7 +37088,7 @@ function wtKefHTML() {
         const x = wtMult(r.kind);
         const pay = Math.round(10 * x * 100) / 100;
         const profit = Math.round((pay - 10) * 100) / 100;
-        return '<div class="wt-kef-row"><div class="wt-kef-mb">' + wtMiniBoard(r.cells) + '</div><div class="wt-kef-info"><div class="wt-kef-head"><b>' + r.name + '</b><span class="wt-kef-x">x' + fmtCoef(x) + '</span></div><div class="wt-kef-sub">' + r.cover + '</div><div class="wt-kef-how">' + r.how + '</div><div class="wt-kef-ex">Ставка 10$ → выплата <b>' + fmtNum(pay) + "$</b> (чистая прибыль " + fmtNum(profit) + "$)</div></div></div>";
+        return '<div class="wt-kef-row"><div class="wt-kef-mb">' + wtMiniBoard(r.cells) + '</div><div class="wt-kef-info"><div class="wt-kef-head"><b>' + r.name + '</b><span class="wt-kef-x">x' + fmtCoef(x) + '</span></div><div class="wt-kef-sub">' + r.cover + '</div><div class="wt-kef-how">' + r.how + '</div><div class="wt-kef-ex">Ставка 10⭐️ → выплата <b>' + fmtNum(pay) + "⭐️</b> (чистая прибыль " + fmtNum(profit) + "⭐️)</div></div></div>";
     }).join("");
     return '<p class="modal-text">Коэффициент уже включает вашу ставку: выплата = ставка × коэффициент. Подсвеченные клетки на мини-столе показывают, какие числа входят в позицию.</p>' + body + '<p class="modal-text wt-kef-note"><b>Ноль</b> не входит в колонны, дюжины и ставки на цвет, чёт / нечёт, 1–18 / 19–36 — при выпадении 0 эти позиции проигрывают. Позиций можно ставить сколько угодно: каждая считается отдельно, а итог вращения — сумма всех выплат.</p>';
 }
@@ -36917,7 +37113,7 @@ function closeWheelKef() {
 }
 
 function wtMoney(v) {
-    return (Math.round(v * 100) / 100).toFixed(2) + " $";
+    return (Math.round(v * 100) / 100).toFixed(2) + " ⭐️";
 }
 
 function wtPaint(changedKey) {
@@ -37049,7 +37245,7 @@ function wtFits(map) {
         if (issue) return issue;
         total += v;
     }
-    if (total > currentUser.balance + 1e-9) return "Недостаточно средств: нужно " + fmtNum(Math.round(total * 100) / 100) + "$";
+    if (total > currentUser.balance + 1e-9) return "Недостаточно средств: нужно " + fmtNum(Math.round(total * 100) / 100) + "⭐️";
     return null;
 }
 
@@ -37121,7 +37317,7 @@ function wtUpdateUI() {
     const sum = document.getElementById("wheelBetSummary");
     if (sum) {
         const chip = wtChipValue();
-        sum.innerHTML = count ? "Позиций на столе: <b>" + count + "</b> · общая ставка <b>" + fmtNum(total) + "$</b>" : chip > 0 ? "Одно нажатие на стол фишка <b>" + fmtNum(chip) + "$</b>" : "Введите номинал фишки";
+        sum.innerHTML = count ? "Позиций на столе: <b>" + count + "</b> · общая ставка <b>" + fmtNum(total) + "⭐️</b>" : chip > 0 ? "Одно нажатие на стол фишка <b>" + fmtNum(chip) + "⭐️</b>" : "Введите номинал фишки";
     }
     const set = (act, on) => {
         const b = gvBody.querySelector('[data-wt-act="' + act + '"]');
@@ -37156,7 +37352,7 @@ function updateWheelBetBtn() {
 
 function wtControlsHTML() {
     const rb = (act, icon, label, cls) => '<div class="wt-cb ' + (cls || "") + '"><button class="wt-rb" type="button" data-wt-act="' + act + '" disabled>' + icon + "</button><span>" + label + "</span></div>";
-    return '<div class="wt-ctl">' + rb("clear", '<svg viewBox="0 0 24 24" fill="none"><path d="M7 7l10 10M17 7 7 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>', "Убрать") + rb("undo", '<svg viewBox="0 0 24 24" fill="none"><path d="M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>', "Отмена", "wt-cb-undo") + rb("repeat", '<svg viewBox="0 0 24 24" fill="none"><path d="M4 11V9a3 3 0 0 1 3-3h12M16 3l3 3-3 3M20 13v2a3 3 0 0 1-3 3H5M8 21l-3-3 3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>', "Повтор", "wt-cb-rep") + wtTrayHTML() + rb("double", '<b class="wt-x2">×2</b>', "Удвоить") + '<div class="wt-cb wt-cb-spin"><button class="wt-spin dim" id="wheelBetBtn" type="button" data-wt-act="spin" disabled><svg viewBox="0 0 24 24" fill="none"><path d="M20 12a8 8 0 1 1-2.6-5.9" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M20 4v5h-5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button><span>Крутить</span></div>' + "</div>" + '<div class="wt-sbrow"><div class="wt-sb"><div>Ставка <b id="wtSbBet">0.00 $</b></div><div>Баланс <b id="wtSbBal">—</b></div></div><button class="wt-kef" type="button" data-wt-act="kef">Кэфы</button></div>';
+    return '<div class="wt-ctl">' + rb("clear", '<svg viewBox="0 0 24 24" fill="none"><path d="M7 7l10 10M17 7 7 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>', "Убрать") + rb("undo", '<svg viewBox="0 0 24 24" fill="none"><path d="M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>', "Отмена", "wt-cb-undo") + rb("repeat", '<svg viewBox="0 0 24 24" fill="none"><path d="M4 11V9a3 3 0 0 1 3-3h12M16 3l3 3-3 3M20 13v2a3 3 0 0 1-3 3H5M8 21l-3-3 3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>', "Повтор", "wt-cb-rep") + wtTrayHTML() + rb("double", '<b class="wt-x2">×2</b>', "Удвоить") + '<div class="wt-cb wt-cb-spin"><button class="wt-spin dim" id="wheelBetBtn" type="button" data-wt-act="spin" disabled><svg viewBox="0 0 24 24" fill="none"><path d="M20 12a8 8 0 1 1-2.6-5.9" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M20 4v5h-5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button><span>Крутить</span></div>' + "</div>" + '<div class="wt-sbrow"><div class="wt-sb"><div>Ставка <b id="wtSbBet">0.00 ⭐️</b></div><div>Баланс <b id="wtSbBal">—</b></div></div><button class="wt-kef" type="button" data-wt-act="kef">Кэфы</button></div>';
 }
 
 function renderWheel() {
@@ -37376,7 +37572,7 @@ function wheelBetBtnClick() {
     }
     const total = wtTotal();
     if (total > currentUser.balance + 1e-9) {
-        showToast("Недостаточно средств: нужно " + fmtNum(total) + "$", "error");
+        showToast("Недостаточно средств: нужно " + fmtNum(total) + "⭐️", "error");
         return;
     }
     const items = [];
@@ -37435,7 +37631,7 @@ gvBody.addEventListener("click", e => {
     if (tray) {
         if (wtBusy) return;
         const input = gvBody.querySelector(".gv-bet-input");
-        if (input) input.value = tray.dataset.wtChip + "$";
+        if (input) input.value = tray.dataset.wtChip + "⭐️";
         haptic("selection");
         wtUpdateUI();
         return;
@@ -37469,17 +37665,17 @@ function wheelHistoryRowHTML(r) {
     if (meta.mode === "solo") {
         const bet = Number(r.bet) || 0,
             pay = Number(r.win_amount) || 0;
-        betLine = "Ставок: <b>" + (meta.betsCount || (meta.bets || []).length) + "</b> на <b>" + fmtNum(bet) + "$</b>";
+        betLine = "Ставок: <b>" + (meta.betsCount || (meta.bets || []).length) + "</b> на <b>" + fmtNum(bet) + "⭐️</b>";
         outLine = "Выпало: " + wtBadgeHTML(meta.number, "mini") + " " + (WT_COLOR_NAME[meta.color] || "");
-        if (r.result === "win") resLine = '<span class="gv-history-win">Выигрыш: +' + fmtNum(Math.round((pay - bet) * 100) / 100) + "$</span>";
+        if (r.result === "win") resLine = '<span class="gv-history-win">Выигрыш: +' + fmtNum(Math.round((pay - bet) * 100) / 100) + "⭐️</span>";
         else if (pay > 0 && Math.abs(pay - bet) < 1e-9) resLine = '<span class="gv-history-lose">Ставка возвращена</span>';
-        else if (pay > 0) resLine = '<span class="gv-history-lose">Выплата ' + fmtNum(pay) + "$ (−" + fmtNum(Math.round((bet - pay) * 100) / 100) + "$)</span>";
+        else if (pay > 0) resLine = '<span class="gv-history-lose">Выплата ' + fmtNum(pay) + "⭐️ (−" + fmtNum(Math.round((bet - pay) * 100) / 100) + "⭐️)</span>";
         else resLine = '<span class="gv-history-lose">Проигрыш</span>';
     } else {
         const myBetLabel = meta.myBetType === "number" ? "Число " + meta.myBetValue : meta.myBetType === "sector" ? wheelSectorLabel(meta.myBetValue) : meta.myColor ? ROULETTE_COLOR_LABEL[meta.myColor] : "—";
         betLine = "Ставка на: <b>" + myBetLabel + "</b>";
         outLine = meta.outcomeColor ? "Выпало: " + rouletteColorIconHTML(meta.outcomeColor) + " " + ROULETTE_COLOR_LABEL[meta.outcomeColor] + (meta.outcomeNumber != null ? " (" + meta.outcomeNumber + ")" : "") : "—";
-        resLine = r.result === "win" ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "$</span>" : '<span class="gv-history-lose">Проигрыш</span>';
+        resLine = r.result === "win" ? '<span class="gv-history-win">Выигрыш: ' + fmtNum(r.win_amount) + "⭐️</span>" : '<span class="gv-history-lose">Проигрыш</span>';
     }
     return '<div class="gv-history-row crash-history-row-item">' + '<div class="gv-history-row-top">' + '<div class="gv-history-avatar"><div class="skel-box"></div>' + lazyImgTag(avatarUrl, name) + "</div>" + '<div class="gv-history-mid">' + '<div class="gv-history-name">' + escapeHtml(name) + "</div>" + historyTimeHTML(r.created_at) + "</div>" + '<div class="gv-history-right">' + betLine + "<br>" + '<span class="gv-history-outcome">' + outLine + "</span><br>" + resLine + "</div>" + "</div>" + (meta.roundId ? '<button class="crash-history-fair-btn" type="button" data-wheel-round="' + escapeHtml(meta.roundId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" : "") + "</div>";
 }
@@ -37580,9 +37776,9 @@ function wtDetailBetsHTML(d) {
     const net = Math.round((d.totalWin - d.totalBet) * 100) / 100;
     const rows = bets.map(b => {
         const info = WT_CAT[b.key];
-        return '<div class="wt-dt-row' + (b.win > 0 ? " win" : "") + '"><span class="wt-dt-l">' + escapeHtml(info ? info.label : b.key) + '</span><span class="wt-dt-b">' + fmtNum(b.amount) + "$ · x" + fmtCoef(b.mult) + '</span><b class="wt-dt-w">' + (b.win > 0 ? "+" + fmtNum(b.win) + "$" : "—") + "</b></div>";
+        return '<div class="wt-dt-row' + (b.win > 0 ? " win" : "") + '"><span class="wt-dt-l">' + escapeHtml(info ? info.label : b.key) + '</span><span class="wt-dt-b">' + fmtNum(b.amount) + "⭐️ · x" + fmtCoef(b.mult) + '</span><b class="wt-dt-w">' + (b.win > 0 ? "+" + fmtNum(b.win) + "⭐️" : "—") + "</b></div>";
     }).join("");
-    return '<div class="crash-players-title"><span>Ставки игрока ' + escapeHtml(d.username || "") + "</span><span>" + bets.length + "</span></div>" + '<div class="wt-dt">' + rows + "</div>" + '<div class="wt-dt-total"><span>Ставка <b>' + fmtNum(d.totalBet) + "$</b></span><span>Выплата <b>" + fmtNum(d.totalWin) + "$</b></span><span>Итог <b class=\"" + (net > 0 ? "plus" : net < 0 ? "minus" : "") + '">' + (net > 0 ? "+" : "") + fmtNum(net) + "$</b></span></div>";
+    return '<div class="crash-players-title"><span>Ставки игрока ' + escapeHtml(d.username || "") + "</span><span>" + bets.length + "</span></div>" + '<div class="wt-dt">' + rows + "</div>" + '<div class="wt-dt-total"><span>Ставка <b>' + fmtNum(d.totalBet) + "⭐️</b></span><span>Выплата <b>" + fmtNum(d.totalWin) + "⭐️</b></span><span>Итог <b class=\"" + (net > 0 ? "plus" : net < 0 ? "minus" : "") + '">' + (net > 0 ? "+" : "") + fmtNum(net) + "⭐️</b></span></div>";
 }
 
 function wheelRoundBetsHTML(bets) {
@@ -37591,7 +37787,7 @@ function wheelRoundBetsHTML(bets) {
         const isMe = p.id === CURRENT_UID;
         const isWin = p.winAmount > 0;
         const betLabel = p.betType === "number" ? "Число " + p.value : p.betType === "sector" ? wheelSectorLabel(p.value) : rouletteColorIconHTML(p.value) + " " + ROULETTE_COLOR_LABEL[p.value];
-        return '<div class="crash-player-row' + (isWin ? " cashed" : " lost") + (isMe ? " me" : "") + '">' + '<div class="crash-player-avatar"><img src="/api/avatar/' + p.id + '" alt="" loading="lazy"></div>' + '<div class="crash-player-mid">' + '<div class="crash-player-name"><span class="crash-player-name-text">' + escapeHtml(p.username) + "</span>" + (isMe ? ' <span class="lb-you-tag">Вы</span>' : "") + "</div>" + '<div class="crash-player-sub">Ставка на: ' + betLabel + " · " + fmtNum(p.bet) + "$</div>" + "</div>" + '<div class="crash-player-value">' + (isWin ? "+" + fmtNum(p.winAmount) + "$" : "Проигрыш") + "</div>" + "</div>";
+        return '<div class="crash-player-row' + (isWin ? " cashed" : " lost") + (isMe ? " me" : "") + '">' + '<div class="crash-player-avatar"><img src="/api/avatar/' + p.id + '" alt="" loading="lazy"></div>' + '<div class="crash-player-mid">' + '<div class="crash-player-name"><span class="crash-player-name-text">' + escapeHtml(p.username) + "</span>" + (isMe ? ' <span class="lb-you-tag">Вы</span>' : "") + "</div>" + '<div class="crash-player-sub">Ставка на: ' + betLabel + " · " + fmtNum(p.bet) + "⭐️</div>" + "</div>" + '<div class="crash-player-value">' + (isWin ? "+" + fmtNum(p.winAmount) + "⭐️" : "Проигрыш") + "</div>" + "</div>";
     }).join("") + "</div>";
 }
 
@@ -38029,11 +38225,11 @@ crashRoundFairBtn.addEventListener("click", () => {
             const title = card.querySelector(".modal-title");
             (title || row).insertAdjacentElement(title ? "afterend" : "beforebegin", bal);
         }
-        bal.querySelector("b").textContent = formatMoney(currentUser.balance);
+        setBalanceAmount(bal.querySelector("b"), currentUser.balance);
         if (!card.querySelector(".bet-presets")) {
             const wrap = document.createElement("div");
             wrap.className = "bet-presets";
-            wrap.innerHTML = PRESETS.map(v => '<button class="gv-chip" type="button" data-action="set" data-amount="' + v + '">' + v + "$</button>").join("");
+            wrap.innerHTML = PRESETS.map(v => '<button class="gv-chip" type="button" data-action="set" data-amount="' + v + '">' + v + "⭐️</button>").join("");
             row.insertAdjacentElement("afterend", wrap);
         }
         card.querySelectorAll(".bet-presets .gv-chip").forEach(c => {
@@ -38047,7 +38243,7 @@ crashRoundFairBtn.addEventListener("click", () => {
                 const capped = currentUser.balance >= .1 && last > currentUser.balance ? Math.floor(currentUser.balance * 100) / 100 : last;
                 const prefillKey = currentLimitKey();
                 const bounded = prefillKey ? Math.max(betMin(prefillKey), Math.min(capped, betMax(prefillKey))) : capped;
-                input.value = fmtBetValue(bounded) + "$";
+                input.value = fmtBetValue(bounded) + "⭐️";
                 input.dispatchEvent(new Event("input", {
                     bubbles: true
                 }));
@@ -38110,7 +38306,7 @@ crashRoundFairBtn.addEventListener("click", () => {
         const input = betInputOf(e.target);
         if (!input) return;
         setTimeout(() => {
-            const end = input.value.endsWith("$") ? input.value.length - 1 : input.value.length;
+            const end = input.value.endsWith("⭐️") ? input.value.length - 1 : input.value.length;
             try {
                 input.setSelectionRange(0, end);
             } catch (err) {}
@@ -38354,7 +38550,10 @@ crashRoundFairBtn.addEventListener("click", () => {
         state = data;
         stateAt = Date.now();
         applyBadge();
-        if (window.bonusWheelKit) window.bonusWheelKit.promoUpdate(state.wheel, stateAt);
+        if (!state.wheel) {
+            const wheelPromo = document.getElementById("wheelPromo");
+            if (wheelPromo) wheelPromo.style.display = "none";
+        } else if (window.bonusWheelKit) window.bonusWheelKit.promoUpdate(state.wheel, stateAt);
     }
 
     function refresh(force) {
@@ -38368,12 +38567,18 @@ crashRoundFairBtn.addEventListener("click", () => {
 
     function applyBadge() {
         if (!badgeEl || !state) return;
+        if (state.existingBonus) {
+            const ready = state.existingBonus.queued && state.existingBonus.secondsLeft <= 0;
+            badgeEl.hidden = !ready;
+            badgeEl.textContent = ready ? "Забрать" : "";
+            return;
+        }
         const sum = state.rakeback.available + state.cashback.available;
         const w = state.wheel;
         const wheelReady = !!(w && w.enabled && w.tag && w.tag.status === "ok" && w.secondsLeft - (Date.now() - stateAt) / 1000 <= 0);
         if (sum >= .005) {
             badgeEl.hidden = false;
-            badgeEl.textContent = "+" + money(sum) + "$";
+            badgeEl.textContent = "+" + money(sum) + "⭐️";
         } else if (wheelReady) {
             badgeEl.hidden = false;
             badgeEl.textContent = "Колесо";
@@ -38419,9 +38624,9 @@ crashRoundFairBtn.addEventListener("click", () => {
         const list = s.boosts;
         if (!list || !list.length) return "";
         return list.map(b => {
-            let t = b.kind === "win" ? "Сработает на первом выигрыше" : "Сработает на следующем пополнении" + (b.minDeposit > 0 ? " от " + money(b.minDeposit) + "$" : "");
+            let t = b.kind === "win" ? "Сработает на первом выигрыше" : "Сработает на следующем пополнении" + (b.minDeposit > 0 ? " от " + money(b.minDeposit) + "⭐️" : "");
             t += b.expiresAt > 0 ? " · до " + boostDate(b.expiresAt) : " · без срока";
-            if (b.maxBonus > 0) t += " · бонус до " + money(b.maxBonus) + "$";
+            if (b.maxBonus > 0) t += " · бонус до " + money(b.maxBonus) + "⭐️";
             return line("blue", "<b>Ваша награда: " + esc(b.text) + "</b><br>" + t);
         }).join("");
     }
@@ -38477,13 +38682,48 @@ crashRoundFairBtn.addEventListener("click", () => {
         else showToast("Приписка не найдена: добавьте @" + (tp && tp.bot ? tp.bot : "бот") + " в имя", "warning");
     }
 
+    function bonusCategories() {
+        const sub = (data) => data && Number.isFinite(Number(data.available))
+            ? "Доступно — " + money(data.available) + "⭐️" : "Условия и начисления";
+        return menuBtnCenter("goto-cashback", "cashback", "Кэшбек", sub(state.cashback)) +
+            '<div class="checks-menu-row bn-in">' +
+            menuBtn("goto-rakeback", "rake", "Рейкбек", sub(state.rakeback)) +
+            menuBtn("goto-table", "level", "За уровень", "Таблица наград") + '</div>' +
+            menuBtnCenter("goto-giveaway", "daily", "Ежедневные розыгрыши", state.giveaway ? "Условия участия" : "Статус розыгрышей") +
+            menuBtnCenter("goto-wheel", "bonus", "Колесо бонусов", "Условия и награды");
+    }
+
+    function unavailableBonus(name, icon) {
+        setChrome("Бонусы", true);
+        drawScreen("unavailable", heading(icon, name) +
+            line("info", "Раздел сохранён. Сервер пока не передаёт условия и начисления этой категории. Суммы, проценты и награды не подставляются; получение будет доступно после подключения серверного расчёта.") +
+            '<div class="bn-btns">' + backButton() + '</div>');
+    }
+
     function screenMenu() {
         setChrome("Бонусы", false);
+        if (state.existingBonus) {
+            const bonus = state.existingBonus;
+            const remaining = () => Math.max(0, Math.ceil(bonus.secondsLeft - (Date.now() - stateAt) / 1000));
+            const label = () => !bonus.queued ? "Проверить описание и встать в очередь" : remaining() > 0 ? "В очереди: " + Math.floor(remaining() / 3600) + " ч " + Math.floor(remaining() % 3600 / 60) + " мин " + remaining() % 60 + " с" : "Проверить описание и забрать бонус";
+            drawScreen("menu", line("bonus", "Бонус за описание Telegram", "", 24) + line("info", "Добавьте " + esc(bonus.bioText) + " в описание Telegram. После постановки в очередь нужно ждать " + bonus.cooldownSeconds / 3600 + " часов. При получении описание проверяется повторно.") + line("case", "Основной бонус: " + money(bonus.baseMin) + "–" + money(bonus.baseMax) + " Stars. За серию: " + money(bonus.streakBase) + " Stars плюс " + money(bonus.streakStep) + " Stars за каждый следующий день.") + line("daily", "Серия: " + bonus.streak + ". Учтено бонусов: " + money(bonus.total) + " Stars.") + '<button class="modal-ok" type="button" data-bn="claim-existing" id="existingBonusClaim">' + label() + '</button>' + bonusCategories());
+            const tick = () => {
+                const button = document.getElementById("existingBonusClaim");
+                if (button) {
+                    button.textContent = label();
+                    button.disabled = bonus.queued && remaining() > 0;
+                }
+            };
+            clearInterval(timerId);
+            tick();
+            timerId = setInterval(tick, 1000);
+            return;
+        }
         const s = state;
         const g = s.giveaway;
         const intro = line("clover", "<b>Бонусы</b> — в данном разделе вы найдёте все актуальные бонусы, которые существуют и доступны вам на данный момент", "", 20) + line("board", "Нажмите на нужную категорию, чтобы перейти к выбранному бонусу", "", 20);
-        const cash = menuBtnCenter("goto-cashback", "cashback", "Кэшбек", "Доступно — " + money(s.cashback.available) + "$");
-        const row = '<div class="checks-menu-row bn-in">' + '<button class="checks-menu-btn bn-menu" type="button" data-bn="goto-rakeback">' + ic("rake", 24) + '<span class="checks-menu-btn-label bn-lab">Рейкбек<span class="checks-menu-btn-sub bn-sub bn-sub-1"><span class="bn-sub-w">Доступно — </span>' + money(s.rakeback.available) + '$</span></span><span class="checks-menu-btn-arrow">›</span></button>' + '<button class="checks-menu-btn bn-menu" type="button" data-bn="goto-table">' + ic("level", 24) + '<span class="checks-menu-btn-label bn-lab">За уровень<span class="checks-menu-btn-sub bn-sub bn-sub-1">Таблица наград</span></span><span class="checks-menu-btn-arrow">›</span></button></div>';
+        const cash = menuBtnCenter("goto-cashback", "cashback", "Кэшбек", "Доступно — " + money(s.cashback.available) + "⭐️");
+        const row = '<div class="checks-menu-row bn-in">' + '<button class="checks-menu-btn bn-menu" type="button" data-bn="goto-rakeback">' + ic("rake", 24) + '<span class="checks-menu-btn-label bn-lab">Рейкбек<span class="checks-menu-btn-sub bn-sub bn-sub-1"><span class="bn-sub-w">Доступно — </span>' + money(s.rakeback.available) + '⭐️</span></span><span class="checks-menu-btn-arrow">›</span></button>' + '<button class="checks-menu-btn bn-menu" type="button" data-bn="goto-table">' + ic("level", 24) + '<span class="checks-menu-btn-label bn-lab">За уровень<span class="checks-menu-btn-sub bn-sub bn-sub-1">Таблица наград</span></span><span class="checks-menu-btn-arrow">›</span></button></div>';
         const daily = menuBtnCenter("goto-giveaway", "daily", "Ежедневные розыгрыши", g.participants + " " + plural(g.participants, "участник", "участника", "участников") + " · до розыгрыша " + leftShort(secondsLeft("giveaway")));
         const kit = window.bonusWheelKit;
         const hero = kit ? kit.heroHTML(s.wheel, stateAt) : "";
@@ -38518,10 +38758,11 @@ crashRoundFairBtn.addEventListener("click", () => {
     }
 
     function claimButton(kind, available) {
-        return '<button class="modal-ok bn-ok bn-in' + (available > 0 ? "" : " dim") + '" type="button" data-bn="claim-' + kind + '">' + ic("case", 22) + "<span>Забрать на баланс • " + money(available) + "$</span></button>";
+        return '<button class="modal-ok bn-ok bn-in' + (available > 0 ? "" : " dim") + '" type="button" data-bn="claim-' + kind + '">' + ic("case", 22) + "<span>Забрать на баланс • " + money(available) + "⭐️</span></button>";
     }
 
     function screenCashback() {
+        if (!(state.cashback && state.vip && state.ranks)) return unavailableBonus("Кэшбек", "cashback");
         setChrome("Бонусы", true);
         const s = state;
         const c = s.cashback;
@@ -38548,6 +38789,7 @@ crashRoundFairBtn.addEventListener("click", () => {
     }
 
     function screenRakeback() {
+        if (!(state.rakeback && state.vip && state.ranks)) return unavailableBonus("Рейкбек", "rake");
         setChrome("Бонусы", true);
         const s = state;
         const r = s.rakeback;
@@ -38585,6 +38827,7 @@ crashRoundFairBtn.addEventListener("click", () => {
     }
 
     function screenTable() {
+        if (!(state.ranks && state.vip)) return unavailableBonus("За уровень — таблица наград", "level");
         setChrome("Бонусы", true);
         const s = state;
         const html = heading("level", "Таблица наград") + vipBlock(s, "", "arrow", true) + s.ranks.map(r => rankCard(r, s.vip.current)).join("") +
@@ -38612,7 +38855,7 @@ crashRoundFairBtn.addEventListener("click", () => {
     }
 
     function giveawayHead(g) {
-        return '<div class="bn-h bn-in">' + ic("dollar", 24) + "<span>" + gwText(g, "title", "Ежедневный Розыгрыш " + money(g.maxWinners * g.prize) + "$ от @" + g.bot) + "</span></div>";
+        return '<div class="bn-h bn-in">' + ic("dollar", 24) + "<span>" + gwText(g, "title", "Ежедневный Розыгрыш " + money(g.maxWinners * g.prize) + "⭐️ от @" + g.bot) + "</span></div>";
     }
 
     function giveawayStatus(g) {
@@ -38633,11 +38876,12 @@ crashRoundFairBtn.addEventListener("click", () => {
     function giveawayTop(g) {
         return giveawayHead(g) +
             heading("wallet", "Призовой фонд") +
-            para(gwText(g, "prize", "До " + g.maxWinners + " победителей ежедневно получают по " + money(g.prize) + "$ с вейджером x" + g.wagerMult + ".")) +
-            line("curStatus", "<b>Текущий статус: " + g.participants + " " + plural(g.participants, "участник", "участника", "участников") + ", из них " + g.winners + " получат по " + money(g.prize) + "$.</b>");
+            para(gwText(g, "prize", "До " + g.maxWinners + " победителей ежедневно получают по " + money(g.prize) + "⭐️ с вейджером x" + g.wagerMult + ".")) +
+            line("curStatus", "<b>Текущий статус: " + g.participants + " " + plural(g.participants, "участник", "участника", "участников") + ", из них " + g.winners + " получат по " + money(g.prize) + "⭐️.</b>");
     }
 
     function screenGiveaway(view) {
+        if (!state.giveaway) return unavailableBonus("Ежедневные розыгрыши", "daily");
         view = view === 1 || view === 2 ? view : 0;
         giveawayView = view;
         setChrome("Бонусы", true);
@@ -38656,9 +38900,9 @@ crashRoundFairBtn.addEventListener("click", () => {
         } else if (view === 2) {
             const depOk = g.deposits + 1e-9 >= g.minDeposits;
             const turnOk = g.turnover + 1e-9 >= g.minTurnover;
-            const need = '<div class="bn-need"><div class="bn-need-item' + (depOk ? " done" : "") + '">Депозиты за всё время<b>' + money(g.deposits) + "$ из " + money(g.minDeposits) + '$</b><div class="bn-need-bar"><i data-bn-w="' + gwPct(g.deposits, g.minDeposits) + '"></i></div></div><div class="bn-need-item' + (turnOk ? " done" : "") + '">Игровой оборот<b>' + money(g.turnover) + "$ из " + money(g.minTurnover) + '$</b><div class="bn-need-bar"><i data-bn-w="' + gwPct(g.turnover, g.minTurnover) + '"></i></div></div></div>';
+            const need = '<div class="bn-need"><div class="bn-need-item' + (depOk ? " done" : "") + '">Депозиты за всё время<b>' + money(g.deposits) + "⭐️ из " + money(g.minDeposits) + '⭐️</b><div class="bn-need-bar"><i data-bn-w="' + gwPct(g.deposits, g.minDeposits) + '"></i></div></div><div class="bn-need-item' + (turnOk ? " done" : "") + '">Игровой оборот<b>' + money(g.turnover) + "⭐️ из " + money(g.minTurnover) + '⭐️</b><div class="bn-need-bar"><i data-bn-w="' + gwPct(g.turnover, g.minTurnover) + '"></i></div></div></div>';
             html = giveawayHead(g) + heading("warnYellow", "Требование к аккаунту") +
-                para(gwText(g, "requirements", "Депозиты за всё время — от " + money(g.minDeposits) + "$.\nИгровой оборот — от " + money(g.minTurnover) + "$.\nПроверить свои показатели можно через команду «/stats», или же в разделе профиль.")) + need.replace('<div class="bn-need">', '<div class="bn-need bn-in" style="margin:-4px 0 16px">') +
+                para(gwText(g, "requirements", "Депозиты за всё время — от " + money(g.minDeposits) + "⭐️.\nИгровой оборот — от " + money(g.minTurnover) + "⭐️.\nПроверить свои показатели можно через команду «/stats», или же в разделе профиль.")) + need.replace('<div class="bn-need">', '<div class="bn-need bn-in" style="margin:-4px 0 16px">') +
                 heading("down", "Контроль профиля") +
                 para(gwText(g, "control", "В течение 24 часов бот случайно проверяет отображаемое имя и описание. Их изменение исключает из текущего розыгрыша. Изменение username не влияет на участие.")) +
                 schedule + giveawayStatus(g) +
@@ -38774,7 +39018,7 @@ crashRoundFairBtn.addEventListener("click", () => {
         applyBalance(data.balance);
         rerender();
         haptic("impact", "heavy");
-        alertSheet("success", "Зачислено " + (data.claimedText || money(data.claimed)) + " " + usd() + " на баланс!", null, "Для вывода средств нужно отыграть " + (data.requiredText || money(data.required)) + "$ (x" + pct(data.mult) + ").");
+        alertSheet("success", "Зачислено " + (data.claimedText || money(data.claimed)) + " " + usd() + " на баланс!", null, "Для вывода средств нужно отыграть " + (data.requiredText || money(data.required)) + "⭐️ (x" + pct(data.mult) + ").");
     }
 
     async function toggleAuto(btn) {
@@ -38860,7 +39104,22 @@ crashRoundFairBtn.addEventListener("click", () => {
         const btn = e.target.closest("[data-bn]");
         if (!btn) return;
         const act = btn.dataset.bn;
-        if (act === "back") back();
+        if (act === "claim-existing") {
+            if (busy) return;
+            busy = true;
+            btn.disabled = true;
+            post("/api/bonuses/existing/claim").then(data => {
+                if (!data || !data.ok) throw new Error(data && data.error || "Не удалось получить бонус");
+                if (data.state) setState(data.state);
+                applyBalance(data.balance);
+                rerender();
+                loadProfileStats();
+                alertSheet(data.creditedAmount > 0 ? "success" : "warn", "Бонус за описание", [], data.message);
+            }).catch(error => showToast(error.message || "Ошибка сети", "error")).finally(() => {
+                busy = false;
+                btn.disabled = false;
+            });
+        } else if (act === "back") back();
         else if (act === "goto-cashback") push(screenCashback);
         else if (act === "goto-rakeback") push(screenRakeback);
         else if (act === "goto-table") push(screenTable);
@@ -38902,7 +39161,6 @@ crashRoundFairBtn.addEventListener("click", () => {
         stack = [];
         giveawayView = 0;
         push(screenMenu);
-        push(screenWheel);
     };
     const promo = document.getElementById("wheelPromo");
     if (promo) promo.addEventListener("click", () => window.bonusOpenWheel());
@@ -38923,7 +39181,7 @@ crashRoundFairBtn.addEventListener("click", () => {
     const RESULT_SHOW_MS = 4600;
     const ORB_MARGIN = 120;
     const POLL_MS = 700;
-    const DEFAULT_FEE = 0.1;
+    const DEFAULT_FEE = 0.01;
     let MIN_BET_AH = 0.1;
     let MAX_BET_AH = 10000;
     const ARENA_ICON = "images/arenahub_emblem.svg";
@@ -38944,7 +39202,7 @@ crashRoundFairBtn.addEventListener("click", () => {
     }
 
     function money(v) {
-        return fmtNum(v) + "$";
+        return fmtNum(v) + "⭐️";
     }
 
     function clamp(v, a, b) {
@@ -39746,7 +40004,7 @@ crashRoundFairBtn.addEventListener("click", () => {
             '<canvas id="ahCanvas"></canvas>' +
             '<div class="ah-hud">' +
             '<span class="ah-pill ah-phase" id="ahPhase"><i class="ah-pdot"></i><span id="ahPhaseText">Загрузка…</span></span>' +
-            '<span class="ah-pill ah-pot">Банк <b id="ahPotVal">0$</b></span>' +
+            '<span class="ah-pill ah-pot">Банк <b id="ahPotVal">0⭐️</b></span>' +
             "</div>" +
             '<div class="ah-overlay" id="ahOverlay"></div>' +
             '<div class="ah-timebar" id="ahTimebar"><i></i></div>' +
@@ -39835,6 +40093,10 @@ crashRoundFairBtn.addEventListener("click", () => {
         view = null;
         hideResult();
     }
+
+    window.addEventListener("mjrstar:realtime", event => {
+        if (!document.hidden && event.detail && event.detail.gamesChanged) poll();
+    });
 
     function poll() {
         if (!mounted || pollBusy) return;
@@ -40241,7 +40503,7 @@ crashRoundFairBtn.addEventListener("click", () => {
             return;
         }
         if (mode === "join" && amount < MIN_BET_AH) {
-            showToast("Минимальная ставка — " + MIN_BET_AH + "$", "error");
+            showToast("Минимальная ставка — " + MIN_BET_AH + "⭐️", "error");
             return;
         }
         if (amount > currentUser.balance) {
@@ -40249,7 +40511,7 @@ crashRoundFairBtn.addEventListener("click", () => {
             return;
         }
         if (myContribution() + amount > MAX_BET_AH + 1e-9) {
-            showToast("Максимум за раунд — " + fmtNum(MAX_BET_AH) + "$", "error");
+            showToast("Максимум за раунд — " + fmtNum(MAX_BET_AH) + "⭐️", "error");
             return;
         }
         post(mode === "join" ? "/api/portal/join" : "/api/portal/bet", {
@@ -40324,8 +40586,8 @@ crashRoundFairBtn.addEventListener("click", () => {
 
     function fairFormulaHTML(rate) {
         return '<p class="modal-text">Секретный сид раунда был скрыт до финиша, а его SHA-256-хэш публиковался ещё ДО приёма первой ставки — поэтому итог нельзя подогнать под ставки задним числом. Если раскрытый сид не даёт тот же хэш, значит его подменили.</p>' +
-            '<p class="modal-text">Стартовая позиция и угол запуска шайбы выводятся из HMAC-SHA256(сид, «UID раунда:orb») по фиксированной формуле. Территории — ячейки диаграммы Вороного: центры берутся из того же сида, а веса подобраны так, что площадь каждого игрока строго равна доле его ставки. Победитель — тот, на чьей территории остановилась шайба, выплата = банк − ' + feeText(rate != null ? rate : feeRate) + ' комиссии.</p>' +
-            '<p class="modal-text">Сами рикошеты — хаотичная физика, поэтому траекторию из записи можно посмотреть в реплее раунда.</p>';
+            '<p class="modal-text">Стартовая позиция и угол запуска шайбы выводятся из HMAC-SHA256(сид, «UID раунда:orb») по фиксированной формуле. Территории — взвешенные ячейки Вороного в виде полос: направление выводится из сида, границы задаются долями ставок, поэтому площадь каждого игрока равна доле его ставки. Победитель — тот, на чьей территории остановилась шайба, выплата = банк − ' + feeText(rate != null ? rate : feeRate) + ' комиссии.</p>' +
+            '<p class="modal-text">Первые четыре блока по 13 hex-символов HMAC задают x, y, угол и скорость старта. Шайба отражается от границ квадрата 1000 × 1000 и линейно теряет скорость за 9,5 секунды. Траектория сохраняется и доступна в реплее раунда.</p>';
     }
 
     function hashBlock(label, value) {
@@ -41705,7 +41967,7 @@ crashRoundFairBtn.addEventListener("click", () => {
     }
 
     function money(v) {
-        return fmtNum(v) + "$";
+        return fmtNum(v) + "⭐️";
     }
 
     function xm(v) {
@@ -42826,7 +43088,7 @@ crashRoundFairBtn.addEventListener("click", () => {
         const ok = cfgLoaded;
         const sk = (w, t) => '<span class="text-skel ah-sk" style="width:' + w + 'px;">' + t + "</span>";
         const range = ok ? xm(lv.minMult) + " – " + xm(lv.maxMult) : sk(90, "x0.00 – x0.00");
-        const winTxt = ok && bet > 0 ? money(Math.round(bet * lv.minMult * 100) / 100) + " – " + money(Math.round(bet * lv.maxMult * 100) / 100) : sk(110, "0000$ – 0000$");
+        const winTxt = ok && bet > 0 ? money(Math.round(bet * lv.minMult * 100) / 100) + " – " + money(Math.round(bet * lv.maxMult * 100) / 100) : sk(110, "0000⭐️ – 0000⭐️");
         const mean = ok ? xm(lv.meanMult) : sk(60, "x0.00");
         const rtp = ok ? dec(cfg.rtp * 100, 0) + "%" : sk(40, "00%");
         return '<div class="ah-stat"><span>Шанс победы</span><b>' + pct(lv.chance) + "</b></div>" +
@@ -42932,7 +43194,7 @@ crashRoundFairBtn.addEventListener("click", () => {
                 saveLevel(levelId);
                 updateLevelUI();
                 const bet = gvBody.querySelector(".gv-bet-input");
-                if (bet) bet.value = r.bet + "$";
+                if (bet) bet.value = r.bet + "⭐️";
                 updateStats();
                 begin(r, (d.round.elapsed || 0) + (performance.now() - received) / 1000, true);
             }
@@ -42964,11 +43226,11 @@ crashRoundFairBtn.addEventListener("click", () => {
             return;
         }
         if (bet < betMin("escape")) {
-            showToast("Минимальная ставка — " + fmtNum(betMin("escape")) + "$", "error");
+            showToast("Минимальная ставка — " + fmtNum(betMin("escape")) + "⭐️", "error");
             return;
         }
         if (bet > betMax("escape")) {
-            showToast("Максимальная ставка — " + fmtNum(betMax("escape")) + "$", "error");
+            showToast("Максимальная ставка — " + fmtNum(betMax("escape")) + "⭐️", "error");
             return;
         }
         if (bet > currentUser.balance) {
@@ -43528,7 +43790,7 @@ crashRoundFairBtn.addEventListener("click", () => {
         }
         const sm = byId("escapeHowtoSample");
         if (sm) {
-            sm.innerHTML = "Пример: ставка <b>10$</b>, уровень <b>Mid</b> (шанс 50%, +0.15x за шаг). Шарик пролетел 12 шагов - множитель <b>x1.80</b>. Упал в зелёную зону: <b class=\"ok\">+18$</b> (прибыль 8$). Упал в красную - <b class=\"bad\">−10$</b>. Возврат игрокам на всех уровнях одинаковый - <b>" + dec(cfg.rtp * 100, 0) + "%</b>, отличается только риск: Lite - частые маленькие победы, Epic - редкие и большие.";
+            sm.innerHTML = "Пример: ставка <b>10⭐️</b>, уровень <b>Mid</b> (шанс 50%, +0.15x за шаг). Шарик пролетел 12 шагов - множитель <b>x1.80</b>. Упал в зелёную зону: <b class=\"ok\">+18⭐️</b> (прибыль 8⭐️). Упал в красную - <b class=\"bad\">−10⭐️</b>. Возврат игрокам на всех уровнях одинаковый - <b>" + dec(cfg.rtp * 100, 0) + "%</b>, отличается только риск: Lite - частые маленькие победы, Epic - редкие и большие.";
         }
     }
 
@@ -43598,7 +43860,7 @@ crashRoundFairBtn.addEventListener("click", () => {
                 say("3 · Побег", "Шарик попал в разрыв и вылетел из кольца - теперь он по прямой летит на шкалу, а множитель делает последний шаг.");
             } else {
                 if (e.out.win) say("4 · Победа", "Шарик упал в зелёную зону: " + money(e.bet) + " × " + xm(e.out.mult) + " = " + money(e.payout) + ".");
-                else say("4 · Проигрыш", "Шарик упал в красную зону: ставка " + money(e.bet) + " сгорает - выплата 0$.");
+                else say("4 · Проигрыш", "Шарик упал в красную зону: ставка " + money(e.bet) + " сгорает - выплата 0⭐️.");
                 if (t > e.path.tLand + 2.6 && !e.ended) {
                     e.ended = true;
                     begin();
@@ -43757,7 +44019,7 @@ crashRoundFairBtn.addEventListener("click", () => {
                 t1Max: 11
             }
         ],
-        commissionPercent: 10,
+        commissionPercent: 1,
         countdown: 3,
         waitTtl: 600,
         resultPad: 0.9,
@@ -43963,11 +44225,12 @@ crashRoundFairBtn.addEventListener("click", () => {
 
     function pvpMoneySplit(bet, percent) {
         const pot = round2(bet * 2);
-        const fee = round2(pot * percent / 100);
+        const potCents = Math.round(pot * 100);
+        const prizeCents = Math.floor(potCents * (100 - percent) / 100 + 1e-9);
         return {
             pot: pot,
-            fee: fee,
-            prize: round2(pot - fee)
+            fee: (potCents - prizeCents) / 100,
+            prize: prizeCents / 100
         };
     }
 
@@ -44379,11 +44642,11 @@ crashRoundFairBtn.addEventListener("click", () => {
             return null;
         }
         if (bet < betMin("escape_pvp")) {
-            showToast("Минимальная ставка — " + fmtNum(betMin("escape_pvp")) + "$", "error");
+            showToast("Минимальная ставка — " + fmtNum(betMin("escape_pvp")) + "⭐️", "error");
             return null;
         }
         if (bet > betMax("escape_pvp")) {
-            showToast("Максимальная ставка — " + fmtNum(betMax("escape_pvp")) + "$", "error");
+            showToast("Максимальная ставка — " + fmtNum(betMax("escape_pvp")) + "⭐️", "error");
             return null;
         }
         if (bet > currentUser.balance) {
@@ -44920,7 +45183,7 @@ crashRoundFairBtn.addEventListener("click", () => {
         if (sm) {
             const pc = pvpCommission();
             const sp = pvpMoneySplit(10, pc);
-            sm.innerHTML = "Пример: каждый ставит <b>10$</b>, банк <b>" + money(sp.pot) + "</b>, комиссия <b>" + dec(pc, pc % 1 ? 1 : 0) + "%</b> (" + money(sp.fee) + "). Победитель забирает <b class=\"ok\">" + money(sp.prize) + "</b> (прибыль " + money(round2(sp.prize - 10)) + "), проигравший теряет <b class=\"bad\">10$</b>. Шанс у каждого ровно 50%, на уровни Lite / Mid / Epic он не влияет.";
+            sm.innerHTML = "Пример: каждый ставит <b>10⭐️</b>, банк <b>" + money(sp.pot) + "</b>, комиссия <b>" + dec(pc, pc % 1 ? 1 : 0) + "%</b> (" + money(sp.fee) + "). Победитель забирает <b class=\"ok\">" + money(sp.prize) + "</b> (прибыль " + money(round2(sp.prize - 10)) + "), проигравший теряет <b class=\"bad\">10⭐️</b>. Шанс у каждого ровно 50%, на уровни Lite / Mid / Epic он не влияет.";
         }
         const box = byId("escapeDuelHowtoExample");
         box.innerHTML = '<div class="esc-howto-stage"><span class="skel-box esc-stage-skel" id="escapeDuelHowtoSkel"></span><canvas id="escapeDuelHowtoCanvas"></canvas><span class="ah-pill esc-howto-step" id="escapeDuelHowtoStep"></span></div>' +
@@ -50343,7 +50606,7 @@ crashRoundFairBtn.addEventListener("click", () => {
             if (this.simKey !== key) {
                 this.sim = cachedSim(this.course, this.N, this.courseSeed);
                 this.simKey = key;
-                this.scale = RC.playScale(this.sim.tWin, this.sim.tEnd);
+                this.scale = this.run && this.run.liveSec > 0 ? this.sim.tEnd / this.run.liveSec : RC.playScale(this.sim.tWin, this.sim.tEnd);
                 this.winnerSlot = this.sim.winner;
             }
         }
@@ -50367,7 +50630,7 @@ crashRoundFairBtn.addEventListener("click", () => {
             if (run.courseSeed) this.setCourse(run.courseSeed);
             this.prepareSim();
             if (this.sim) {
-                this.scale = RC.playScale(this.sim.tWin, this.sim.tEnd);
+                this.scale = this.run && this.run.liveSec > 0 ? this.sim.tEnd / this.run.liveSec : RC.playScale(this.sim.tWin, this.sim.tEnd);
                 this.winnerSlot = this.sim.winner;
             }
             this.rebuildOwners();
@@ -53568,7 +53831,7 @@ crashRoundFairBtn.addEventListener("click", () => {
 
     const ROOM_KEY = "rc_room";
     const POLL_MS = 700;
-    const DEFAULT_FEE = 0.1;
+    const DEFAULT_FEE = 0.01;
     const LIVE_CLOSE_MS = 2800;
     let MIN_BET_RC = 0.1;
     let MAX_BET_RC = 10000;
@@ -53590,7 +53853,7 @@ crashRoundFairBtn.addEventListener("click", () => {
     }
 
     function money(v) {
-        return fmtNum(v) + "$";
+        return fmtNum(v) + "⭐️";
     }
 
     function clamp(v, a, b) {
@@ -53740,7 +54003,7 @@ crashRoundFairBtn.addEventListener("click", () => {
             '<canvas id="rcCanvas"></canvas>' +
             '<div class="ah-hud">' +
             '<span class="ah-pill ah-phase" id="rcPhase"><i class="ah-pdot"></i><span id="rcPhaseText">Загрузка…</span></span>' +
-            '<span class="ah-pill ah-pot">Банк <b id="rcPotVal">0$</b></span>' +
+            '<span class="ah-pill ah-pot">Банк <b id="rcPotVal">0⭐️</b></span>' +
             "</div>" +
             '<div class="ah-overlay" id="rcOverlay"></div>' +
             '<div class="ah-timebar" id="rcTimebar"><i></i></div>' +
@@ -53845,6 +54108,10 @@ crashRoundFairBtn.addEventListener("click", () => {
         view = null;
     }
 
+    window.addEventListener("mjrstar:realtime", event => {
+        if (!document.hidden && event.detail && event.detail.gamesChanged) poll();
+    });
+
     function poll() {
         if (!mounted || pollBusy) return;
         pollBusy = true;
@@ -53909,6 +54176,7 @@ crashRoundFairBtn.addEventListener("click", () => {
                     id: rd.id,
                     courseSeed: seed,
                     winnerIdx: null,
+                    liveSec: rd.liveSec,
                     clock: () => serverNow() - endsAt
                 });
             }
@@ -54017,7 +54285,7 @@ crashRoundFairBtn.addEventListener("click", () => {
         const p = rd.players[rd.winnerIdx];
         if (!p) return null;
         const pot = rd.totalPot || 0;
-        const prize = rd.winner && rd.winner.prize != null ? rd.winner.prize : Math.round(pot * (1 - (rd.fee != null ? rd.fee : feeRate)) * 100) / 100;
+        const prize = rd.winner && rd.winner.prize != null ? rd.winner.prize : Math.floor(Math.round(pot * 100) * (1 - (rd.fee != null ? rd.fee : feeRate)) + 1e-9) / 100;
         return {
             player: p,
             prize: prize,
@@ -54109,6 +54377,7 @@ crashRoundFairBtn.addEventListener("click", () => {
             id: lr.id,
             courseSeed: seed,
             winnerIdx: lr.winnerIdx,
+            liveSec: lr.liveSec,
             clock: () => serverNow() - startedAt
         });
         v.onFinish = () => onLiveFinish(lr.id);
@@ -54467,7 +54736,7 @@ crashRoundFairBtn.addEventListener("click", () => {
             return;
         }
         if (mode === "join" && amount < MIN_BET_RC) {
-            showToast("Минимальная ставка — " + MIN_BET_RC + "$", "error");
+            showToast("Минимальная ставка — " + MIN_BET_RC + "⭐️", "error");
             return;
         }
         if (amount > currentUser.balance) {
@@ -54475,7 +54744,7 @@ crashRoundFairBtn.addEventListener("click", () => {
             return;
         }
         if (myContribution() + amount > MAX_BET_RC + 1e-9) {
-            showToast("Максимум за раунд — " + fmtNum(MAX_BET_RC) + "$", "error");
+            showToast("Максимум за раунд — " + fmtNum(MAX_BET_RC) + "⭐️", "error");
             return;
         }
         post(mode === "join" ? "/api/race/join" : "/api/race/bet", {
@@ -54657,6 +54926,7 @@ crashRoundFairBtn.addEventListener("click", () => {
             id: d.id,
             courseSeed: seed,
             winnerIdx: d.winnerIdx,
+            liveSec: d.liveSec,
             clock: () => performance.now() - roundStart
         };
     }
@@ -55110,6 +55380,7 @@ crashRoundFairBtn.addEventListener("click", () => {
                 id: "howto",
                 courseSeed: d.courseSeed,
                 winnerIdx: d.winnerIdx,
+                liveSec: d.liveSec,
                 clock: () => (performance.now() - start) * 1.7
             });
             say("3 · Гонка", "Шары вылетают из кольца и проходят этапы с препятствиями — кто первым пересечёт финишную черту, тот и победил");
@@ -55369,7 +55640,7 @@ crashRoundFairBtn.addEventListener("click", () => {
             const v = bets[k] || 0;
             b.classList.toggle("has", v > 0);
             const stack = b.querySelector(".bc-spot-stack");
-            const txt = v > 0 ? fmtNum(v) + "$" : "";
+            const txt = v > 0 ? fmtNum(v) + "⭐️" : "";
             if (stack && stack.textContent !== txt) stack.textContent = txt;
         });
     }
@@ -55397,7 +55668,7 @@ crashRoundFairBtn.addEventListener("click", () => {
             const cls = r.result === "win" ? "res-win" : r.result === "push" ? "res-push" : "res-lose";
             b.classList.add(cls);
             const t = b.querySelector(".bc-spot-res");
-            if (t) t.textContent = r.result === "win" ? "+" + fmtNum(r.win) + "$" : r.result === "push" ? "возврат" : "−" + fmtNum(r.bet) + "$";
+            if (t) t.textContent = r.result === "win" ? "+" + fmtNum(r.win) + "⭐️" : r.result === "push" ? "возврат" : "−" + fmtNum(r.bet) + "⭐️";
         });
     }
 
@@ -55429,12 +55700,12 @@ crashRoundFairBtn.addEventListener("click", () => {
         else if (!st.enough) text = "Недостаточно средств";
         else {
             ok = true;
-            text = (last && marked ? "Играть ещё раз" : "Играть") + " · " + fmtNum(st.total) + "$";
+            text = (last && marked ? "Играть ещё раз" : "Играть") + " · " + fmtNum(st.total) + "⭐️";
         }
         if (btn.textContent !== text) btn.textContent = text;
         btn.classList.toggle("dim", !ok);
         const inputBet = gvInputBet();
-        hint(st.has ? "Ставок на столе: " + Object.keys(bets).length + " · всего " + fmtNum(st.total) + "$" : inputBet > 0 ? "Нажмите на поле, чтобы поставить " + fmtNum(inputBet) + "$" : "Введите сумму и нажмите на поле");
+        hint(st.has ? "Ставок на столе: " + Object.keys(bets).length + " · всего " + fmtNum(st.total) + "⭐️" : inputBet > 0 ? "Нажмите на поле, чтобы поставить " + fmtNum(inputBet) + "⭐️" : "Введите сумму и нажмите на поле");
     }
 
     function updateRoundLabel() {
@@ -55520,7 +55791,7 @@ crashRoundFairBtn.addEventListener("click", () => {
             return;
         }
         if (amount < betMin("baccarat")) {
-            showToast("Минимальная ставка — " + fmtNum(betMin("baccarat")) + "$", "error");
+            showToast("Минимальная ставка — " + fmtNum(betMin("baccarat")) + "⭐️", "error");
             return;
         }
         if ((key === "player" && bets.banker) || (key === "banker" && bets.player)) {
@@ -55530,7 +55801,7 @@ crashRoundFairBtn.addEventListener("click", () => {
         }
         const next = round2((bets[key] || 0) + amount);
         if (next > betMax("baccarat")) {
-            showToast("Максимальная ставка на поле — " + fmtNum(betMax("baccarat")) + "$", "error");
+            showToast("Максимальная ставка на поле — " + fmtNum(betMax("baccarat")) + "⭐️", "error");
             return;
         }
         if (round2(totalBet() + amount) > currentUser.balance + 1e-9) {
@@ -55560,7 +55831,7 @@ crashRoundFairBtn.addEventListener("click", () => {
                 sum += doubled[k];
             });
             if (Object.keys(doubled).some(k => doubled[k] > betMax("baccarat"))) {
-                showToast("Максимальная ставка на поле — " + fmtNum(betMax("baccarat")) + "$", "error");
+                showToast("Максимальная ставка на поле — " + fmtNum(betMax("baccarat")) + "⭐️", "error");
                 return;
             }
             if (sum > currentUser.balance + 1e-9) {
@@ -55694,9 +55965,9 @@ crashRoundFairBtn.addEventListener("click", () => {
     function finishPlay(token, d) {
         busy = false;
         if (typeof d.balance === "number") applyBalance(d.balance);
-        if (d.win) showGameWinToast(d.winAmount, "Выплата +", "$");
+        if (d.win) showGameWinToast(d.winAmount, "Выплата +", "⭐️");
         else if (d.push) showToast("Ничья — ставки на Игрока и Банкира возвращены", "info");
-        else showGameLoseToast(d.winAmount > 0 ? "Выплата " + fmtNum(d.winAmount) + "$ — меньше ставки" : "Не повезло — ставки проиграли");
+        else showGameLoseToast(d.winAmount > 0 ? "Выплата " + fmtNum(d.winAmount) + "⭐️ — меньше ставки" : "Не повезло — ставки проиграли");
         if (token !== mountToken) return;
         markSpots(d.spots);
         recent = d.recent || recent;
@@ -55772,7 +56043,7 @@ crashRoundFairBtn.addEventListener("click", () => {
 
     function summaryHTML(meta) {
         const spotsMap = meta.spots || {};
-        return Object.keys(spotsMap).map(k => LABEL[k] + " " + fmtNum(spotsMap[k].bet) + "$").join(" · ");
+        return Object.keys(spotsMap).map(k => LABEL[k] + " " + fmtNum(spotsMap[k].bet) + "⭐️").join(" · ");
     }
 
     function historyRowHTML(r) {
@@ -55787,8 +56058,8 @@ crashRoundFairBtn.addEventListener("click", () => {
         const name = isMe ? currentUser.displayName || "Игрок" : r.username || "Игрок";
         const avatarUrl = isMe ? currentUser.avatarUrl : "/api/avatar/" + r.user_id;
         const winnerLine = meta.winner ? '<span class="gv-history-outcome"><b>' + WINNER_TEXT[meta.winner] + "</b> · " + meta.playerTotal + " : " + meta.bankerTotal + (meta.natural ? " · Natural" : "") + "</span><br>" : "";
-        const result = isWin ? '<span class="gv-history-win">Выплата: ' + fmtNum(r.win_amount) + "$</span>" : isPush ? '<span class="gv-history-outcome">Возврат: ' + fmtNum(r.win_amount) + "$</span>" : r.win_amount > 0 ? '<span class="gv-history-lose">Выплата ' + fmtNum(r.win_amount) + "$ (меньше ставки)</span>" : '<span class="gv-history-lose">Проигрыш</span>';
-        return '<div class="gv-history-row crash-history-row-item"><div class="gv-history-row-top"><div class="gv-history-avatar"><div class="skel-box"></div>' + lazyImgTag(avatarUrl, name) + '</div><div class="gv-history-mid"><div class="gv-history-name"><span class="gv-history-name-text">' + escapeHtml(name) + "</span>" + botBadge + "</div>" + historyTimeHTML(r.created_at) + '</div><div class="gv-history-right">Сумма ставок: <b>' + fmtNum(r.bet) + "$</b><br>" + winnerLine + result + "</div></div>" + (meta.roundId ? '<button class="crash-history-fair-btn" type="button" data-baccarat-round="' + escapeHtml(meta.roundId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" : "") + "</div>";
+        const result = isWin ? '<span class="gv-history-win">Выплата: ' + fmtNum(r.win_amount) + "⭐️</span>" : isPush ? '<span class="gv-history-outcome">Возврат: ' + fmtNum(r.win_amount) + "⭐️</span>" : r.win_amount > 0 ? '<span class="gv-history-lose">Выплата ' + fmtNum(r.win_amount) + "⭐️ (меньше ставки)</span>" : '<span class="gv-history-lose">Проигрыш</span>';
+        return '<div class="gv-history-row crash-history-row-item"><div class="gv-history-row-top"><div class="gv-history-avatar"><div class="skel-box"></div>' + lazyImgTag(avatarUrl, name) + '</div><div class="gv-history-mid"><div class="gv-history-name"><span class="gv-history-name-text">' + escapeHtml(name) + "</span>" + botBadge + "</div>" + historyTimeHTML(r.created_at) + '</div><div class="gv-history-right">Сумма ставок: <b>' + fmtNum(r.bet) + "⭐️</b><br>" + winnerLine + result + "</div></div>" + (meta.roundId ? '<button class="crash-history-fair-btn" type="button" data-baccarat-round="' + escapeHtml(meta.roundId) + '">' + fairCheckBtnIconHTML() + "Проверить честность</button>" : "") + "</div>";
     }
 
     function loadHistory(sc, append) {
@@ -55985,7 +56256,7 @@ crashRoundFairBtn.addEventListener("click", () => {
             }, {
                 label: "Выплата",
                 passed: Math.abs(expectedPayout(d, re) - Number(d.winAmount)) < .011,
-                detail: "По ставкам и множителям раунда выплата " + fmtNum(expectedPayout(d, re)) + "$, в раунде записано " + fmtNum(d.winAmount) + "$"
+                detail: "По ставкам и множителям раунда выплата " + fmtNum(expectedPayout(d, re)) + "⭐️, в раунде записано " + fmtNum(d.winAmount) + "⭐️"
             }];
         }));
     }
@@ -55996,7 +56267,7 @@ crashRoundFairBtn.addEventListener("click", () => {
         const hand = (name, cards, total, cls) => '<div class="bc-rb-hand ' + cls + (d.winner === (cls === "p" ? "player" : "banker") ? " win" : "") + '"><div class="bc-hand-head"><span class="bc-hand-name">' + name + '</span><b class="bc-total">' + total + '</b></div><div class="bc-cards">' + cards.map(c => cardHTML(c, true).replace('class="bc-card up"', 'class="bc-card up lite"')).join("") + "</div></div>";
         const rows = Object.keys(d.spots || {}).map(k => {
             const r = d.spots[k];
-            return '<div class="bc-rb-row ' + r.result + '"><span>' + LABEL[k] + " · x" + fmtCoef((d.mults || {})[k] || 0) + "</span><b>" + fmtNum(r.bet) + "$ → " + (r.result === "win" ? "+" + fmtNum(r.win) + "$" : r.result === "push" ? "возврат" : "0$") + "</b></div>";
+            return '<div class="bc-rb-row ' + r.result + '"><span>' + LABEL[k] + " · x" + fmtCoef((d.mults || {})[k] || 0) + "</span><b>" + fmtNum(r.bet) + "⭐️ → " + (r.result === "win" ? "+" + fmtNum(r.win) + "⭐️" : r.result === "push" ? "возврат" : "0⭐️") + "</b></div>";
         }).join("");
         return '<div class="bc-rb">' + hand("Игрок", d.player, d.playerTotal, "p") + hand("Банкир", d.banker, d.bankerTotal, "b") + '</div><div class="bc-banner on res ' + d.winner + ' static">' + resultBannerHTML(d) + '</div><div class="bc-rb-rows">' + rows + "</div>";
     }
@@ -56649,7 +56920,7 @@ crashRoundFairBtn.addEventListener("click", () => {
                     c.restore();
                     continue;
                 }
-                const text = WheelCore.money(values[i]) + "$";
+                const text = WheelCore.money(values[i]) + "⭐️";
                 const isTop = top !== null && values[i] === top;
                 c.save();
                 c.setTransform(k, 0, 0, k, px / 2, px / 2);
@@ -57342,7 +57613,7 @@ crashRoundFairBtn.addEventListener("click", () => {
         }
 
         function rangeText(w) {
-            return w.min === w.max ? M(w.min) + "$" : M(w.min) + "–" + M(w.max) + "$";
+            return w.min === w.max ? M(w.min) + "⭐️" : M(w.min) + "–" + M(w.max) + "⭐️";
         }
 
         function plural(n, one, few, many) {
@@ -57364,8 +57635,8 @@ crashRoundFairBtn.addEventListener("click", () => {
 
         function boostDetails(r) {
             const parts = [];
-            parts.push(r.kind === "win" ? "Бонус придёт отдельной суммой при первом выигрыше — ставка должна выиграть." : "Бонус придёт отдельной суммой при следующем пополнении" + (r.minDeposit > 0 ? " от " + M(r.minDeposit) + "$." : "."));
-            if (r.maxBonus > 0) parts.push("Бонус не больше " + M(r.maxBonus) + "$.");
+            parts.push(r.kind === "win" ? "Бонус придёт отдельной суммой при первом выигрыше — ставка должна выиграть." : "Бонус придёт отдельной суммой при следующем пополнении" + (r.minDeposit > 0 ? " от " + M(r.minDeposit) + "⭐️." : "."));
+            if (r.maxBonus > 0) parts.push("Бонус не больше " + M(r.maxBonus) + "⭐️.");
             if (r.wagerMult > 0) parts.push("Вейджер на бонус x" + M(r.wagerMult) + ".");
             return parts.join(" ");
         }
@@ -57405,8 +57676,8 @@ crashRoundFairBtn.addEventListener("click", () => {
             steps.push("Вернитесь сюда и нажмите «Проверить приписку» — колесо откроется.");
             const lines = (w.tag.lines || []).map(l => '<div class="bw-bad">' + esc(l) + "</div>").join("");
             const need = [];
-            if (w.minDeposits > 0) need.push("Депозиты за всё время — от " + M(w.minDeposits) + "$ (сейчас " + M(w.deposits) + "$).");
-            if (w.minTurnover > 0) need.push("Игровой оборот — от " + M(w.minTurnover) + "$ (сейчас " + M(w.turnover) + "$).");
+            if (w.minDeposits > 0) need.push("Депозиты за всё время — от " + M(w.minDeposits) + "⭐️ (сейчас " + M(w.deposits) + "⭐️).");
+            if (w.minTurnover > 0) need.push("Игровой оборот — от " + M(w.minTurnover) + "⭐️ (сейчас " + M(w.turnover) + "⭐️).");
             return '<div class="checks-stat-card bw-card bw-in"><div class="bw-ch">Как открыть колесо</div><ol class="bw-steps">' +
                 steps.map((s, i) => "<li><i>" + (i + 1) + "</i><span>" + s + "</span></li>").join("") + "</ol>" +
                 (need.length ? '<div class="bw-need">' + need.map(esc).join("<br>") + "</div>" : "") +
@@ -57419,20 +57690,20 @@ crashRoundFairBtn.addEventListener("click", () => {
             let h = "";
             if (b.win.sectors > 0) {
                 h += "<p>Вместо суммы может выпасть награда <b>+" + M(b.win.min) + (b.win.max !== b.win.min ? "–" + M(b.win.max) : "") + "% к выплате следующего выигрыша</b> (" + b.win.sectors + " " + plural(b.win.sectors, "сектор", "сектора", "секторов") + ")." +
-                    (b.win.hours > 0 ? " Она ждёт выигрыша " + esc(WheelCore.hoursText(b.win.hours)) + ", потом сгорает." : " Срока у неё нет.") + (b.win.maxBonus > 0 ? " Бонус не больше " + M(b.win.maxBonus) + "$." : "") +
+                    (b.win.hours > 0 ? " Она ждёт выигрыша " + esc(WheelCore.hoursText(b.win.hours)) + ", потом сгорает." : " Срока у неё нет.") + (b.win.maxBonus > 0 ? " Бонус не больше " + M(b.win.maxBonus) + "⭐️." : "") +
                     (b.win.wager > 0 ? " На бонус действует вейджер x" + M(b.win.wager) + "." : "") + "</p>";
             }
             if (b.dep.sectors > 0) {
                 h += "<p>Или <b>личный бонус +" + M(b.dep.min) + (b.dep.max !== b.dep.min ? "–" + M(b.dep.max) : "") + "% на следующее пополнение</b> (" + b.dep.sectors + " " + plural(b.dep.sectors, "сектор", "сектора", "секторов") + ")." +
-                    (b.dep.hours > 0 ? " Он ждёт пополнения " + esc(WheelCore.hoursText(b.dep.hours)) + "." : " Срока у него нет.") + (b.dep.minDeposit > 0 ? " Пополнение — от " + M(b.dep.minDeposit) + "$." : "") +
-                    (b.dep.maxBonus > 0 ? " Бонус не больше " + M(b.dep.maxBonus) + "$." : "") + (b.dep.wager > 0 ? " Вейджер на бонус x" + M(b.dep.wager) + "." : "") + "</p>";
+                    (b.dep.hours > 0 ? " Он ждёт пополнения " + esc(WheelCore.hoursText(b.dep.hours)) + "." : " Срока у него нет.") + (b.dep.minDeposit > 0 ? " Пополнение — от " + M(b.dep.minDeposit) + "⭐️." : "") +
+                    (b.dep.maxBonus > 0 ? " Бонус не больше " + M(b.dep.maxBonus) + "⭐️." : "") + (b.dep.wager > 0 ? " Вейджер на бонус x" + M(b.dep.wager) + "." : "") + "</p>";
             }
             return h;
         }
 
         function rulesHTML(w) {
             return '<div class="checks-stat-card bw-card bw-in"><div class="bw-ch">Как это работает</div><div class="bw-rules">' +
-                "<p>Раз в " + esc(WheelCore.hoursText(w.cooldownHours)) + " можно крутить колесо — выигрыш от <b>" + M(w.min) + "$</b> до <b>" + M(w.max) + "$</b> сразу попадает на баланс.</p>" +
+                "<p>Раз в " + esc(WheelCore.hoursText(w.cooldownHours)) + " можно крутить колесо — выигрыш от <b>" + M(w.min) + "⭐️</b> до <b>" + M(w.max) + "⭐️</b> сразу попадает на баланс.</p>" +
                 "<p>" + (w.wagerMult > 0 ? "Выигрыш нужно отыграть с вейджером <b>x" + M(w.wagerMult) + "</b>, прежде чем выводить деньги." : "Вейджер на выигрыш не накладывается.") + "</p>" +
                 boostRulesHTML(w) +
                 "<p>Шанс суммы равен доле её секторов на колесе. Результат выбирает сервер ещё до того, как колесо начнёт крутиться.</p>" +
@@ -57444,8 +57715,8 @@ crashRoundFairBtn.addEventListener("click", () => {
 
         function recentHTML(w) {
             if (!w.recent || !w.recent.length) return "";
-            return '<div class="checks-stat-card bw-card bw-in"><div class="bw-ch">Ваши вращения<span>' + w.spins + " · выиграно " + M(w.totalWon) + '$</span></div><div class="bw-rec">' +
-                w.recent.map(r => "<div><span>" + fmtTime(r.ts) + "</span><b>" + (r.kind === "win" || r.kind === "dep" ? "+" + M(r.percent) + "% " + (r.kind === "win" ? "к выигрышу" : "к депозиту") : "+" + M(r.prize) + "$") + "</b></div>").join("") + "</div></div>";
+            return '<div class="checks-stat-card bw-card bw-in"><div class="bw-ch">Ваши вращения<span>' + w.spins + " · выиграно " + M(w.totalWon) + '⭐️</span></div><div class="bw-rec">' +
+                w.recent.map(r => "<div><span>" + fmtTime(r.ts) + "</span><b>" + (r.kind === "win" || r.kind === "dep" ? "+" + M(r.percent) + "% " + (r.kind === "win" ? "к выигрышу" : "к депозиту") : "+" + M(r.prize) + "⭐️") + "</b></div>").join("") + "</div></div>";
         }
 
         function screenHTML(w) {
@@ -57519,7 +57790,7 @@ crashRoundFairBtn.addEventListener("click", () => {
             } else if (phase === "cooldown") {
                 kick = "Следующее вращение";
                 t = '<span data-bw-left>' + WheelCore.clock(left) + "</span>";
-                sub = w.lastPrize != null ? "Прошлый выигрыш: <b>+" + M(w.lastPrize) + "$</b>" : w.lastNote ? "Прошлая награда: <b>" + esc(w.lastNote) + "</b>" : "Колесо отдыхает";
+                sub = w.lastPrize != null ? "Прошлый выигрыш: <b>+" + M(w.lastPrize) + "⭐️</b>" : w.lastNote ? "Прошлая награда: <b>" + esc(w.lastNote) + "</b>" : "Колесо отдыхает";
                 mode = "cooldown";
             } else if (phase === "spin") {
                 t = "Крутим…";
@@ -57533,13 +57804,13 @@ crashRoundFairBtn.addEventListener("click", () => {
                     sub = '<span class="bw-ok">' + boostWord(r.kind) + "</span><br>" + (r.expiresAt > 0 ? "Действует до " + dateText(r.expiresAt) : "Без срока") + "<br>" + esc(boostDetails(r));
                 } else {
                     kick = "Выигрыш";
-                    t = '<span class="bw-win">+' + M(r.prize) + "$</span>";
-                    sub = '<span class="bw-ok">уже на балансе</span>' + (r.wagerRequired > 0 ? "<br>Для вывода отыграйте " + M(r.wagerRequired) + "$ (x" + M(r.wagerMult) + ")" : "");
+                    t = '<span class="bw-win">+' + M(r.prize) + "⭐️</span>";
+                    sub = '<span class="bw-ok">уже на балансе</span>' + (r.wagerRequired > 0 ? "<br>Для вывода отыграйте " + M(r.wagerRequired) + "⭐️ (x" + M(r.wagerMult) + ")" : "");
                 }
                 mode = "won";
             } else {
                 t = "Крути колесо!";
-                sub = "Под стрелкой будет твой выигрыш: от " + M(w.min) + "$ до " + M(w.max) + "$" + ((w.boosts && (w.boosts.win.sectors > 0 || w.boosts.dep.sectors > 0)) ? " или награда-процент" : "");
+                sub = "Под стрелкой будет твой выигрыш: от " + M(w.min) + "⭐️ до " + M(w.max) + "⭐️" + ((w.boosts && (w.boosts.win.sectors > 0 || w.boosts.dep.sectors > 0)) ? " или награда-процент" : "");
                 mode = "idle";
             }
             setText("bwKick", kick);
@@ -57774,7 +58045,7 @@ crashRoundFairBtn.addEventListener("click", () => {
                 pill = "Штраф";
                 cls = "off";
             } else if (!ok) {
-                sub = "Добавь @" + esc(w.bot) + " в имя — крути раз в " + esc(WheelCore.hoursText(w.cooldownHours)) + ", приз до " + M(w.max) + "$";
+                sub = "Добавь @" + esc(w.bot) + " в имя — крути раз в " + esc(WheelCore.hoursText(w.cooldownHours)) + ", приз до " + M(w.max) + "⭐️";
                 pill = "Приписка";
                 cls = "lock";
             } else if (tagWaitNow(w, base) > 0) {
@@ -57786,7 +58057,7 @@ crashRoundFairBtn.addEventListener("click", () => {
                 pill = WheelCore.clock(left);
                 cls = "wait";
             } else {
-                sub = "Крути сейчас — приз " + M(w.min) + "–" + M(w.max) + "$";
+                sub = "Крути сейчас — приз " + M(w.min) + "–" + M(w.max) + "⭐️";
                 pill = "Крутить";
                 cls = "go";
             }
@@ -60204,7 +60475,7 @@ crashRoundFairBtn.addEventListener("click", () => {
         const API = "/api/" + KEY;
         const ROOM_KEY = P + "_room";
         const POLL_MS = 700;
-        const DEFAULT_FEE = 0.1;
+        const DEFAULT_FEE = 0.01;
         const LIVE_CLOSE_MS = 2800;
         const REPLAY_LEAD_MS = 1800;
         let MIN_BET_X = 0.1;
@@ -60225,7 +60496,7 @@ crashRoundFairBtn.addEventListener("click", () => {
         }
 
         function money(v) {
-            return fmtNum(v) + "$";
+            return fmtNum(v) + "⭐️";
         }
 
         function clamp(v, a, b) {
@@ -60389,7 +60660,7 @@ crashRoundFairBtn.addEventListener("click", () => {
                 '<h3 class="modal-title">Как играть — ' + esc(cfg.title) + "</h3>" +
                 cfg.howtoParagraphs.map(t => '<p class="modal-text">' + t + "</p>").join("") +
                 '<div class="ah-howto-example" id="' + KEY + 'HowtoExample"></div>' +
-                '<p class="modal-text"><b>' + cfg.howtoWinLine + '</b> Комиссия <b class="' + KEY + '-fee">10%</b>. Например, при банке 20$ победитель получит <b class="' + KEY + '-fee-prize">18$</b>.</p>' +
+                '<p class="modal-text"><b>' + cfg.howtoWinLine + '</b> Комиссия <b class="' + KEY + '-fee">1%</b>. Например, при банке 20⭐️ победитель получит <b class="' + KEY + '-fee-prize">19.8⭐️</b>.</p>' +
                 '<p class="modal-text"><b>Честность.</b> ' + cfg.howtoFair + "</p>" +
                 '<button class="modal-ok" id="' + KEY + 'HowtoOk">Понятно</button></div></div>' +
                 '<div class="modal-overlay" id="' + KEY + 'RoundModal"><div class="modal-card crash-round-card ah-round-card rc-round-card">' +
@@ -60425,7 +60696,7 @@ crashRoundFairBtn.addEventListener("click", () => {
                 '<canvas id="' + id("Canvas") + '"></canvas>' +
                 '<div class="ah-hud' + (cfg.phasePill === false ? " ah-hud-solo" : "") + '">' +
                 (cfg.phasePill === false ? "" : '<span class="ah-pill ah-phase" id="' + id("Phase") + '"><i class="ah-pdot"></i><span id="' + id("PhaseText") + '">Загрузка…</span></span>') +
-                '<span class="ah-pill ah-pot">Банк <b id="' + id("PotVal") + '">0$</b></span>' +
+                '<span class="ah-pill ah-pot">Банк <b id="' + id("PotVal") + '">0⭐️</b></span>' +
                 "</div>" +
                 '<div class="ah-overlay" id="' + id("Overlay") + '"></div>' +
                 '<div class="ah-timebar" id="' + id("Timebar") + '"><i></i></div>' +
@@ -60534,6 +60805,10 @@ crashRoundFairBtn.addEventListener("click", () => {
             if (view) view.destroy();
             view = null;
         }
+
+        window.addEventListener("mjrstar:realtime", event => {
+            if (!document.hidden && event.detail && event.detail.gamesChanged) poll();
+        });
 
         function poll() {
             if (!mounted || pollBusy) return;
@@ -60703,7 +60978,7 @@ crashRoundFairBtn.addEventListener("click", () => {
             const p = rd.players[rd.winnerIdx];
             if (!p) return null;
             const pot = rd.totalPot || 0;
-            const prize = rd.winner && rd.winner.prize != null ? rd.winner.prize : Math.round(pot * (1 - (rd.fee != null ? rd.fee : feeRate)) * 100) / 100;
+            const prize = rd.winner && rd.winner.prize != null ? rd.winner.prize : Math.floor(Math.round(pot * 100) * (1 - (rd.fee != null ? rd.fee : feeRate)) + 1e-9) / 100;
             return {
                 player: p,
                 prize: prize,
@@ -61141,7 +61416,7 @@ crashRoundFairBtn.addEventListener("click", () => {
                 return;
             }
             if (mode === "join" && amount < MIN_BET_X) {
-                showToast("Минимальная ставка — " + MIN_BET_X + "$", "error");
+                showToast("Минимальная ставка — " + MIN_BET_X + "⭐️", "error");
                 return;
             }
             if (amount > currentUser.balance) {
@@ -61149,7 +61424,7 @@ crashRoundFairBtn.addEventListener("click", () => {
                 return;
             }
             if (myContribution() + amount > MAX_BET_X + 1e-9) {
-                showToast("Максимум за раунд — " + fmtNum(MAX_BET_X) + "$", "error");
+                showToast("Максимум за раунд — " + fmtNum(MAX_BET_X) + "⭐️", "error");
                 return;
             }
             post(API + (mode === "join" ? "/join" : "/bet"), {
@@ -61920,4 +62195,66 @@ crashRoundFairBtn.addEventListener("click", () => {
             POT: POT
         }
     };
+})();
+
+// Read-only real-time channel. HTTP remains the authority for every bet and payout.
+(function() {
+    if (!window.WebSocket || !tgWebApp || !tgWebApp.initData || !CURRENT_UID) return;
+    let socket = null;
+    let reconnect = null;
+    let failures = 0;
+    let supportRevision = null;
+    let gamesRevision = null;
+    let stopped = false;
+    let connecting = false;
+    function schedule() {
+        if (stopped || reconnect) return;
+        reconnect = setTimeout(() => { reconnect = null; connect(); }, Math.min(30000, 1000 * 2 ** Math.min(failures++, 5)));
+    }
+    async function connect() {
+        if (stopped || document.hidden || socket || connecting) return;
+        connecting = true;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 10000);
+        try {
+            const response = await fetch('/api/realtime/session', {method: 'POST', signal: controller.signal});
+            if (!response.ok) { if (![401, 403, 404].includes(response.status)) schedule(); return; }
+            const session = await response.json();
+            if (!session.ok || !session.ticket || stopped || document.hidden) return;
+            const url = new URL('/api/ws', window.location.href);
+            url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+            const connection = new WebSocket(url.href);
+            socket = connection;
+            connection.onopen = () => connection.send(JSON.stringify({ticket: session.ticket}));
+            connection.onmessage = event => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'ready') { failures = 0; return; }
+                    if (data.type !== 'state') return;
+                    if (userDataLoaded && Number.isFinite(data.balance) && data.balance !== currentUser.balance) applyBalance(data.balance);
+                    const revision = JSON.stringify(data.supportRevision);
+                    const supportChanged = supportRevision !== null && supportRevision !== revision;
+                    supportRevision = revision;
+                    const nextGames = JSON.stringify(data.games);
+                    const gamesChanged = gamesRevision !== null && gamesRevision !== nextGames;
+                    gamesRevision = nextGames;
+                    if (gamesChanged && !document.hidden) {
+                        if (currentGame === 'краш' && crashPollTimer) loadCrashState();
+                        if (currentGame === 'рулетка' && roulettePollTimer) loadRouletteState();
+                    }
+                    if (supportChanged && typeof supportBadgePoll === 'function') supportBadgePoll();
+                    window.dispatchEvent(new CustomEvent('mjrstar:realtime', {detail: {...data, supportChanged, gamesChanged}}));
+                } catch (_) {}
+            };
+            connection.onclose = () => { if (socket === connection) socket = null; schedule(); };
+            connection.onerror = () => connection.close();
+        } catch (_) { schedule(); }
+        finally { connecting = false; clearTimeout(timer); }
+    }
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) { if (socket) socket.close(); }
+        else connect();
+    });
+    window.addEventListener('pagehide', () => { stopped = true; clearTimeout(reconnect); if (socket) socket.close(); });
+    connect();
 })();

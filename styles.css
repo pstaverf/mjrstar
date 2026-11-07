@@ -1,28 +1,28 @@
 @charset "UTF-8";
   @font-face{
     font-family:'Unbounded';
-    src:url('/fonts/Unbounded-400.woff2') format('woff2'), url('/fonts/Unbounded-400.ttf') format('truetype');
+    src:url('/fonts/Unbounded-Regular.ttf') format('truetype');
     font-weight:400;
     font-style:normal;
     font-display:swap;
   }
   @font-face{
     font-family:'Unbounded';
-    src:url('/fonts/Unbounded-600.woff2') format('woff2'), url('/fonts/Unbounded-600.ttf') format('truetype');
+    src:url('/fonts/Unbounded-Medium.ttf') format('truetype');
     font-weight:600;
     font-style:normal;
     font-display:swap;
   }
   @font-face{
     font-family:'Unbounded';
-    src:url('/fonts/Unbounded-800.woff2') format('woff2'), url('/fonts/Unbounded-800.ttf') format('truetype');
+    src:url('/fonts/Unbounded-Medium.ttf') format('truetype');
     font-weight:800;
     font-style:normal;
     font-display:swap;
   }
   @font-face{
     font-family:'Montserrat';
-    src:url('/fonts/Montserrat-600.woff2') format('woff2'), url('/fonts/Montserrat-600.ttf') format('truetype');
+    src:url('/fonts/Montserrat-SemiBold.ttf') format('truetype');
     font-weight:400 900;
     font-style:normal;
     font-display:swap;
@@ -8332,9 +8332,9 @@
   html.perf-low .lb-content > *, html.lite-ui .lb-content > *{animation:none;}
   html.perf-low .lb-content, html.lite-ui .lb-content{transition:none;}
 
-  @font-face{font-family:involve;src:url('/fonts/involve-400.woff2') format('woff2');font-weight:400;font-style:normal;font-display:swap}
-  @font-face{font-family:involve;src:url('/fonts/involve-500.woff2') format('woff2');font-weight:500;font-style:normal;font-display:swap}
-  @font-face{font-family:involve;src:url('/fonts/involve-600.woff2') format('woff2');font-weight:600;font-style:normal;font-display:swap}
+  @font-face{font-family:involve;src:url('/fonts/Montserrat-SemiBold.ttf') format('truetype');font-weight:400;font-style:normal;font-display:swap}
+  @font-face{font-family:involve;src:url('/fonts/Montserrat-SemiBold.ttf') format('truetype');font-weight:500;font-style:normal;font-display:swap}
+  @font-face{font-family:involve;src:url('/fonts/Montserrat-SemiBold.ttf') format('truetype');font-weight:600;font-style:normal;font-display:swap}
 
   #captchaModal.subgate-overlay{
     --a-bg:#dee5f9; --a-content:#262a41; --a-muted:rgba(38,42,65,.62); --a-blue:#4681ff;
@@ -9159,11 +9159,11 @@
   .wheel-sector-cell.placed{opacity:.4; pointer-events:none;}
   .wheel-table-dozens{grid-column:1 / -1; display:grid; grid-template-columns:repeat(3, 1fr); gap:7px; margin-top:3px;}
   .wheel-my-bet i.c-sector{background:var(--gold-1);}
-@font-face{font-family:'MontserratReg';src:url('/fonts/Montserrat-400.woff2') format('woff2');font-weight:400;font-style:normal;font-display:swap}
-@font-face{font-family:'MontserratReg';src:url('/fonts/Montserrat-400.woff2') format('woff2');font-weight:400;font-style:normal;font-display:swap}
-@font-face{font-family:'MontserratReg';src:url('/fonts/Montserrat-400.woff2') format('woff2');font-weight:400;font-style:normal;font-display:swap}
-@font-face{font-family:'MontserratReg';src:url('/fonts/Montserrat-400.woff2') format('woff2');font-weight:400;font-style:normal;font-display:swap}
-@font-face{font-family:'MontserratReg';src:url('/fonts/Montserrat-400.woff2') format('woff2');font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:'MontserratReg';src:url('/fonts/Montserrat-SemiBold.ttf') format('truetype');font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:'MontserratReg';src:url('/fonts/Montserrat-SemiBold.ttf') format('truetype');font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:'MontserratReg';src:url('/fonts/Montserrat-SemiBold.ttf') format('truetype');font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:'MontserratReg';src:url('/fonts/Montserrat-SemiBold.ttf') format('truetype');font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:'MontserratReg';src:url('/fonts/Montserrat-SemiBold.ttf') format('truetype');font-weight:400;font-style:normal;font-display:swap}
 .wt-head{margin:14px 12px 0;padding:10px 12px 8px;border-radius:20px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--hi)}
 .wt-head-mid{min-width:0}
 .wt-head-title{font-size:11px;font-weight:600;letter-spacing:.7px;text-transform:uppercase;color:var(--text-2);margin-bottom:8px}
@@ -9690,3 +9690,33 @@ html.lite-ui .bc-glow{display:none}
 .bc-rb-hand .bc-card + .bc-card{margin-left:calc(var(--bc-rb-cw) * -0.42);}
 .bc-rb-hand .bc-cards:has(.bc-card:nth-child(3)) .bc-card + .bc-card{margin-left:calc(var(--bc-rb-cw) * -0.46);}
 .blackjack-hand-label.blackjack-pvp-hand-label{text-transform:none; letter-spacing:0; font-size:12.5px; padding:6px 14px 6px 8px;}
+
+.backend-unavailable-notice {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+    z-index: 2147483647;
+    padding: 12px 16px;
+    border: 1px solid #d98a45;
+    border-radius: 16px;
+    background: #23252c;
+    color: #f5f3ee;
+    font: 13px/1.5 sans-serif;
+    text-align: center;
+    pointer-events: none;
+}
+
+.balance-currency{
+  display:inline-block;
+  width:1.25em;
+  max-width:1.25em;
+  height:1.25em;
+  max-height:1.25em;
+  margin-inline-start:.3em;
+  margin-inline-end:0;
+  object-fit:contain;
+  vertical-align:-.2em;
+  flex-shrink:0;
+}
+.text-skel > .balance-currency{visibility:hidden;}

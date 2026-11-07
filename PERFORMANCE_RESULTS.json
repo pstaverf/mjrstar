@@ -1,0 +1,53 @@
+{
+  "scope": "Local isolated microbenchmark; not production throughput or Telegram/browser E2E",
+  "support_200_tickets": {
+    "before_n_plus_one": {
+      "median_ms": 112.059,
+      "select_queries": 401,
+      "runs": 5
+    },
+    "after_batched": {
+      "median_ms": 2.235,
+      "select_queries": 2,
+      "runs": 5
+    }
+  },
+  "websocket_64_snapshots": {
+    "elapsed_ms": 34.273,
+    "select_queries": 130,
+    "before_expected_queries": 256,
+    "note": "One viewer simulated repeatedly; no private balance cache. Public game phases shared for 500ms."
+  },
+  "gzip_assets": {
+    "app.js": {
+      "source_bytes": 3221627,
+      "gzip_bytes": 954380,
+      "reduction_percent": 70.4,
+      "cold_compress_ms": 87.25
+    },
+    "styles.css": {
+      "source_bytes": 519462,
+      "gzip_bytes": 89448,
+      "reduction_percent": 82.8,
+      "cold_compress_ms": 11.992
+    },
+    "app_shell.html": {
+      "source_bytes": 167794,
+      "gzip_bytes": 26093,
+      "reduction_percent": 84.4,
+      "cold_compress_ms": 3.238
+    },
+    "support.js": {
+      "source_bytes": 65256,
+      "gzip_bytes": 15657,
+      "reduction_percent": 76.0,
+      "cold_compress_ms": 1.444
+    },
+    "index.html": {
+      "source_bytes": 37474,
+      "gzip_bytes": 9953,
+      "reduction_percent": 73.4,
+      "cold_compress_ms": 0.666
+    }
+  }
+}
