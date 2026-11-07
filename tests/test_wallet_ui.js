@@ -29,7 +29,7 @@ const context = vm.createContext({
     psNum: value => String(value),
     profileStatRowHTML: (icon, label, value) => label + ":" + value,
     formatDate: String,
-    escapeHtml: String,
+    escapeHtml: value => String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"),
     csRingAttr: () => "",
     checksBarRow: (label, cls, amount) => label + ":" + amount,
     PS_DAY_MILESTONES: [7, 30]
@@ -40,6 +40,14 @@ assert.ok(methods.indexOf('data-deposit-method="cryptobot"') < methods.indexOf('
 assert.ok(methods.indexOf('data-deposit-method="xrocket"') < methods.indexOf('data-deposit-method="stars"'));
 assert.match(methods, /data-deposit-method="tonkeeper" disabled aria-disabled="true"/);
 assert.match(methods, /временно недоступно/);
+context.depositState.methodsEnabled.xrocket = false;
+context.depositState.methodErrors = {xrocket: "xRocket: JWT повреждён <script>bad</script>"};
+const unavailable = context.depositMainStepHTML();
+assert.ok(!unavailable.includes('data-deposit-method="xrocket"'));
+assert.match(unavailable, /JWT повреждён/);
+assert.ok(unavailable.includes("&lt;script&gt;"));
+assert.ok(!unavailable.includes("<script>"));
+assert.ok(unavailable.includes('data-deposit-method="stars"'));
 vm.runInContext(topFunction("profileStatsRowsHTML") + topFunction("profileStatsChartHTML"), context);
 const stats = {balance: 1, turnover: 2, winPercent: 0, registrationDate: "2026-11-07", deposits: 0, cashouts: 0, bonuses: 12.5, daysWithUs: 1};
 assert.match(context.profileStatsRowsHTML(stats), /Бонусы:12.5/);

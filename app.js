@@ -28720,6 +28720,7 @@ function depositFreshState() {
         pollTimer: null,
         tickTimer: null,
         methodsEnabled: null,
+        methodErrors: {},
         limits: null,
         creditedAmount: null,
         wager: null,
@@ -29042,7 +29043,8 @@ function depositMainStepHTML() {
         return '<button class="deposit-method-btn" type="button" data-deposit-method="' + m + '"' + (m === "tonkeeper" ? ' disabled aria-disabled="true"' : "") + '>' + '<span class="deposit-method-center">' + '<span class="deposit-method-icon">' + info.icon + "</span>" + "<span>" + info.label + (m === "tonkeeper" ? " · временно недоступно" : "") + "</span>" + promoBadge + "</span>" + '<span class="deposit-method-arrow"><svg viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>' + "</button>";
     }).join("");
     const quickBtns = DEPOSIT_QUICK_AMOUNTS.map(v => '<button class="deposit-quick-btn" type="button" data-deposit-quick="' + v + '">' + v + "⭐️</button>").join("");
-    return depositPromoBannerHTML() + depositTagBannerHTML() + '<div class="deposit-hint center">Укажите сумму пополнения</div>' + '<div class="deposit-amount-row">' + '<input class="deposit-amount-input" id="depositAmountInput" type="text" inputmode="decimal" placeholder="0⭐️" ' + 'value="' + (depositState.amount ? String(depositState.amount) + "⭐️" : "") + '" ' + 'data-raw-amount="' + (depositState.amount || "") + '">' + "</div>" + '<div class="deposit-limits-hint">Минимум — от ' + fmtNum(min) + "⭐️ в зависимости от способа оплаты</div>" + depositPromoPreviewHTML(depositState.amount) + depositTagPreviewHTML(depositState.amount) + '<div class="deposit-error" id="depositError"></div>' + '<div class="deposit-quick-label">' + lazyImgTag("/lottie/images/ПопулярныеИгры.lottie", "", "") + "Популярное</div>" + '<div class="deposit-quick-row">' + quickBtns + "</div>" + '<div class="deposit-method-label"><img src="images/СпособПополнения.png" alt="" onerror="this.remove()">Способ пополнения</div>' + '<div class="deposit-method-list">' + (rows || '<div class="dice-history-empty">Нет доступных способов оплаты</div>') + "</div>";
+    const methodErrors = Object.values(depositState.methodErrors || {}).filter(v => typeof v === "string").map(v => '<div class="deposit-limits-hint">' + escapeHtml(v) + '</div>').join("");
+    return methodErrors + depositPromoBannerHTML() + depositTagBannerHTML() + '<div class="deposit-hint center">Укажите сумму пополнения</div>' + '<div class="deposit-amount-row">' + '<input class="deposit-amount-input" id="depositAmountInput" type="text" inputmode="decimal" placeholder="0⭐️" ' + 'value="' + (depositState.amount ? String(depositState.amount) + "⭐️" : "") + '" ' + 'data-raw-amount="' + (depositState.amount || "") + '">' + "</div>" + '<div class="deposit-limits-hint">Минимум — от ' + fmtNum(min) + "⭐️ в зависимости от способа оплаты</div>" + depositPromoPreviewHTML(depositState.amount) + depositTagPreviewHTML(depositState.amount) + '<div class="deposit-error" id="depositError"></div>' + '<div class="deposit-quick-label">' + lazyImgTag("/lottie/images/ПопулярныеИгры.lottie", "", "") + "Популярное</div>" + '<div class="deposit-quick-row">' + quickBtns + "</div>" + '<div class="deposit-method-label"><img src="images/СпособПополнения.png" alt="" onerror="this.remove()">Способ пополнения</div>' + '<div class="deposit-method-list">' + (rows || '<div class="dice-history-empty">Нет доступных способов оплаты</div>') + "</div>";
 }
 
 function depositCurrencyStepHTML() {
@@ -29176,6 +29178,7 @@ function openWalletDepositPage() {
     fetch("/api/deposit/info").then(r => r.json()).then(data => {
         if (data && data.ok) {
             depositState.methodsEnabled = data.methods;
+            depositState.methodErrors = data.methodErrors || {};
             depositState.limits = data.limits;
             depositState.promo = data.promo || null;
             depositState.tagPromo = data.tagPromo || null;

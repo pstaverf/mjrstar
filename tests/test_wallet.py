@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from complete_games import CompleteGamesBackend
 from games_backend import GameError
 from payments_backend import verify_crypto_signature, verify_rocket_signature
+from payment_errors import PaymentProviderError, provider_rejection
 import test_games_backend as legacy_tests
 
 
@@ -419,6 +420,72 @@ class WalletTests(unittest.IsolatedAsyncioTestCase):
         message.answer.assert_awaited_once()
 
 
+    async def test_rejected_create_is_failed_not_stuck_and_fresh_request_works(self):
+        await self.configure()
+        normal_api = self.backend.payment_api
+        rejected = PaymentProviderError("cryptobot", "Safe rejection", "PROVIDER_AUTH_REJECTED", 401, definitive=True)
+        self.backend.payment_api = AsyncMock(side_effect=rejected)
+        key = secrets.token_hex(16)
+        path = "/api/deposit/cryptobot/create"
+        status, data = await self.post(path, {"amount": 10}, key=key)
+        self.assertEqual((status, data["code"], data["providerStatus"]), (502, "PROVIDER_AUTH_REJECTED", 401))
+        async with self.runtime.db().execute("SELECT id,status FROM webapp_deposits WHERE request_key=?", (key,)) as cursor:
+            order_id, state = await cursor.fetchone()
+        self.assertEqual(state, "failed")
+        self.assertEqual((await self.post(path, {"amount": 10}, key=key))[0], 409)
+        self.assertEqual(self.backend.payment_api.await_count, 1)
+        self.assertEqual((await self.get("/api/deposit/cryptobot/status?invoiceId=" + order_id))[1]["status"], "failed")
+        self.assertEqual(self.backend.payment_api.await_count, 1)
+        self.backend.payment_api = normal_api
+        self.assertEqual((await self.post(path, {"amount": 10}, key=secrets.token_hex(16)))[0], 200)
+        self.assertEqual(await self.runtime.get_balance(42), 1000)
+
+    async def test_ambiguous_post_keeps_creating_and_same_key_never_reposts(self):
+        await self.configure()
+        self.backend.payment_api = AsyncMock(side_effect=PaymentProviderError("cryptobot", "Timeout", "PROVIDER_CONNECTION_FAILED"))
+        key = secrets.token_hex(16)
+        path = "/api/deposit/cryptobot/create"
+        self.assertEqual((await self.post(path, {"amount": 10}, key=key))[0], 502)
+        async with self.runtime.db().execute("SELECT status FROM webapp_deposits WHERE request_key=?", (key,)) as cursor:
+            self.assertEqual((await cursor.fetchone())[0], "creating")
+        self.assertEqual((await self.post(path, {"amount": 10}, key=key))[0], 409)
+        self.assertEqual(self.backend.payment_api.await_count, 1)
+        self.assertEqual(await self.runtime.get_balance(42), 1000)
+
+    async def test_xrocket_get_failure_does_not_leave_ambiguous_post(self):
+        await self.configure()
+        self.backend.payment_api = AsyncMock(side_effect=PaymentProviderError("xrocket", "Timeout", "PROVIDER_CONNECTION_FAILED"))
+        key = secrets.token_hex(16)
+        self.assertEqual((await self.post("/api/deposit/xrocket/create", {"amount": 10, "currency": "USDT"}, key=key))[0], 502)
+        async with self.runtime.db().execute("SELECT status FROM webapp_deposits WHERE request_key=?", (key,)) as cursor:
+            self.assertEqual((await cursor.fetchone())[0], "failed")
+        self.assertTrue(all(call.args[1] == "GET" for call in self.backend.payment_api.await_args_list))
+
+    async def test_crypto_accepts_mini_app_link(self):
+        await self.configure()
+        normal_api = self.backend.payment_api
+        async def api(provider, method, path, data=None):
+            result = await normal_api(provider, method, path, data)
+            if path == "createInvoice":
+                result.pop("bot_invoice_url")
+                result["mini_app_invoice_url"] = "https://t.me/CryptoBot/app?startapp=test"
+            return result
+        self.backend.payment_api = api
+        invoice = await self.create_invoice()
+        self.assertEqual(invoice["payUrl"], "https://t.me/CryptoBot/app?startapp=test")
+        self.assertEqual(await self.runtime.get_balance(42), 1000)
+
+    async def test_info_reports_broken_xrocket_configuration_without_token(self):
+        await self.configure()
+        self.backend.payment_tokens["xrocket"] = "broken.jwt.private-secret"
+        status, info = await self.get("/api/deposit/info")
+        self.assertEqual(status, 200)
+        self.assertFalse(info["methods"]["xrocket"])
+        self.assertTrue(info["methods"]["stars"])
+        self.assertIn("xrocket", info["methodErrors"])
+        self.assertNotIn("private-secret", json.dumps(info))
+
+
 class PaymentSignatureTests(unittest.TestCase):
     def test_exact_bytes_and_rocket_timestamp_version(self):
         body = b'{ "value": 1 }'
@@ -437,7 +504,7 @@ class PaymentSignatureTests(unittest.TestCase):
 class PaymentClientTests(unittest.IsolatedAsyncioTestCase):
     async def test_real_client_envelopes_headers_and_empty_delete_response(self):
         backend = CompleteGamesBackend(None, None, None, None)
-        backend.payment_tokens = {"cryptobot": "test-crypto", "xrocket": "test-rocket"}
+        backend.payment_tokens = {"cryptobot": "test-crypto", "xrocket": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJsb2NhbC10ZXN0In0.dGVzdA"}
         response = SimpleNamespace(status=200, read=AsyncMock())
         session = MagicMock()
         session.request.return_value.__aenter__.return_value = response
@@ -453,7 +520,7 @@ class PaymentClientTests(unittest.IsolatedAsyncioTestCase):
             result = await backend.payment_api("xrocket", "GET", "/api/v1/rates", {"assets": "TON"})
             self.assertEqual(result[0]["rate"], "2")
             self.assertEqual(session.request.call_args.kwargs["params"], {"assets": "TON"})
-            self.assertEqual(session.request.call_args.kwargs["headers"], {"Authorization": "Bearer test-rocket"})
+            self.assertEqual(session.request.call_args.kwargs["headers"], {"Authorization": "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJsb2NhbC10ZXN0In0.dGVzdA"})
             response.read.return_value = b""
             self.assertEqual(await backend.payment_api("xrocket", "DELETE", "/api/v1/invoice?invoiceId=1"), {})
             response.read.return_value = b'{"ok":false}'
@@ -464,3 +531,37 @@ class PaymentClientTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(GameError) as raised:
                 await backend.payment_api("xrocket", "GET", "/api/v1/rates")
             self.assertEqual(raised.exception.status, 429)
+
+    async def test_upstream_auth_and_html_errors_are_safe(self):
+        backend = CompleteGamesBackend(None, None, None, None)
+        backend.payment_tokens = {"cryptobot": "secret-token"}
+        response = SimpleNamespace(status=401, read=AsyncMock(return_value=b'<html>secret-token</html>'))
+        session = MagicMock()
+        session.request.return_value.__aenter__.return_value = response
+        with patch("payments_backend.aiohttp.ClientSession") as factory:
+            factory.return_value.__aenter__.return_value = session
+            with self.assertRaises(PaymentProviderError) as raised:
+                await backend.payment_api("cryptobot", "POST", "createInvoice", {})
+            self.assertTrue(raised.exception.definitive)
+            self.assertEqual(raised.exception.code, "PROVIDER_AUTH_REJECTED")
+            self.assertNotIn("secret-token", str(raised.exception))
+            response.status = 503
+            with self.assertRaises(PaymentProviderError) as raised:
+                await backend.payment_api("cryptobot", "POST", "createInvoice", {})
+            self.assertFalse(raised.exception.definitive)
+            response.status = 200
+            response.read.return_value = b'{"ok":false,"error":{"code":401,"name":"UNAUTHORIZED","message":"secret-token"}}'
+            with self.assertRaises(PaymentProviderError) as raised:
+                await backend.payment_api("cryptobot", "POST", "createInvoice", {})
+            self.assertEqual(raised.exception.code, "PROVIDER_AUTH_REJECTED")
+            self.assertNotIn("secret-token", str(raised.exception))
+
+    async def test_invalid_rocket_jwt_is_rejected_before_network(self):
+        backend = CompleteGamesBackend(None, None, None, None)
+        backend.payment_tokens = {"xrocket": "broken.jwt.secret"}
+        with patch("payments_backend.aiohttp.ClientSession") as factory:
+            with self.assertRaises(PaymentProviderError) as raised:
+                await backend.payment_api("xrocket", "POST", "/api/v1/invoices", {})
+            self.assertEqual(raised.exception.code, "XROCKET_TOKEN_MALFORMED")
+            self.assertTrue(raised.exception.definitive)
+            factory.assert_not_called()

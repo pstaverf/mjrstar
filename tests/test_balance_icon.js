@@ -49,6 +49,6 @@ for (const match of shell.matchAll(/<img\b[^>]*class="balance-currency"[^>]*>/g)
 }
 assert.ok(source.includes('src="images/TelegramStars.png" width="24" height="24" style="width:24px;height:24px;object-fit:contain"'));
 const index = fs.readFileSync("index.html", "utf8");
-assert.ok(index.includes("majorstars-performance-20261107-6"));
-assert.ok(fs.readFileSync("sw.js", "utf8").includes("mjrstar-static-v30"));
+assert.ok(index.includes("majorstars-payments-20261107-7"));
+assert.ok(fs.readFileSync("sw.js", "utf8").includes("mjrstar-static-v31"));
 console.log("Balance currency image, intrinsic and inline dimensions, loading state, animation and cache version: passed");

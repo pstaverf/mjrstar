@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import re
 import secrets
 import time
@@ -13,6 +14,7 @@ import aiohttp
 from aiogram.types import LabeledPrice
 
 from games_backend import GameError, integer, money_cents
+from payment_errors import PaymentProviderError, rocket_token_problem, provider_rejection, invoice_pay_url
 
 
 STAR_USD = Decimal("0.022")
@@ -89,15 +91,27 @@ class PaymentsMixin:
         self.referral_notices_task = asyncio.create_task(self.referral_notices_loop())
 
     def payment_token(self, provider):
-        return getattr(self, "payment_tokens", {}).get(provider, {"cryptobot": CRYPTOBOT_API_TOKEN, "xrocket": XROCKET_API_TOKEN}.get(provider))
+        defaults = {"cryptobot": CRYPTOBOT_API_TOKEN, "xrocket": XROCKET_API_TOKEN}
+        env_name = {"cryptobot": "CRYPTOBOT_API_TOKEN", "xrocket": "XROCKET_API_TOKEN"}.get(provider)
+        default = os.environ.get(env_name, defaults.get(provider)) if env_name else None
+        token = getattr(self, "payment_tokens", {}).get(provider, default)
+        return token.strip() if isinstance(token, str) else None
 
     def rocket_secret(self):
-        return getattr(self, "xrocket_webhook_secret", XROCKET_WEBHOOK_SECRET)
+        secret = getattr(self, "xrocket_webhook_secret", os.environ.get("XROCKET_WEBHOOK_SECRET", XROCKET_WEBHOOK_SECRET))
+        return secret.strip() if isinstance(secret, str) else None
 
     async def payment_api(self, provider, method, path, data=None):
         token = self.payment_token(provider)
         if not token:
-            raise GameError("Платёжный провайдер ещё не настроен.", 503)
+            raise PaymentProviderError(provider, "Платёжный провайдер ещё не настроен.", "PROVIDER_NOT_CONFIGURED", definitive=True, status=503)
+        if not token.isascii() or any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in token):
+            raise PaymentProviderError(provider, "API-токен содержит недопустимые символы. Замените его оригиналом из настроек провайдера.", "PROVIDER_TOKEN_MALFORMED", definitive=True, status=503)
+        if provider == "xrocket":
+            problem = rocket_token_problem(token)
+            if problem:
+                message = "xRocket: API JWT повреждён. Замените его оригинальным токеном из настроек приложения Current API." if problem != "XROCKET_TOKEN_EXPIRED" else "xRocket: срок API JWT истёк. Выпустите новый токен в настройках приложения."
+                raise PaymentProviderError(provider, message, problem, definitive=True, status=503)
         if not hasattr(self, "provider_retry_until"):
             self.provider_retry_until = {}
         endpoint = provider + ":" + path.split("?")[0]
@@ -116,16 +130,39 @@ class PaymentsMixin:
                             retry_after = 60
                         self.provider_retry_until[endpoint] = time.monotonic() + retry_after
                         raise GameError("Платёжный сервис занят. Повторите позже.", 429)
-                    result = json.loads(raw) if raw else {} if method == "DELETE" else None
-                    if response.status >= 300 or (provider == "cryptobot" and (not isinstance(result, dict) or result.get("ok") is not True)):
-                        raise GameError("Провайдер отклонил запрос. Счёт не создан или недоступен.", 502)
+                    try:
+                        result = json.loads(raw) if raw else {} if method == "DELETE" else None
+                    except (ValueError, UnicodeError):
+                        result = None
+                    malformed = result is None or provider == "cryptobot" and (not isinstance(result, dict) or not isinstance(result.get("ok"), bool))
+                    if response.status >= 300 or provider == "cryptobot" and not malformed and result["ok"] is False:
+                        error = provider_rejection(provider, response.status, result)
+                        logging.warning("Payment provider rejection: provider=%s endpoint=%s status=%s code=%s", provider, path.split("?")[0], response.status, error.code)
+                        raise error
+                    if malformed:
+                        raise PaymentProviderError(provider, "Провайдер вернул некорректный ответ. Проверьте статус счёта перед повторной попыткой.", "PROVIDER_BAD_RESPONSE")
                     return result.get("result") if provider == "cryptobot" else result
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
-            raise GameError("Нет ответа от платёжного сервиса. Проверьте статус позже.", 502) from None
+        except (aiohttp.ClientError, asyncio.TimeoutError):
+            logging.warning("Payment provider transport failure: provider=%s endpoint=%s", provider, path.split("?")[0])
+            raise PaymentProviderError(provider, "Нет соединения с API платёжного провайдера. Проверьте исходящий HTTPS сервера; статус счёта можно проверить позже.", "PROVIDER_CONNECTION_FAILED") from None
+
+    def payment_failure(self, error):
+        if isinstance(error, PaymentProviderError):
+            return self.response({"ok": False, "error": error.message, "code": error.code, "provider": error.provider, "providerStatus": error.upstream_status}, error.status)
+        return self.failure(error)
 
     async def handle_deposit_info(self, request):
         self.validate_user(request)
-        return self.response({"ok": True, "methods": {"cryptobot": bool(self.payment_token("cryptobot")), "xrocket": bool(self.payment_token("xrocket") and self.rocket_secret()), "stars": getattr(self, "telegram_bot", None) is not None, "tonkeeper": False, "sbp": False, "laveshka": False}, "limits": {"min_deposit_cryptobot": 1, "min_deposit_xrocket": 1, "min_deposit_stars": 1}, "usdPerStar": str(STAR_USD), "promo": None, "tagPromo": None})
+        crypto_ready = bool(self.payment_token("cryptobot"))
+        rocket_problem = rocket_token_problem(self.payment_token("xrocket"))
+        errors = {}
+        if not crypto_ready:
+            errors["cryptobot"] = "CryptoBot: API-токен не настроен."
+        if rocket_problem:
+            errors["xrocket"] = "xRocket: API-токен отсутствует, повреждён или истёк. Нужен оригинальный JWT Current API."
+        elif not self.rocket_secret():
+            errors["xrocket"] = "xRocket: Webhook Secret не настроен."
+        return self.response({"ok": True, "methods": {"cryptobot": crypto_ready, "xrocket": not rocket_problem and bool(self.rocket_secret()), "stars": getattr(self, "telegram_bot", None) is not None, "tonkeeper": False, "sbp": False, "laveshka": False}, "methodErrors": errors, "limits": {"min_deposit_cryptobot": 1, "min_deposit_xrocket": 1, "min_deposit_stars": 1}, "usdPerStar": str(STAR_USD), "promo": None, "tagPromo": None})
 
     async def deposit_row(self, connection, order_id, user_id=None):
         sql = "SELECT id,user_id,provider,provider_id,stars_cents,price_amount,price_currency,status,created_at,expires_at,pay_url FROM webapp_deposits WHERE id = ?"
@@ -141,6 +178,16 @@ class PaymentsMixin:
 
     def deposit_result(self, order):
         return {"ok": True, "invoiceId": order["id"], "invoiceLink": order["pay_url"], "payUrl": order["pay_url"], "expiresIn": max(0, order["expires_at"] - int(time.time())), "status": order["status"], "paid": order["status"] == "paid", "creditedAmount": order["stars_cents"] / 100 if order["status"] == "paid" else 0, "amount": order["stars_cents"] / 100, "priceAmount": order["price_amount"], "priceCurrency": order["price_currency"]}
+
+    async def deposit_creation_failed(self, order_id):
+        async with self.database_lock:
+            connection = self.database()
+            try:
+                await connection.execute("UPDATE webapp_deposits SET status='failed' WHERE id=? AND status='creating'", (order_id,))
+                await connection.commit()
+            except BaseException:
+                await connection.rollback()
+                raise
 
     async def handle_deposit_create(self, request):
         try:
@@ -166,7 +213,9 @@ class PaymentsMixin:
                             raise GameError("Идентификатор использован для другого счёта.", 409)
                         order = await self.deposit_row(connection, existing[0], user.id)
                         if order["status"] == "creating":
-                            raise GameError("Счёт ещё создаётся. Не оплачивайте другой счёт до проверки.", 409)
+                            raise GameError("Результат создания ещё не подтверждён. Сначала проверьте статус счёта.", 409)
+                        if order["status"] == "failed":
+                            raise GameError("Провайдер отклонил этот запрос. Исправьте настройки или сумму и создайте новый счёт.", 409)
                         return self.response(self.deposit_result(order))
                     async with connection.execute("SELECT COUNT(*) FROM webapp_deposits WHERE user_id = ? AND created_at >= ?", (user.id, self.clock().fromtimestamp(time.time() - 60, self.clock().tzinfo).isoformat())) as cursor:
                         if (await cursor.fetchone())[0] >= 5:
@@ -186,17 +235,22 @@ class PaymentsMixin:
                     except BaseException:
                         await connection.rollback()
                         raise
+                creation_sent = False
                 try:
                     if provider == "stars":
+                        creation_sent = True
                         pay_url = await self.telegram_bot.create_invoice_link(title="MajorStars", description=f"Пополнение баланса на {cents // 100} Stars", payload=order_id, currency="XTR", prices=[LabeledPrice(label="Stars", amount=cents // 100)], provider_token="")
                         provider_id = order_id
                     elif provider == "cryptobot":
+                        creation_sent = True
                         invoice = await self.payment_api(provider, "POST", "createInvoice", {"currency_type": "fiat", "fiat": "USD", "amount": str(price), "payload": order_id, "expires_in": PAYMENT_LIFETIME, "description": f"MajorStars: {cents / 100:g} Stars", "allow_comments": False, "allow_anonymous": False})
-                        provider_id, pay_url = str(invoice["invoice_id"]), invoice["bot_invoice_url"]
+                        provider_id, pay_url = str(invoice["invoice_id"]), invoice_pay_url(provider, invoice)
                     else:
                         currency = await self.rocket_currency(currency)
                         rates = await self.payment_api(provider, "GET", "/api/v1/rates", {"base": "USD", "assets": currency})
-                        rate = next((decimal_amount(item.get("rate")) for item in rates if item.get("currency") == currency), None)
+                        if not isinstance(rates, list):
+                            raise GameError("Некорректный формат курса валют. Проверьте версию API xRocket.", 502)
+                        rate = next((decimal_amount(item.get("rate")) for item in rates if isinstance(item, dict) and item.get("currency") == currency), None)
                         if rate is None:
                             raise GameError("Нет курса выбранной валюты.", 502)
                         price = (price / rate).quantize(Decimal("0.00000001"), rounding=ROUND_UP)
@@ -204,11 +258,18 @@ class PaymentsMixin:
                             connection = self.database()
                             await connection.execute("UPDATE webapp_deposits SET price_amount = ?,price_currency = ? WHERE id = ?", (str(price), currency, order_id))
                             await connection.commit()
+                        creation_sent = True
                         invoice = await self.payment_api(provider, "POST", "/api/v1/invoices", {"priceAmount": str(price), "priceCurrency": currency, "numPayments": 1, "clientInvoiceId": order_id, "expiresIn": PAYMENT_LIFETIME * 1000, "description": f"MajorStars: {cents / 100:g} Stars", "callback": {"callbackUrl": "https://mjrr.wisp.uno/xrocket", "payload": {"orderId": order_id}}})
-                        provider_id, pay_url = str(invoice["id"]), invoice["links"]["telegramBotLink"]
-                    if not isinstance(pay_url, str) or not pay_url.startswith("https://t.me/"):
+                        provider_id, pay_url = str(invoice["id"]), invoice_pay_url(provider, invoice)
+                    if provider == "stars" and (not isinstance(pay_url, str) or not pay_url.startswith("https://t.me/")):
                         raise GameError("Провайдер вернул некорректную ссылку.", 502)
+                except GameError as error:
+                    if not creation_sent or isinstance(error, PaymentProviderError) and error.definitive:
+                        await self.deposit_creation_failed(order_id)
+                    raise
                 except (KeyError, TypeError, StopIteration):
+                    if not creation_sent:
+                        await self.deposit_creation_failed(order_id)
                     raise GameError("Некорректный ответ платёжного сервиса.", 502) from None
                 async with self.database_lock:
                     connection = self.database()
@@ -221,7 +282,7 @@ class PaymentsMixin:
                     order = await self.deposit_row(connection, order_id, user.id)
                 return self.response(self.deposit_result(order))
         except GameError as error:
-            return self.failure(error)
+            return self.payment_failure(error)
 
     def invoice_matches(self, order, invoice):
         if not isinstance(invoice, dict):
@@ -301,7 +362,7 @@ class PaymentsMixin:
                 order = await self.deposit_row(self.database(), request.query.get("invoiceId", ""), user.id)
             if order["provider"] != provider:
                 raise GameError("Счёт не найден.", 404)
-            if provider != "stars" and order["status"] != "paid":
+            if provider != "stars" and order["status"] not in {"paid", "failed"}:
                 if provider == "cryptobot" and order["provider_id"]:
                     result = await self.payment_api(provider, "GET", "getInvoices", {"invoice_ids": order["provider_id"]})
                     invoices = result.get("items", [])
@@ -321,7 +382,7 @@ class PaymentsMixin:
                 result["status"] = "expired"
             return self.response(result)
         except GameError as error:
-            return self.failure(error)
+            return self.payment_failure(error)
 
     async def handle_deposit_cancel(self, request):
         try:

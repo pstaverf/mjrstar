@@ -113,3 +113,7 @@ Inline-режим отправляет уже созданные активны�
 - https://docs.xrocket.exchange/api/pay/reference/http/rate-controller-get-rates
 - https://docs.xrocket.exchange/api/pay/webhooks/signature
 - https://docs.xrocket.exchange/api/pay/webhooks/invoice
+
+## Диагностика создания счетов
+
+См. [PAYMENT_DIAGNOSTICS.md](PAYMENT_DIAGNOSTICS.md): безопасная проверка API без создания счетов, повреждённый fallback JWT xRocket, переменные окружения и ограничения локальных тестов. При деплое обязательно включить новый `payment_errors.py`.
