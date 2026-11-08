@@ -4648,6 +4648,7 @@ async def init_db() -> None:
             "created_at TEXT NOT NULL"
             ")"
         )
+        await conn.execute("CREATE TABLE IF NOT EXISTS webapp_admin_deposits(source TEXT PRIMARY KEY,admin_id INTEGER NOT NULL,chat_id INTEGER NOT NULL,message_id INTEGER NOT NULL,user_id INTEGER NOT NULL,username TEXT NOT NULL,amount INTEGER NOT NULL,balance_after REAL NOT NULL,created_at TEXT NOT NULL,UNIQUE(chat_id,message_id))")
         await conn.execute(
             "CREATE TABLE IF NOT EXISTS nonce_counter ("
             "user_id INTEGER PRIMARY KEY, "
@@ -4991,6 +4992,76 @@ async def claim_withdrawal(withdrawal_id: int, new_status: str) -> dict | None:
         except BaseException:
             await conn.rollback()
             raise
+
+
+async def admin_deposit_atomic(admin_id: int, chat_id: int, message_id: int, username: str, amount: int) -> dict:
+    """Admin-issued deposit; all financial records commit or roll back together."""
+    if ADMIN_ID <= 0 or admin_id != ADMIN_ID:
+        raise GameError("Команда доступна только администратору.", 403)
+    if (not isinstance(username, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{2,31}", username)
+            or type(amount) is not int or not 1 <= amount <= 1000000
+            or type(chat_id) is not int or type(message_id) is not int or message_id <= 0):
+        raise GameError("Формат: /addep @username 50. Сумма — целое число от 1 до 1 000 000 Stars.")
+    if _wallet_backend is None:
+        raise GameError("Платёжный учёт ещё не готов. Попробуйте позже.", 503)
+    username = username.lower()
+    source = f"admin-deposit:{chat_id}:{message_id}"
+    async with _db_lock:
+        conn = db()
+        try:
+            await conn.execute("BEGIN IMMEDIATE")
+            async with conn.execute("SELECT admin_id,user_id,username,amount,balance_after FROM webapp_admin_deposits WHERE source=?", (source,)) as cursor:
+                replay = await cursor.fetchone()
+            if replay:
+                if replay[0] != admin_id or replay[2] != username or replay[3] != amount:
+                    raise GameError("Это сообщение уже использовано для другого начисления. Отправьте новую команду.", 409)
+                await conn.rollback()
+                return {"user_id": replay[1], "amount": amount, "balance": replay[4], "new": False}
+            async with conn.execute("SELECT user_id FROM usernames WHERE username = ? COLLATE NOCASE LIMIT 2", (username,)) as cursor:
+                users = await cursor.fetchall()
+            if not users:
+                raise GameError("Пользователь не найден. Он должен сначала открыть бота; username должен быть сохранён в приложении.", 404)
+            if len(users) != 1:
+                raise GameError("Username связан с несколькими записями. Уточните пользователя — начисление не выполнено.", 409)
+            user_id = int(users[0][0])
+            stamp = now_msk().isoformat()
+            await conn.execute("INSERT INTO payments(charge_id,user_id,amount,created_at) VALUES (?,?,?,?)", (source, user_id, amount, stamp))
+            await _wallet_backend.wallet_credit(conn, user_id, amount * 100, "deposit", source)
+            await _wallet_backend.referral_credit(conn, user_id, amount * 100, source)
+            async with conn.execute("SELECT amount FROM balances WHERE user_id=?", (user_id,)) as cursor:
+                balance = float((await cursor.fetchone())[0])
+            await conn.execute("INSERT INTO webapp_admin_deposits(source,admin_id,chat_id,message_id,user_id,username,amount,balance_after,created_at) VALUES (?,?,?,?,?,?,?,?,?)", (source, admin_id, chat_id, message_id, user_id, username, amount, balance, stamp))
+            await conn.commit()
+            return {"user_id": user_id, "amount": amount, "balance": balance, "new": True}
+        except BaseException:
+            await conn.rollback()
+            raise
+
+
+@router.message(Command("addep", ignore_case=True))
+async def cmd_addep(message: Message) -> None:
+    if message.from_user is None or ADMIN_ID <= 0 or message.from_user.id != ADMIN_ID:
+        return
+    if message.chat.type != ChatType.PRIVATE:
+        await message.answer("Запустите /addep в личном чате с ботом.", parse_mode=None)
+        return
+    parts = (message.text or "").split()
+    if (len(parts) != 3 or not re.fullmatch(r"/[Aa][Dd][Dd][Ee][Pp](?:@[A-Za-z0-9_]+)?", parts[0])
+            or not re.fullmatch(r"@[A-Za-z][A-Za-z0-9_]{2,31}", parts[1])
+            or not re.fullmatch(r"[0-9]{1,7}", parts[2])):
+        await message.answer("Формат: /addep @username 50. Сумма — целое число от 1 до 1 000 000 Stars.", parse_mode=None)
+        return
+    try:
+        result = await admin_deposit_atomic(message.from_user.id, message.chat.id, message.message_id, parts[1][1:], int(parts[2]))
+    except GameError as error:
+        await message.answer(error.message, parse_mode=None)
+        return
+    except Exception as error:
+        logging.error("Admin deposit failed: %s", type(error).__name__)
+        await message.answer("Результат начисления не подтверждён. Проверьте историю до отправки новой команды. Автоматическая повторная доставка исходного сообщения защищена от двойного начисления.", parse_mode=None)
+        return
+    title = "Депозит начислен" if result["new"] else "Это сообщение уже обработано; повторного начисления нет"
+    await message.answer(f"{title}: @{parts[1][1:]} (ID {result['user_id']})\n+{result['amount']} Stars\nБаланс после начисления: {result['balance']:g} Stars.\nСумма учитывается как депозит, включая реферальные начисления.", parse_mode=None)
 
 
 async def credit_payment(charge_id: str, user_id: int, amount: int) -> float | None:
@@ -10916,7 +10987,7 @@ class PaymentsMixin:
                 raise GameError("Неизвестный фильтр.")
             async with self.database_lock:
                 connection = self.database()
-                sources = ["SELECT 'deposit' AS type,stars_cents/100.0 AS amount,CASE provider WHEN 'cryptobot' THEN 'CryptoBot' WHEN 'xrocket' THEN 'xRocket' WHEN 'tonkeeper' THEN 'Tonkeeper (TON)' ELSE 'Stars' END AS description,status,strftime('%s',COALESCE(paid_at,created_at)) AS created_at,user_id FROM webapp_deposits WHERE status != 'creating'", "SELECT 'deposit',amount,'Stars','paid',strftime('%s',created_at),user_id FROM payments WHERE charge_id NOT IN (SELECT provider_id FROM webapp_deposits WHERE provider_id IS NOT NULL)", "SELECT 'withdrawal',amount,'Stars',status,strftime('%s',created_at),user_id FROM withdrawals", "SELECT 'withdrawal',quantity,'Stars · Fragment',state,strftime('%s',created_at),user_id FROM webapp_star_withdrawals"]
+                sources = ["SELECT 'deposit' AS type,stars_cents/100.0 AS amount,CASE provider WHEN 'cryptobot' THEN 'CryptoBot' WHEN 'xrocket' THEN 'xRocket' WHEN 'tonkeeper' THEN 'Tonkeeper (TON)' ELSE 'Stars' END AS description,status,strftime('%s',COALESCE(paid_at,created_at)) AS created_at,user_id FROM webapp_deposits WHERE status != 'creating'", "SELECT 'deposit',amount,CASE WHEN substr(charge_id,1,14)='admin-deposit:' THEN 'Депозит от администратора' ELSE 'Stars' END,'paid',strftime('%s',created_at),user_id FROM payments WHERE charge_id NOT IN (SELECT provider_id FROM webapp_deposits WHERE provider_id IS NOT NULL)", "SELECT 'withdrawal',amount,'Stars',status,strftime('%s',created_at),user_id FROM withdrawals", "SELECT 'withdrawal',quantity,'Stars · Fragment',state,strftime('%s',created_at),user_id FROM webapp_star_withdrawals"]
                 condition = " WHERE user_id = ?"
                 values = [user.id]
                 if filter_name != "all":
