@@ -55,6 +55,7 @@ assert EMOJI_CATALOG
 from payments_backend import TON_WALLET_MNEMONIC, TON_WALLET_SEED_FILE, FRAGMENT_API_JWT
 assert TON_WALLET_MNEMONIC == TON_WALLET_SEED_FILE == FRAGMENT_API_JWT == ''
 app.main = lambda: print('ENTRYPOINT_OK')
+bundle['_CONFIG'].update(BOT_TOKEN='123456:test-only-placeholder', WEBHOOK_HOST='https://example.test', WEBHOOK_SECRET='test-only-secret', ADMIN_ID=42)
 sys.argv = ['server.py']
 bundle['main']()
 ''')

@@ -4,10 +4,10 @@ Toncenter and its API key are no longer mandatory or hardcoded. The server resto
 
 ## Secret storage
 
-Configuration is in the labelled `payments_backend.py` section inside the sole backend file `server.py`. Two exclusive server-only seed sources are supported:
+Configuration is in **private `conf.json` beside `server.py`**. Use `conf.example.json` for field names; see `CONFIGURATION.md` for the full setup. Two exclusive server-only seed sources are supported:
 
-- Recommended: set `TON_WALLET_SEED_FILE` to an absolute local path. The file must be a regular file, owned by the application user, permissions **0600**, not a symlink, at most 4096 bytes. Inside this repository, only `.secrets/` is accepted; outside the repository, use a private directory outside any web root.
-- Alternatively, fill `TON_WALLET_MNEMONIC` only on the deployed server. Leave it empty in Git. It is deliberately empty in this patch. **A source-code seed committed to Git becomes visible in repository history.** Do not put it in command arguments, logs, a chat, browser forms, Telegram messages or database records.
+- Recommended: set `TON_WALLET_SEED_FILE` to a private file. It must be a regular file, owned by the application user, permissions **0600**, not a symlink, at most 4096 bytes. Inside this repository, only `.secrets/` is accepted; outside the repository, keep it outside any web root. Relative paths are resolved from the configuration directory.
+- Alternatively, fill `TON_WALLET_MNEMONIC` in `conf.json` only on the server. The configuration file also requires **0600**, is ignored by Git, and must not be uploaded to a public asset directory. Never put a real phrase into `server.py` or the public example.
 
 Set only one source. Use a local editor to enter the phrase; never a shell command containing the words. `.secrets/` and `*.ton-seed` are ignored by Git. Protect directory access too (0700), keep a protected recovery backup, and do not run the app as root. The application does not automatically create/fund a new wallet, overwrite an existing phrase or persist generated private keys.
 

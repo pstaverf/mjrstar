@@ -2,8 +2,8 @@
 # Canonical backend source. All Python backend modules are maintained below.
 # No neighbouring Python modules or emoji_catalog.json are required to run this file.
 # Frontend assets (including sw.js and support.js) stay separate and unchanged.
-# IMPORTANT: this file contains server configuration. Never publish it as a web asset.
-# If deploying only this file, edit settings in its main / payments_backend sections.
+# Secrets and deployment settings are read from private conf.json beside this file.
+# Copy conf.example.json to conf.json on a new host; never publish the private file.
 import argparse as _argparse
 import asyncio as _asyncio
 import importlib as _importlib
@@ -12,6 +12,106 @@ import importlib.util as _importlib_util
 from pathlib import Path as _Path
 import sys as _sys
 import types as _types
+
+import json as _json
+import os as _os
+import stat as _stat
+
+
+class ConfigError(ValueError):
+    """A redacted configuration error: never include JSON contents or secrets."""
+
+
+_CONFIG_DEFAULTS = {'BOT_TOKEN': '', 'CHANNEL_ID': '@mjrstars', 'CHANNEL_URL': 'https://t.me/mjrstars', 'CHAT_URL': 'https://t.me/mjrstars', 'WEBHOOK_HOST': '', 'WEBHOOK_PATH': '/webhook', 'WEBHOOK_SECRET': '', 'WEBAPP_HOST': '0.0.0.0', 'WEBAPP_PORT': 16341, 'ADMIN_ID': 0, 'BOT_USERNAME': 'mjrstarsbot', 'CRYPTOBOT_API_TOKEN': '', 'XROCKET_API_TOKEN': '', 'XROCKET_WEBHOOK_SECRET': '', 'FRAGMENT_API_JWT': '', 'FRAGMENT_CURRENCY': 'ton', 'TONKEEPER_ADDRESS': '', 'TON_WALLET_MNEMONIC': '', 'TON_WALLET_SEED_FILE': '', 'TON_WALLET_VERSION': 'v4r2', 'TON_WALLET_WORKCHAIN': 0, 'TON_WALLET_ID': None, 'TON_RPC_URL': '', 'TON_USD_RATE': ''}
+_MODULE_CONFIG = {'main': ['BOT_TOKEN', 'WEBHOOK_SECRET', 'WEBHOOK_HOST', 'WEBHOOK_PATH', 'WEBAPP_HOST', 'WEBAPP_PORT', 'ADMIN_ID', 'BOT_USERNAME', 'CHANNEL_ID', 'CHANNEL_URL', 'CHAT_URL'], 'payments_backend': ['CRYPTOBOT_API_TOKEN', 'XROCKET_API_TOKEN', 'XROCKET_WEBHOOK_SECRET', 'FRAGMENT_API_JWT', 'FRAGMENT_CURRENCY', 'TONKEEPER_ADDRESS', 'TON_WALLET_MNEMONIC', 'TON_WALLET_SEED_FILE', 'TON_WALLET_VERSION', 'TON_WALLET_WORKCHAIN', 'TON_WALLET_ID', 'TON_RPC_URL', 'TON_USD_RATE']}
+
+
+def _load_config(path=None):
+    filename = _Path(path) if path is not None else _Path(__file__).resolve().with_name('conf.json')
+    fd = None
+    def object_pairs(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError
+            result[key] = value
+        return result
+    def no_constants(value):
+        raise ValueError
+    try:
+        fd = _os.open(filename, _os.O_RDONLY | _os.O_NOFOLLOW | _os.O_NONBLOCK)
+        info = _os.fstat(fd)
+        if not _stat.S_ISREG(info.st_mode) or _stat.S_IMODE(info.st_mode) != 0o600 or info.st_uid != _os.geteuid() or info.st_size > 65536:
+            raise ConfigError('conf.json должен быть обычным файлом владельца процесса с правами 0600, размером до 64 КБ.')
+        raw = _os.read(fd, 65537)
+        if len(raw) > 65536:
+            raise ValueError
+        data = _json.loads(raw.decode('utf-8'), object_pairs_hook=object_pairs, parse_constant=no_constants)
+    except FileNotFoundError:
+        if path is None:
+            return dict(_CONFIG_DEFAULTS)
+        raise ConfigError('Файл конфигурации не найден.') from None
+    except ConfigError:
+        raise
+    except (OSError, ValueError, UnicodeError):
+        raise ConfigError('Не удалось прочитать conf.json: проверьте JSON, отсутствие повторяющихся ключей и доступ к файлу.') from None
+    finally:
+        if fd is not None:
+            _os.close(fd)
+    if not isinstance(data, dict) or set(data) - set(_CONFIG_DEFAULTS):
+        raise ConfigError('conf.json: ожидается JSON-объект с полями из conf.example.json, без неизвестных ключей.')
+    result = dict(_CONFIG_DEFAULTS)
+    result.update(data)
+    for key, value in result.items():
+        if key in {'ADMIN_ID', 'WEBAPP_PORT', 'TON_WALLET_WORKCHAIN'}:
+            valid = type(value) is int
+        elif key == 'TON_WALLET_ID':
+            valid = value is None or type(value) is int and 0 <= value < 2 ** 32
+        elif key == 'CHANNEL_ID':
+            valid = isinstance(value, str) or type(value) is int
+        else:
+            valid = isinstance(value, str) and len(value) <= 8192
+        if not valid:
+            raise ConfigError('conf.json: неверный тип поля ' + key + '. См. conf.example.json.')
+    if result['ADMIN_ID'] < 0 or not 1 <= result['WEBAPP_PORT'] <= 65535 or result['TON_WALLET_WORKCHAIN'] != 0:
+        raise ConfigError('conf.json: проверьте ADMIN_ID, WEBAPP_PORT и TON_WALLET_WORKCHAIN (поддержан 0).')
+    if result['FRAGMENT_CURRENCY'] not in {'ton', 'usdt_ton'} or result['TON_WALLET_VERSION'] not in {'v3r2', 'v4r2'}:
+        raise ConfigError('conf.json: неподдерживаемая валюта Fragment или версия TON-кошелька.')
+    if result['TON_WALLET_MNEMONIC'].strip() and result['TON_WALLET_SEED_FILE'].strip():
+        raise ConfigError('conf.json: задайте только TON_WALLET_MNEMONIC или TON_WALLET_SEED_FILE, не оба.')
+    if result['TON_WALLET_SEED_FILE'] and not _Path(result['TON_WALLET_SEED_FILE']).is_absolute():
+        result['TON_WALLET_SEED_FILE'] = str(filename.resolve().parent / result['TON_WALLET_SEED_FILE'])
+    return result
+
+
+_CONFIG = _load_config()
+
+
+def _require_startup_config():
+    # Diagnostics/imports can run without secrets; starting the bot cannot.
+    required = ('BOT_TOKEN', 'WEBHOOK_HOST', 'WEBHOOK_SECRET')
+    missing = [key for key in required if not _CONFIG[key].strip()]
+    if missing:
+        raise ConfigError('Заполните conf.json перед запуском: ' + ', '.join(missing) + '.')
+    from aiogram.utils.token import validate_token
+    try:
+        validate_token(_CONFIG['BOT_TOKEN'])
+    except Exception:
+        raise ConfigError('Проверьте BOT_TOKEN в conf.json: неверный формат.') from None
+    from urllib.parse import urlsplit
+    import re
+    try:
+        url = urlsplit(_CONFIG['WEBHOOK_HOST'])
+        valid_host = url.scheme == 'https' and bool(url.hostname) and not url.username and not url.password and not url.query and not url.fragment
+    except ValueError:
+        valid_host = False
+    if not valid_host or not _CONFIG['WEBHOOK_PATH'].startswith('/'):
+        raise ConfigError('В conf.json нужны HTTPS WEBHOOK_HOST и WEBHOOK_PATH, начинающийся с /.')
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,256}', _CONFIG['WEBHOOK_SECRET']):
+        raise ConfigError('WEBHOOK_SECRET: 1–256 символов A–Z, a–z, 0–9, _ или -.')
+    if _CONFIG['ADMIN_ID'] <= 0:
+        raise ConfigError('Заполните ADMIN_ID в conf.json: положительный числовой Telegram ID.')
+
 
 _SOURCES = {}
 
@@ -3889,10 +3989,10 @@ from aiogram.types import (
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiogram.utils.web_app import safe_parse_webapp_init_data
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8861223578:AAEPy9SNIVtHHTiOvWJqjRbnkm4g_q_oLsg")
-CHANNEL_ID = "@mjrstars"
-CHANNEL_URL = "https://t.me/mjrstars"
-CHAT_URL = "https://t.me/mjrstars"
+BOT_TOKEN = __server_config__['BOT_TOKEN']
+CHANNEL_ID = __server_config__['CHANNEL_ID']
+CHANNEL_URL = __server_config__['CHANNEL_URL']
+CHAT_URL = __server_config__['CHAT_URL']
 
 DB_PATH = "bot.db"
 BACKUP_PATH = "bot_backup.db"
@@ -3903,11 +4003,11 @@ DB_LOCK_TIMEOUT = 30
 
 HASH_ALPHABET = string.ascii_lowercase + string.digits
 
-WEBHOOK_HOST = "https://mjrr.wisp.uno"
-WEBHOOK_PATH = "/webhook"
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "kJ8xQ2mNpR7vT4wYbG3zLdF6hS9cV1aZ")
-WEBAPP_HOST = "0.0.0.0"
-WEBAPP_PORT = 16341
+WEBHOOK_HOST = __server_config__['WEBHOOK_HOST']
+WEBHOOK_PATH = __server_config__['WEBHOOK_PATH']
+WEBHOOK_SECRET = __server_config__['WEBHOOK_SECRET']
+WEBAPP_HOST = __server_config__['WEBAPP_HOST']
+WEBAPP_PORT = __server_config__['WEBAPP_PORT']
 
 HOUSE_EDGE = 0.90
 MAX_MULTIPLIER = 10.0
@@ -3916,7 +4016,7 @@ MIN_BET = 0.5
 ALL_IN_ALIASES = {"все", "всё", "вб", "банк"}
 HALF_ALIASES = {"пол", "половина", "половину", "хаф"}
 
-ADMIN_ID = 6025818386
+ADMIN_ID = __server_config__['ADMIN_ID']
 
 MSK = timezone(timedelta(hours=3))
 BONUS_COOLDOWN = timedelta(hours=12)
@@ -3932,7 +4032,7 @@ REF_DEPOSIT_PERCENT = 0.10
 REF_BASE_LIMIT = 2
 REF_LIMIT_PER_DEPOSIT = 2
 REF_MIN_WITHDRAW = 10
-BOT_USERNAME = "mjrstarsbot"
+BOT_USERNAME = __server_config__['BOT_USERNAME']
 
 WITHDRAW_MIN_BALANCE = 50
 WITHDRAW_MIN_DEPOSIT = 50
@@ -10339,9 +10439,9 @@ from payment_errors import PaymentProviderError, rocket_token_problem, provider_
 
 STAR_USD = Decimal("0.022")
 PAYMENT_LIFETIME = 1800
-CRYPTOBOT_API_TOKEN = '670149:AAXxMq9ZqHlwddhRrFi2WG6abLgvQHh8GKu'
-XROCKET_API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBJZCI6IjMwODI2OCIsImp0aSI6ImFwcDozMDgyNjg6YTYxZjNlMDItNDNkZS00NDNhLTlhYjgtM2MzOTdiMjgwZGQ5IiwiaWF0IjoxNzk0MDU2OTc1fQ.jCniaBQGV9KgL0khf_Qey6n1hbyP2GSWFAzh5abgTbI'
-XROCKET_WEBHOOK_SECRET = '7dffd69477299e2783f6cfee665149d19bcc23393ae4a02829f52050070acdd7'
+CRYPTOBOT_API_TOKEN = __server_config__['CRYPTOBOT_API_TOKEN']
+XROCKET_API_TOKEN = __server_config__['XROCKET_API_TOKEN']
+XROCKET_WEBHOOK_SECRET = __server_config__['XROCKET_WEBHOOK_SECRET']
 
 
 def decimal_amount(value):
@@ -10902,19 +11002,19 @@ class PaymentsMixin:
 
 
 # Fragment Connection JWT from the provider dashboard (raw JWT, never a bot token).
-FRAGMENT_API_JWT = ""
-FRAGMENT_CURRENCY = "ton"  # or usdt_ton; USDT settlement still needs TON for gas
+FRAGMENT_API_JWT = __server_config__['FRAGMENT_API_JWT']
+FRAGMENT_CURRENCY = __server_config__['FRAGMENT_CURRENCY']  # or usdt_ton; USDT settlement still needs TON for gas
 # Native TON receiving wallet. Empty configuration keeps Tonkeeper disabled.
-TONKEEPER_ADDRESS = ""
+TONKEEPER_ADDRESS = __server_config__['TONKEEPER_ADDRESS']
 # Server-side seed: fill inline ONLY on the deployed server, or use a 0600 file.
 # Never commit a real seed. Neither source is ever sent to the network/browser.
-TON_WALLET_MNEMONIC = ""
-TON_WALLET_SEED_FILE = ""
-TON_WALLET_VERSION = "v4r2"  # explicit v3r2/v4r2; V5 is not silently reinterpreted
-TON_WALLET_WORKCHAIN = 0
-TON_WALLET_ID = None  # None = SDK default; match the actual wallet's subwallet ID
-TON_RPC_URL = ""  # Own mainnet v3-compatible read-only indexer, e.g. http://127.0.0.1:8081/api/v3
-TON_USD_RATE = ""  # Explicit server-side USD per TON; no client-supplied rates
+TON_WALLET_MNEMONIC = __server_config__['TON_WALLET_MNEMONIC']
+TON_WALLET_SEED_FILE = __server_config__['TON_WALLET_SEED_FILE']
+TON_WALLET_VERSION = __server_config__['TON_WALLET_VERSION']  # explicit v3r2/v4r2; V5 is not silently reinterpreted
+TON_WALLET_WORKCHAIN = __server_config__['TON_WALLET_WORKCHAIN']
+TON_WALLET_ID = __server_config__['TON_WALLET_ID']  # None = SDK default; match the actual wallet's subwallet ID
+TON_RPC_URL = __server_config__['TON_RPC_URL']  # Own mainnet v3-compatible read-only indexer, e.g. http://127.0.0.1:8081/api/v3
+TON_USD_RATE = __server_config__['TON_USD_RATE']  # Explicit server-side USD per TON; no client-supplied rates
 '''
 
 # ==================== pot_games.py ====================
@@ -12899,6 +12999,7 @@ class _EmbeddedModules(_importlib_abc.MetaPathFinder, _importlib_abc.Loader):
         filename = str(_Path(__file__).resolve().with_name(name + '.py'))
         module.__file__ = filename
         module.__bundled_resources__ = _RESOURCES
+        module.__server_config__ = {key: _CONFIG[key] for key in _MODULE_CONFIG.get(name, ())}
         exec(compile(_SOURCES[name], filename, 'exec'), module.__dict__)
 
 
@@ -12916,6 +13017,7 @@ def load_application(name='main'):
     module = _types.ModuleType(name)
     module.__file__ = str(_Path(__file__).resolve().with_name('main.py'))
     module.__bundled_resources__ = _RESOURCES
+    module.__server_config__ = {key: _CONFIG[key] for key in _MODULE_CONFIG['main']}
     _sys.modules[name] = module
     try:
         exec(compile(_SOURCES['main'], module.__file__, 'exec'), module.__dict__)
@@ -12946,12 +13048,19 @@ def main():
     parser = _argparse.ArgumentParser(description='MajorStars single-file Python server')
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--check', action='store_true', help='Import/check bundled backend without starting it')
+    mode.add_argument('--check-config', action='store_true', help='Check conf.json for bot startup without network requests')
     mode.add_argument('--check-ton-wallet', action='store_true', help='Check server wallet without exposing its seed')
     parser.add_argument('--local-only', action='store_true', help='Only local seed/address check (with --check-ton-wallet)')
     args = parser.parse_args()
     if args.local_only and not args.check_ton_wallet:
         parser.error('--local-only requires --check-ton-wallet')
-    if args.check:
+    if args.check_config:
+        try:
+            _require_startup_config()
+        except ConfigError as error:
+            parser.error(str(error))
+        print('Configuration OK; no network requests made.')
+    elif args.check:
         for name in _SOURCES:
             _importlib.import_module(name)
         print('Bundle OK: ' + str(len(_SOURCES)) + ' Python modules; no server started.')
@@ -12963,6 +13072,10 @@ def main():
             print(error.message if isinstance(error, errors.GameError) else 'Wallet check failed; check server settings.', file=_sys.stderr)
             raise SystemExit(1) from None
     else:
+        try:
+            _require_startup_config()
+        except ConfigError as error:
+            parser.error(str(error))
         load_application().main()
 
 

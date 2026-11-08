@@ -29,17 +29,17 @@ python server.py --check-ton-wallet
 
 The first verifies local mnemonic/address derivation only. The second also uses the configured own mainnet gateway to check the deployed wallet account. Neither accepts or prints a seed phrase.
 
-## Editing settings and backend code
+## Settings and backend code
 
-Edit **`server.py` directly**. There is no rebuild step. Search for its labelled source sections, such as:
+**All secrets and deployment settings are in private `conf.json` beside `server.py`.** See `CONFIGURATION.md` for every field and use `conf.example.json` on a new host. The working file is ignored by Git and must be transferred separately; it is never served as a public asset. Require owner-only permissions `0600`, and restart after edits.
 
-- `main.py`: existing bot/server settings and application entry logic.
-- `payments_backend.py`: payment configuration, Fragment JWT, server seed configuration, own TON gateway and exchange rate.
-- `ton_wallet.py`, `ton_deposits.py`, other backend names: the corresponding implementation.
+```sh
+python server.py --check-config
+```
 
-These are section labels/module names, **not files that must exist on disk**. Each section is readable source inside a raw triple-quoted string. Preserve its outer delimiters. New backend code belongs in the appropriate section, not in a new root Python file. Internal imports use the embedded module loader.
+This validates bot startup settings without making provider/Telegram requests or printing secrets. Existing database paths are unchanged. Credentials no longer live in the embedded Python assignments or fall back to old source/env values.
 
-No new real seed or Fragment JWT was inserted. Prefer a private server-only `0600` seed file in `.secrets/` (never a public asset folder); keep secrets out of Git, chat, logs and command arguments. `server.py` itself contains server configuration and must not be served by a web server.
+`server.py` remains the sole backend source, with no rebuild step. Implementation changes belong in its labelled source sections (`main.py`, `payments_backend.py`, `ton_wallet.py`, etc.). These are internal module labels, not separate files. Preserve each source section’s surrounding raw-string delimiters. Do not put real credentials back into the Python code.
 
 ## Tests and tools
 

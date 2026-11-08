@@ -11,3 +11,7 @@ bot.db-wal
 # Server wallet secret files (never application assets).
 .secrets/
 *.ton-seed
+
+# Private runtime configuration; safe template is conf.example.json.
+/conf.json
+/conf.json.*

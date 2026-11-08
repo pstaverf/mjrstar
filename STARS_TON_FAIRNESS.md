@@ -2,7 +2,7 @@
 
 ## Configuration (disabled by default)
 
-Source configuration is in the `payments_backend.py` section of `server.py`; separate Python modules are no longer required. Never print these values in logs or API responses.
+Configuration/secrets are now in private `conf.json` beside `server.py`; use the safe `conf.example.json` template and `CONFIGURATION.md`. No separate Python modules or source-code secrets are required. Never print these values in logs or API responses.
 
 - `FRAGMENT_API_JWT`: raw **Fragment Connection JWT**, created in the provider dashboard. Not a Telegram bot token, not `/auth/authentication`.
 - `FRAGMENT_CURRENCY`: `ton` or `usdt_ton`. USDT settlement needs provider-wallet USDT **and TON for gas**. This does not enable USDT deposits.

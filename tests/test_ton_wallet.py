@@ -135,14 +135,16 @@ class TonWalletTests(unittest.IsolatedAsyncioTestCase):
             (root / '.secrets').mkdir()
             (root / '.secrets' / 'wallet.ton-seed').write_text('not-a-real-secret')
             (root / 'payments_backend.py').write_text('private-server-source')
+            (root / 'conf.json').write_text('private-test-configuration')
             (root / 'images' / 'seed.png').symlink_to(root / '.secrets' / 'wallet.ton-seed')
             (root / 'images' / 'source.png').symlink_to(root / 'payments_backend.py')
+            (root / 'images' / 'config.png').symlink_to(root / 'conf.json')
             (root / 'images' / 'visible.png').write_bytes(b'public-asset')
             runtime.WEBAPP_ROOT = root
             app = web.Application()
             app.router.add_get('/{path:.*}', runtime.webapp_asset)
             async with TestClient(TestServer(app)) as client:
-                for path in ('/images/seed.png', '/images/source.png', '/.secrets/wallet.ton-seed'):
+                for path in ('/images/seed.png', '/images/source.png', '/.secrets/wallet.ton-seed', '/conf.json', '/images/config.png'):
                     response = await client.get(path)
                     self.assertEqual(response.status, 404)
                 response = await client.get('/images/visible.png')
