@@ -28437,7 +28437,8 @@ function walletMethodDisplay(method) {
     if (method.indexOf("Stars") !== -1) return "Telegram Stars";
     if (method.indexOf("Tonkeeper") !== -1) {
         if (method.indexOf("USDT") !== -1) return "Tonkeeper (USDT)";
-        if (method.indexOf("TON") !== -1 || method.indexOf("GRAM") !== -1) return "Tonkeeper (GRAM)";
+        if (method.indexOf("TON") !== -1) return "Tonkeeper (TON)";
+        if (method.indexOf("GRAM") !== -1) return "Tonkeeper (GRAM)";
         return "Tonkeeper";
     }
     return method;
@@ -28680,7 +28681,7 @@ function loadWalletInfo() {
 
 function walletStatusHTML(r) {
     const s = r.status || "success";
-    if (s === "pending" || s === "processing" || s === "active" || s === "creating") return '<div class="wv-status pending">⏳ ' + escapeHtml(r.statusText || "На рассмотрении") + "</div>";
+    if (["queued", "submitting", "pending", "processing", "active", "creating", "blockchain_sent", "uncertain", "mismatch"].includes(s)) return '<div class="wv-status pending">⏳ ' + escapeHtml(r.statusText || "На рассмотрении") + "</div>";
     if (s === "rejected" || s === "failed" || s === "cancelled" || s === "expired") return '<div class="wv-status failed" title="' + escapeHtml(r.reason || "") + '">✕ ' + escapeHtml(r.statusText || "Отклонена") + "</div>";
     return '<div class="wv-status success">✓ Успешно</div>';
 }
@@ -28688,7 +28689,7 @@ function walletStatusHTML(r) {
 function walletAmountHTML(r, isOut) {
     const s = r.status || "success";
     if (s === "rejected" || s === "failed" || s === "cancelled" || s === "expired") return '<div class="wv-amount struck">' + fmtNum(r.amount) + "⭐️" + (r.refunded ? '<small>возвращено</small>' : "") + "</div>";
-    return '<div class="wv-amount' + (s === "pending" || s === "processing" || s === "active" || s === "creating" ? " waiting" : "") + '">' + (isOut ? "−" : "+") + fmtNum(r.amount) + "⭐️</div>";
+    return '<div class="wv-amount' + (["queued", "submitting", "pending", "processing", "active", "creating", "blockchain_sent", "uncertain", "mismatch"].includes(s) ? " waiting" : "") + '">' + (isOut ? "−" : "+") + fmtNum(r.amount) + "⭐️</div>";
 }
 
 function renderWalletMain() {
@@ -29109,7 +29110,7 @@ function depositMainStepHTML() {
         const promoMethod = depositPromoMethodInfo(m);
         const tagMethod = depositTagMethodInfo(m);
         const promoBadge = promoMethod ? '<span class="deposit-method-promo">+' + depositFmt4(depositState.promo.percent) + "%</span>" : tagMethod ? '<span class="deposit-method-promo">+' + depositFmt4(depositState.tagPromo.percent) + "%</span>" : "";
-        return '<button class="deposit-method-btn" type="button" data-deposit-method="' + m + '"' + (m === "tonkeeper" ? ' disabled aria-disabled="true"' : "") + '>' + '<span class="deposit-method-center">' + '<span class="deposit-method-icon">' + info.icon + "</span>" + "<span>" + info.label + (m === "tonkeeper" ? " · временно недоступно" : "") + "</span>" + promoBadge + "</span>" + '<span class="deposit-method-arrow"><svg viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>' + "</button>";
+        return '<button class="deposit-method-btn" type="button" data-deposit-method="' + m + '"' + (m === "tonkeeper" && !enabled.tonkeeper ? ' disabled aria-disabled="true"' : "") + '>' + '<span class="deposit-method-center">' + '<span class="deposit-method-icon">' + info.icon + "</span>" + "<span>" + info.label + (m === "tonkeeper" && !enabled.tonkeeper ? " · ещё не настроен" : "") + "</span>" + promoBadge + "</span>" + '<span class="deposit-method-arrow"><svg viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>' + "</button>";
     }).join("");
     const quickBtns = DEPOSIT_QUICK_AMOUNTS.map(v => '<button class="deposit-quick-btn" type="button" data-deposit-quick="' + v + '">' + v + "⭐️</button>").join("");
     const methodErrors = Object.values(depositState.methodErrors || {}).filter(v => typeof v === "string").map(v => '<div class="deposit-limits-hint">' + escapeHtml(v) + '</div>').join("");
@@ -29122,13 +29123,13 @@ function depositCurrencyStepHTML() {
 }
 
 function depositTonkeeperSkeletonHTML() {
-    return '<div class="deposit-hint" style="margin-bottom:2px;"><b style="color:var(--text-0);">' + lazyImgTag(liteAsset("/lottie/images/Баланс.lottie"), "", "deposit-hint-icon") + " Кошелёк:</b></div>" + '<div class="deposit-copy-row"><span class="text-skel" style="flex:1; height:34px; border-radius:10px;">кошелёк</span>' + '<span class="text-skel" style="width:96px; height:34px; border-radius:10px;">Копировать</span></div>' + '<div class="deposit-hint" style="margin-bottom:2px;"><b style="color:var(--text-0);">' + lazyImgTag(liteAsset("/lottie/images/ДатаРегистрации.lottie"), "", "deposit-hint-icon") + " Комментарий (обязательно):</b></div>" + '<div class="deposit-copy-row"><span class="text-skel" style="flex:1; height:34px; border-radius:10px;">комментарий</span>' + '<span class="text-skel" style="width:96px; height:34px; border-radius:10px;">Копировать</span></div>' + '<div class="deposit-limits-hint"><span class="text-skel" style="width:150px;">Минимум GRAM: 0.1 GRAM</span></div>' + '<div class="deposit-tonkeeper-links">' + '<span class="text-skel" style="height:44px; border-radius:14px;">GRAM</span>' + '<span class="text-skel" style="height:44px; border-radius:14px;">USDT</span>' + "</div>";
+    return '<div class="deposit-waiting"><div class="deposit-spinner"></div><div class="deposit-waiting-text">Создаём счёт в native TON…</div></div>';
 }
 
 function depositTonkeeperStepHTML() {
     const info = depositState.tonkeeperInfo;
     if (!info) return depositTonkeeperSkeletonHTML();
-    return '<div class="deposit-hint" style="margin-bottom:2px;"><b style="color:var(--text-0);">' + lazyImgTag(liteAsset("/lottie/images/Баланс.lottie"), "", "deposit-hint-icon") + " Кошелёк:</b></div>" + '<div class="deposit-copy-row"><code class="deposit-copy-value" id="depositTonWallet">' + info.wallet + "</code>" + '<button class="deposit-copy-btn" type="button" data-copy-target="depositTonWallet">Копировать</button></div>' + '<div class="deposit-hint" style="margin-bottom:2px;"><b style="color:var(--text-0);">' + lazyImgTag(liteAsset("/lottie/images/ДатаРегистрации.lottie"), "", "deposit-hint-icon") + " Комментарий (обязательно):</b></div>" + '<div class="deposit-copy-row"><code class="deposit-copy-value" id="depositTonComment">' + info.comment + "</code>" + '<button class="deposit-copy-btn" type="button" data-copy-target="depositTonComment">Копировать</button></div>' + '<div class="deposit-limits-hint">Минимум GRAM: ' + fmtNum(info.minTon) + " GRAM<br>Минимум USDT: " + fmtNum(info.minUsdt) + " USDT</div>" + '<div class="deposit-hint">Отправьте на этот кошелёк сумму не меньше минимальной с указанным комментарием — именно по нему бот определит, кому зачислить баланс. Зачисление происходит автоматически в течение нескольких секунд после подтверждения перевода в сети.</div>' + '<div class="deposit-warning">' + lazyImgTag("/lottie/images/ПредупреждениеОшибка.lottie", "", "deposit-warning-icon") + " Принимаются только GRAM и USDT! Любые другие монеты, отправленные на этот кошелёк, автоматически НЕ распознаются и сгорают безвозвратно.</div>" + '<div class="deposit-tonkeeper-links">' + '<a class="deposit-currency-btn" href="' + info.tonDeeplink + '" data-deposit-open="' + info.tonDeeplink + '"><img src="xrocket/gram.png" alt="">GRAM</a>' + '<a class="deposit-currency-btn" href="' + info.usdtDeeplink + '" data-deposit-open="' + info.usdtDeeplink + '"><img src="xrocket/usdt.png" alt="">USDT</a>' + "</div>";
+    return '<div class="deposit-hint">На баланс: ' + fmtNum(info.amount) + ' Stars · к оплате: ' + escapeHtml(info.tonAmount) + ' TON</div><div class="deposit-copy-row"><code id="depositTonWallet">' + escapeHtml(info.wallet) + '</code><button class="deposit-copy-btn" data-copy-target="depositTonWallet">Копировать</button></div><div class="deposit-hint">Комментарий обязателен:</div><div class="deposit-copy-row"><code id="depositTonComment">' + escapeHtml(info.comment) + '</code><button class="deposit-copy-btn" data-copy-target="depositTonComment">Копировать</button></div><div class="deposit-warning">Только native TON в mainnet, не GRAM и не USDT. Отправьте указанную сумму и комментарий в течение 30 минут. Комиссия сети оплачивается отдельно; излишек автоматически не зачисляется. Не отправляйте повторно.</div><a class="deposit-currency-btn" href="' + escapeHtml(info.tonDeeplink) + '" data-deposit-open="' + escapeHtml(info.tonDeeplink) + '">Оплатить через Tonkeeper</a><div class="deposit-hint">Ожидаем серверного подтверждения транзакции. Открытие кошелька не подтверждает оплату.</div>';
 }
 
 function depositSbpTimerText() {
@@ -29585,16 +29586,27 @@ function depositCreateStars() {
 }
 
 function depositShowTonkeeper() {
+    depositStopPolling();
+    depositState.tonkeeperInfo = null;
     depositState.step = "tonkeeper";
     renderDepositStep();
-    fetch("/api/deposit/tonkeeper/info?uid=" + CURRENT_UID).then(r => r.json()).then(data => {
-        if (data && data.ok) {
-            depositState.tonkeeperInfo = data;
-            if (depositState.step === "tonkeeper") renderDepositStep();
-        } else {
-            showToast(data && data.error || "Не удалось загрузить данные", "error");
-        }
-    }).catch(() => showToast("Ошибка сети", "error"));
+    const state = depositState;
+    const attempt = {};
+    state.tonkeeperAttempt = attempt;
+    fetch("/api/deposit/tonkeeper/create", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({uid: CURRENT_UID, amount: state.amount})}).then(r => r.json()).then(data => {
+        if (depositState !== state || state.step !== "tonkeeper" || state.tonkeeperAttempt !== attempt) return;
+        if (!data || !data.ok) throw new Error(data && data.error || "Не удалось создать TON-счёт");
+        state.tonkeeperInfo = data;
+        state.invoiceId = data.invoiceId;
+        state.invoiceDeadline = Date.now() + data.expiresIn * 1000;
+        renderDepositStep();
+        depositStartPolling(() => fetch("/api/deposit/tonkeeper/status?invoiceId=" + encodeURIComponent(data.invoiceId)).then(r => r.json()));
+    }).catch(error => {
+        if (depositState !== state || state.tonkeeperAttempt !== attempt) return;
+        showToast(error.message || "Проверьте соединение", "error");
+        state.step = "main";
+        renderDepositStep();
+    });
 }
 
 function depositConfirmCancel() {
@@ -29674,6 +29686,7 @@ function depositConfirmCancel() {
 }
 
 const WD_METHODS = {
+    stars: { label: "Telegram Stars", icon: '<img src="images/TelegramStars.png" alt="">' },
     cryptobot: {
         label: "CryptoBot",
         icon: '<img src="cryptobot/cryptobot.png" alt="">'
@@ -29756,7 +29769,7 @@ function wdUsd(v) {
 }
 
 function wdNewReqId() {
-    return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+    return (Date.now().toString(36) + Math.random().toString(36).slice(2, 10)).padEnd(16, "0");
 }
 
 function wdFetch(url, body) {
@@ -29898,6 +29911,9 @@ function wdSumRow(label, value, cls) {
 
 function wdConfirmHTML() {
     const q = wdState.quote;
+    if (q.method === "stars") {
+        return '<div class="deposit-hint center">Проверьте вывод Stars</div><div class="wd-sum">' + wdSumRow("Получатель", "@" + escapeHtml(q.username)) + wdSumRow("Будет отправлено", escapeHtml(String(q.quantity)) + " Stars") + wdSumRow("Резерв на балансе", wdUsd(q.quantity)) + '</div><div class="wd-note">Только на ваш Telegram username. Резерв возвращается после подтверждённого отказа провайдера. Таймаут не означает отмену.</div><div class="deposit-confirm-actions"><button class="gv-start-btn deposit-secondary-btn" type="button" data-wd="cancel">Отмена</button><button class="gv-start-btn" type="button" data-wd="confirm">Подтвердить</button></div>';
+    }
     let rows = wdSumRow("Способ", escapeHtml(q.provider)) + wdSumRow("Сумма", escapeHtml(wdNum(q.coinAmount, 8)) + " " + escapeHtml(q.display));
     if (q.method === "address") {
         rows += wdSumRow("Комиссия сети", escapeHtml(wdNum(q.fee, 8)) + " " + escapeHtml(q.display)) + wdSumRow("На адрес уйдёт", escapeHtml(wdNum(q.sendAmount, 8)) + " " + escapeHtml(q.display)) + wdSumRow("Сеть", escapeHtml(q.networkDisplay)) + wdSumRow("Адрес", escapeHtml(q.address));
@@ -29945,13 +29961,13 @@ function wdResultHTML() {
         return '<div class="deposit-success">' + wdStatusIconHTML(!(st && (st.state === "rejected" || st.state === "failed"))) + '<div class="deposit-success-title">' + escapeHtml(title) + '</div><div class="deposit-success-amount">' + wdUsd(r.usd != null ? r.usd : wdState.quote && wdState.quote.usd) + '</div><div class="deposit-waiting-text wd-pre">' + escapeHtml(line) + "</div>" + extra + done + "</div>";
     }
     if (r.status === "processing") {
-        return '<div class="deposit-waiting"><div class="deposit-spinner"></div><div class="deposit-waiting-title">' + escapeHtml(r.lwId ? "Выплата обрабатывается" : "Отправляем в блокчейн…") + '</div><div class="deposit-waiting-text">Сумма уже списана и в пути. Результат появится здесь и придёт в личные сообщения бота. Окно можно закрыть.</div>' + done + "</div>";
+        return '<div class="deposit-waiting"><div class="deposit-spinner"></div><div class="deposit-waiting-title">' + escapeHtml(r.lwId ? "Выплата обрабатывается" : "Отправляем в блокчейн…") + '</div><div class="deposit-waiting-text">Сумма зарезервирована. Статус появится здесь. Отправка в блокчейн ещё не означает завершение. Окно можно закрыть.</div>' + done + "</div>";
     }
     if (r.status === "done") {
         return '<div class="deposit-success">' + wdStatusIconHTML(true) + '<div class="deposit-success-title">Вывод выполнен!</div><div class="deposit-success-amount">' + escapeHtml(wdNum(r.sendAmount, 8)) + " " + escapeHtml(r.coin || "") + "</div>" + wdOpenBtn("Посмотреть транзакцию", r.txLink) + done + "</div>";
     }
     if (r.status === "slow") {
-        return '<div class="deposit-success">' + wdStatusIconHTML(true) + '<div class="deposit-success-title">Вывод обрабатывается</div><div class="deposit-waiting-text">Транзакция в блокчейне подтверждается дольше обычного. ID вывода: ' + escapeHtml(r.withdrawalId || "") + ". Если долго нет результата — обратитесь в поддержку с этим ID.</div>" + done + "</div>";
+        return '<div class="deposit-success">' + wdStatusIconHTML(true) + '<div class="deposit-success-title">Вывод обрабатывается</div><div class="deposit-waiting-text">' + escapeHtml(r.message || "Заказ ещё не подтверждён. Сумма остаётся в резерве.") + ' ID вывода: ' + escapeHtml(r.withdrawalId || "") + ". Если долго нет результата — обратитесь в поддержку с этим ID.</div>" + done + "</div>";
     }
     return '<div class="wd-block">' + wdStatusIconHTML(false) + '<div class="wd-block-title">' + escapeHtml(r.status === "failed" ? "Вывод не выполнен" : "Не удалось вывести") + '</div><div class="wd-block-text">' + escapeHtml(r.message || r.error || "Попробуйте позже.") + '</div><button class="gv-start-btn" type="button" data-wd="home">Понятно</button></div>';
 }
@@ -30052,6 +30068,7 @@ function wdLoadInfo() {
         }
         wdState.info = data;
         if (typeof data.balance === "number") applyBalance(data.balance);
+        if (data.activeWithdrawal) { wdFinish(data.activeWithdrawal); return; }
         wdGo(data.eligible ? "methods" : "block");
         if (!data.eligible) haptic("notification", "warning");
     });
@@ -30115,6 +30132,13 @@ function wdShowError(text) {
 }
 
 function wdChooseMethod(method) {
+    if (method === "stars") {
+        wdState.method = method;
+        wdState.coin = {code: "XTR", display: "Stars", decimals: 0, min: 50, max: wdState.info.limits.max};
+        wdState.amountRaw = "";
+        wdGo("amount");
+        return;
+    }
     wdState.method = method;
     wdState.coins = null;
     wdState.coin = null;
@@ -30209,8 +30233,8 @@ function wdFillAmount(which) {
 function wdQuote() {
     const input = document.getElementById("wdAmountInput");
     const v = wdParseInput(input && input.value);
-    if (!(v > 0)) {
-        wdShowError("Введите корректную сумму");
+    if (!(v > 0) || wdState.method === "stars" && (!Number.isInteger(v) || v < 50 || v > 1000000)) {
+        wdShowError(wdState.method === "stars" ? "Введите целое количество Stars: от 50 до 1 000 000" : "Введите корректную сумму");
         return;
     }
     wdState.amountRaw = input.value;
@@ -30281,7 +30305,7 @@ function wdPollJob(job) {
             if (d.status === "done" || d.status === "failed" || d.status === "slow") {
                 wdState.result = Object.assign({}, wdState.result, d);
                 wdGo("result");
-                haptic("notification", d.status === "failed" ? "error" : "success");
+                haptic("notification", d.status === "done" ? "success" : "warning");
                 setTimeout(loadUserState, 500);
                 return;
             }
@@ -30629,8 +30653,8 @@ wvBody.addEventListener("click", e => {
     const methodBtn = e.target.closest("[data-deposit-method]");
     if (methodBtn) {
         const method = methodBtn.dataset.depositMethod;
-        if (method === "tonkeeper") {
-            showToast("Пополнение через Tonkeeper временно недоступно", "warning");
+        if (method === "tonkeeper" && !(depositState.methodsEnabled || {}).tonkeeper) {
+            showToast("Пополнение через Tonkeeper ещё не настроено", "warning");
             return;
         }
         const input = document.getElementById("depositAmountInput");
@@ -30687,6 +30711,7 @@ wvBody.addEventListener("click", e => {
         } else if (method === "sbp") depositCreateSbp();
         else if (method === "laveshka") depositCreateLaveshka();
         else if (method === "stars") depositCreateStars();
+        else if (method === "tonkeeper") depositShowTonkeeper();
         return;
     }
     if (e.target.closest("#depositSbpLeave") || e.target.closest("#depositSbpRetry")) {
@@ -32061,7 +32086,7 @@ fairCheckSubmitBtn.addEventListener("click", () => {
         return;
     }
     const params = new URLSearchParams({
-        uid: fairCheckUidInput.value.trim(),
+        roundId: fairCheckUidInput.value.trim(),
         hash: fairCheckHashInput.value.trim(),
         seed: fairCheckSeedInput.value.trim(),
         game: fairCheckSelectedGame || ""
@@ -32075,13 +32100,11 @@ fairCheckSubmitBtn.addEventListener("click", () => {
             fairCheckResultEl.innerHTML = '<div class="fair-check-empty">Раунд не найден. Проверьте введённые данные.</div>';
             return;
         }
-        const opened = openFairCheckRoundBySource(data.source, data.roundId);
-        if (opened) {
-            fairCheckResultEl.innerHTML = "";
-            closeFairCheckModal();
-        } else {
-            fairCheckResultEl.innerHTML = '<div class="fair-check-empty">Не удалось открыть карточку раунда</div>';
-        }
+        fairCheckResultEl.innerHTML = '<div class="fair-check-empty">' + escapeHtml(data.message || "Раунд найден. Полная проверка результата не выполнена.") + '</div><button class="gv-start-btn" id="fairCheckOpenRound" type="button">Открыть раунд</button>';
+        document.getElementById("fairCheckOpenRound").onclick = () => {
+            if (openFairCheckRoundBySource(data.source, data.roundId)) closeFairCheckModal();
+            else showToast("Карточка этого раунда недоступна", "warning");
+        };
     }).catch(() => {
         fairCheckResultEl.innerHTML = '<div class="fair-check-empty">Не удалось выполнить проверку</div>';
     }).finally(() => {

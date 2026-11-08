@@ -178,6 +178,8 @@ class AccountMixin:
                     deposits += (await cursor.fetchone())[0] / 100
                 async with connection.execute("SELECT COALESCE(SUM(amount),0) FROM withdrawals WHERE user_id = ? AND status = 'approved'", (user.id,)) as cursor:
                     cashouts = (await cursor.fetchone())[0]
+                async with connection.execute("SELECT COALESCE(SUM(quantity),0) FROM webapp_star_withdrawals WHERE user_id = ? AND state = 'completed'", (user.id,)) as cursor:
+                    cashouts += (await cursor.fetchone())[0]
                 async with connection.execute("SELECT COALESCE(SUM(amount_cents),0) FROM webapp_wallet_events WHERE user_id = ? AND kind = 'bonus'", (user.id,)) as cursor:
                     bonuses = (await cursor.fetchone())[0] / 100
             registration = balance_row[1] if balance_row else None

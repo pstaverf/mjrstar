@@ -11,6 +11,9 @@ from games_backend import ProgressiveGamesBackend, GameError, GAME_PREFIXES, MIN
 from account_backend import AccountMixin
 from checks_backend import ChecksMixin
 from payments_backend import PaymentsMixin
+from star_withdrawals import StarWithdrawalsMixin
+from ton_deposits import TonDepositsMixin
+from fairness_backend import FairnessMixin
 from doghouse_backend import DoghouseMixin
 from support_backend import SupportMixin
 from realtime_backend import RealtimeMixin
@@ -33,7 +36,7 @@ ESCAPE_LEVELS = [
 GAME_PREFIXES.update({"hilo": "H", "redblack": "RB", "blackjack": "BJ", "coinflip": "CF", "claw": "A", "baccarat": "Q", "wheel": "W", "escape": "E", "crash": "C", "roulette": "R", "doghouse": "DH"})
 
 
-class CompleteGamesBackend(SupportMixin, RealtimeMixin, AccountMixin, ChecksMixin, PaymentsMixin, DoghouseMixin, PotGamesMixin, EscapePvpMixin, EmojiGamesMixin, LeadersMixin, PvpGamesMixin, LiveGamesMixin, ProgressiveGamesBackend):
+class CompleteGamesBackend(TonDepositsMixin, FairnessMixin, StarWithdrawalsMixin, SupportMixin, RealtimeMixin, AccountMixin, ChecksMixin, PaymentsMixin, DoghouseMixin, PotGamesMixin, EscapePvpMixin, EmojiGamesMixin, LeadersMixin, PvpGamesMixin, LiveGamesMixin, ProgressiveGamesBackend):
     def register(self, application):
         super().register(application)
         self.register_live(application)
@@ -48,6 +51,9 @@ class CompleteGamesBackend(SupportMixin, RealtimeMixin, AccountMixin, ChecksMixi
         self.register_payments(application)
         self.register_account(application)
         self.register_checks(application)
+        self.register_star_withdrawals(application)
+        self.register_ton_deposits(application)
+        self.register_fairness(application)
         for game in sorted(CARD_GAMES | INSTANT_GAMES):
             application.router.add_get(f"/api/{game}/state", self.handle_extended_state)
             application.router.add_get(f"/api/{game}/history", self.handle_history)
@@ -78,18 +84,23 @@ class CompleteGamesBackend(SupportMixin, RealtimeMixin, AccountMixin, ChecksMixi
         await self.initialize_payments()
         await self.initialize_account()
         await self.initialize_checks()
+        await self.initialize_star_withdrawals()
+        await self.initialize_ton_deposits()
         await self.initialize_pvp()
         await self.initialize_emoji()
         await self.initialize_escape_pvp()
         await self.initialize_support()
         await self.initialize_pots()
         await self.initialize_live()
+        await self.initialize_fairness()
 
     async def handle_removed_doghouse(self, request):
         self.validate_user(request)
         return self.response({"ok": False, "error": "DogHouse удалён из доступных игр.", "code": "GAME_REMOVED"}, 410)
 
     async def cleanup(self, application):
+        await self.cleanup_star_withdrawals()
+        await self.cleanup_ton_deposits()
         await self.cleanup_realtime()
         if hasattr(self, "referral_notices_task"):
             self.referral_notices_task.cancel()

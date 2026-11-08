@@ -1,4 +1,4 @@
-const STATIC_CACHE = 'mjrstar-static-v33';
+const STATIC_CACHE = 'mjrstar-static-v34';
 // Independent of shell releases. Bump this epoch if an existing media URL changes bytes.
 const MEDIA_CACHE = 'mjrstar-media-v1';
 const MEDIA_MAX_ENTRIES = 256;

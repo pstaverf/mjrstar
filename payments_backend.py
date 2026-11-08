@@ -159,7 +159,7 @@ class PaymentsMixin:
             errors["xrocket"] = "xRocket: API-токен отсутствует, повреждён или истёк. Нужен оригинальный JWT Current API."
         elif not self.rocket_secret():
             errors["xrocket"] = "xRocket: Webhook Secret не настроен."
-        return self.response({"ok": True, "methods": {"cryptobot": crypto_ready, "xrocket": not rocket_problem and bool(self.rocket_secret()), "stars": getattr(self, "telegram_bot", None) is not None, "tonkeeper": False, "sbp": False, "laveshka": False}, "methodErrors": errors, "limits": {"min_deposit_cryptobot": 1, "min_deposit_xrocket": 1, "min_deposit_stars": 1}, "usdPerStar": str(STAR_USD), "promo": None, "tagPromo": None})
+        return self.response({"ok": True, "methods": {"cryptobot": crypto_ready, "xrocket": not rocket_problem and bool(self.rocket_secret()), "stars": getattr(self, "telegram_bot", None) is not None, "tonkeeper": self.ton_ready() if hasattr(self, "ton_ready") else False, "sbp": False, "laveshka": False}, "methodErrors": errors, "limits": {"min_deposit_cryptobot": 1, "min_deposit_xrocket": 1, "min_deposit_stars": 1}, "usdPerStar": str(STAR_USD), "promo": None, "tagPromo": None})
 
     async def deposit_row(self, connection, order_id, user_id=None):
         sql = "SELECT id,user_id,provider,provider_id,stars_cents,price_amount,price_currency,status,created_at,expires_at,pay_url FROM webapp_deposits WHERE id = ?"
@@ -495,7 +495,7 @@ class PaymentsMixin:
                 raise GameError("Неизвестный фильтр.")
             async with self.database_lock:
                 connection = self.database()
-                sources = ["SELECT 'deposit' AS type,stars_cents/100.0 AS amount,CASE provider WHEN 'cryptobot' THEN 'CryptoBot' WHEN 'xrocket' THEN 'xRocket' ELSE 'Stars' END AS description,status,strftime('%s',COALESCE(paid_at,created_at)) AS created_at,user_id FROM webapp_deposits WHERE status != 'creating'", "SELECT 'deposit',amount,'Stars','paid',strftime('%s',created_at),user_id FROM payments WHERE charge_id NOT IN (SELECT provider_id FROM webapp_deposits WHERE provider_id IS NOT NULL)", "SELECT 'withdrawal',amount,'Stars',status,strftime('%s',created_at),user_id FROM withdrawals"]
+                sources = ["SELECT 'deposit' AS type,stars_cents/100.0 AS amount,CASE provider WHEN 'cryptobot' THEN 'CryptoBot' WHEN 'xrocket' THEN 'xRocket' WHEN 'tonkeeper' THEN 'Tonkeeper (TON)' ELSE 'Stars' END AS description,status,strftime('%s',COALESCE(paid_at,created_at)) AS created_at,user_id FROM webapp_deposits WHERE status != 'creating'", "SELECT 'deposit',amount,'Stars','paid',strftime('%s',created_at),user_id FROM payments WHERE charge_id NOT IN (SELECT provider_id FROM webapp_deposits WHERE provider_id IS NOT NULL)", "SELECT 'withdrawal',amount,'Stars',status,strftime('%s',created_at),user_id FROM withdrawals", "SELECT 'withdrawal',quantity,'Stars · Fragment',state,strftime('%s',created_at),user_id FROM webapp_star_withdrawals"]
                 condition = " WHERE user_id = ?"
                 values = [user.id]
                 if filter_name != "all":
@@ -578,3 +578,19 @@ class PaymentsMixin:
         if not currency:
             raise GameError("Выбранная валюта сейчас недоступна у провайдера.", 503)
         return currency
+
+
+# Fragment Connection JWT from the provider dashboard (raw JWT, never a bot token).
+FRAGMENT_API_JWT = ""
+FRAGMENT_CURRENCY = "ton"  # or usdt_ton; USDT settlement still needs TON for gas
+# Native TON receiving wallet. Empty configuration keeps Tonkeeper disabled.
+TONKEEPER_ADDRESS = ""
+# Server-side seed: fill inline ONLY on the deployed server, or use a 0600 file.
+# Never commit a real seed. Neither source is ever sent to the network/browser.
+TON_WALLET_MNEMONIC = ""
+TON_WALLET_SEED_FILE = ""
+TON_WALLET_VERSION = "v4r2"  # explicit v3r2/v4r2; V5 is not silently reinterpreted
+TON_WALLET_WORKCHAIN = 0
+TON_WALLET_ID = None  # None = SDK default; match the actual wallet's subwallet ID
+TON_RPC_URL = ""  # Own mainnet v3-compatible read-only indexer, e.g. http://127.0.0.1:8081/api/v3
+TON_USD_RATE = ""  # Explicit server-side USD per TON; no client-supplied rates

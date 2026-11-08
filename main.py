@@ -6300,6 +6300,13 @@ async def webapp_asset(request: web.Request) -> web.StreamResponse:
     path = (WEBAPP_ROOT / relative).resolve()
     if not path.is_relative_to(WEBAPP_ROOT):
         raise web.HTTPNotFound()
+    # Resolve symlinks before authorizing their target. Public asset aliases must
+    # never expose server code, wallet seed files or private directories.
+    canonical = path.relative_to(WEBAPP_ROOT)
+    if (not canonical.parts or any(part.startswith(".") for part in canonical.parts)
+            or path.name.endswith(".ton-seed")
+            or canonical.parts[0] not in WEBAPP_DIRECTORIES and str(canonical) not in WEBAPP_FILES):
+        raise web.HTTPNotFound()
     if path.is_file():
         if path.suffix in {".js", ".css", ".html"}:
             return await static_response(request, path, WEBAPP_ROOT / ".cache" / "http-static")

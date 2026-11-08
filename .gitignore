@@ -7,3 +7,7 @@ bot.db
 bot.db-shm
 bot.db-wal
 .env
+
+# Server wallet secret files (never application assets).
+.secrets/
+*.ton-seed

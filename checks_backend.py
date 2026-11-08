@@ -374,7 +374,7 @@ class ChecksMixin:
                 query = "SELECT COALESCE(SUM(cents),0) FROM (SELECT user_id,amount*100 AS cents,created_at FROM payments UNION ALL SELECT user_id,stars_cents,COALESCE(paid_at,created_at) FROM webapp_deposits WHERE provider != 'stars' AND status = 'paid') WHERE user_id = ? AND julianday(created_at) >= julianday(?)"
                 values = [user_id, since]
             else:
-                query = "SELECT COALESCE(SUM(ROUND(amount*100)),0) FROM withdrawals WHERE user_id = ? AND status = 'approved' AND julianday(created_at) >= julianday(?)"
+                query = "SELECT COALESCE(SUM(cents),0) FROM (SELECT user_id,ROUND(amount*100) AS cents,created_at FROM withdrawals WHERE status = 'approved' UNION ALL SELECT user_id,quantity*100,created_at FROM webapp_star_withdrawals WHERE state = 'completed') WHERE user_id = ? AND julianday(created_at) >= julianday(?)"
                 values = [user_id, since]
             async with connection.execute(query, values) as cursor:
                 amount = (await cursor.fetchone())[0]

@@ -133,6 +133,6 @@ async function get(path, init) {
     assert.ok(deleted.includes('mjrstar-media-v0'));
     assert.ok(!deleted.includes('mjrstar-media-v1'));
     assert.ok(!deleted.includes('another-app-cache'));
-    assert.ok(stores.has('mjrstar-static-v33'));
+    assert.ok(stores.has('mjrstar-static-v34'));
     console.log('Media cache: cache-first, coalescing, pinned runtime, private/API exclusions, offline/quota fallbacks, bounded storage and release cleanup: passed');
 })().catch(error => {console.error(error); process.exitCode = 1;});

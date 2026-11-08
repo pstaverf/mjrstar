@@ -36,6 +36,11 @@ class LiveGamesMixin:
 
     async def live_loop(self):
         while True:
+            # Do not start another transaction after a requested shutdown, even
+            # if an awaited helper completed concurrently with cancellation.
+            task = asyncio.current_task()
+            if getattr(task, "cancelling", lambda: False)():
+                return
             try:
                 async with self.database_lock:
                     connection = self.database()
