@@ -4,7 +4,7 @@ Toncenter and its API key are no longer mandatory or hardcoded. The server resto
 
 ## Secret storage
 
-Configuration remains in `payments_backend.py`. Two exclusive server-only seed sources are supported:
+Configuration is in the labelled `payments_backend.py` section inside the sole backend file `server.py`. Two exclusive server-only seed sources are supported:
 
 - Recommended: set `TON_WALLET_SEED_FILE` to an absolute local path. The file must be a regular file, owned by the application user, permissions **0600**, not a symlink, at most 4096 bytes. Inside this repository, only `.secrets/` is accepted; outside the repository, use a private directory outside any web root.
 - Alternatively, fill `TON_WALLET_MNEMONIC` only on the deployed server. Leave it empty in Git. It is deliberately empty in this patch. **A source-code seed committed to Git becomes visible in repository history.** Do not put it in command arguments, logs, a chat, browser forms, Telegram messages or database records.
@@ -48,8 +48,8 @@ A successful preflight is cached for 30 seconds. Failed/partial responses keep p
 Local server commands, without secret arguments:
 
 ```sh
-python tools/check_ton_wallet.py --local-only
-python tools/check_ton_wallet.py
+python server.py --check-ton-wallet --local-only
+python server.py --check-ton-wallet
 ```
 
 The first validates local derivation only. The second also checks the deployed account through the configured gateway. Output contains only public address/version and validation flags. No network/private-key/seed data is sent to the browser or exposed through a wallet-management HTTP endpoint. Restart the process after changing the seed or derivation parameters.

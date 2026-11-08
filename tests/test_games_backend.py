@@ -1,7 +1,7 @@
+import bundle_test_support  # Register backend modules from server.py.
 import asyncio
 import hashlib
 import hmac
-import importlib.util
 import json
 import math
 import secrets
@@ -48,9 +48,7 @@ class GamesBackendTests(unittest.IsolatedAsyncioTestCase):
     backend_type = ProgressiveGamesBackend
 
     async def asyncSetUp(self):
-        specification = importlib.util.spec_from_file_location("games_test_main", Path(__file__).resolve().parents[1] / "main.py")
-        self.runtime = importlib.util.module_from_spec(specification)
-        specification.loader.exec_module(self.runtime)
+        self.runtime = bundle_test_support.load_application("games_test_main")
         self.directory = tempfile.TemporaryDirectory()
         self.runtime.DB_PATH = str(Path(self.directory.name) / "bot.db")
         self.runtime.BOT_TOKEN = "123456:local-test-token"

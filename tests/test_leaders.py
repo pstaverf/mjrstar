@@ -1,3 +1,4 @@
+import bundle_test_support  # Register backend modules from server.py.
 import json
 import secrets
 import unittest

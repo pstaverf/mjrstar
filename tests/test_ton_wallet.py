@@ -1,3 +1,4 @@
+import bundle_test_support  # Register backend modules from server.py.
 import base64
 import copy
 import json
@@ -125,12 +126,9 @@ class TonWalletTests(unittest.IsolatedAsyncioTestCase):
                 backend.ton_settings()
 
     async def test_seed_and_private_source_cannot_be_served_via_asset_symlinks(self):
-        import importlib.util
         from aiohttp import web
         from aiohttp.test_utils import TestClient, TestServer
-        spec = importlib.util.spec_from_file_location('wallet_static_test_main', Path(__file__).resolve().parents[1] / 'main.py')
-        runtime = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(runtime)
+        runtime = bundle_test_support.load_application('wallet_static_test_main')
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'images').mkdir()

@@ -1,5 +1,5 @@
+import bundle_test_support
 import ast
-import importlib.util
 from pathlib import Path
 import subprocess
 import sys
@@ -7,18 +7,21 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location('server_bundle_builder', ROOT / 'tools' / 'build_server.py')
-builder = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(builder)
 
 
 class ServerBundleTests(unittest.TestCase):
-    def test_generated_bundle_matches_sources(self):
-        self.assertEqual((ROOT / 'server.py').read_text(encoding='utf-8'), builder.render(), 'Rebuild using python tools/build_server.py')
+    def test_only_server_is_a_root_python_source(self):
+        self.assertEqual({p.name for p in ROOT.glob('*.py')}, {'server.py'})
+        self.assertFalse((ROOT / 'tools' / 'build_server.py').exists())
+        self.assertFalse((ROOT / 'emoji_catalog.json').exists())
 
-    def test_source_literals_roundtrip(self):
-        for source in ('x = 1\n', 'x = "\\n"\n', "# ''' and \"\"\"\nx = 1\n", 'x = "Привет"\n'):
-            self.assertEqual(ast.literal_eval(builder.source_literal(source)), source)
+    def test_isolated_runtimes_do_not_share_application_globals(self):
+        one = bundle_test_support.load_application('isolated_bundle_test_one')
+        two = bundle_test_support.load_application('isolated_bundle_test_two')
+        self.assertIsNot(one, two)
+        one.DB_PATH = 'test-only-not-opened'
+        self.assertEqual(two.DB_PATH, 'bot.db')
+        self.assertIsNot(one.CHECKR_RUNNING, two.CHECKR_RUNNING)
 
     def run_standalone(self, code=None, args=()):
         with tempfile.TemporaryDirectory() as directory:
@@ -106,4 +109,8 @@ print('EMPTY_SEED_BLOCKED')
         self.assertIn('support_backend', names)
         self.assertNotIn('support.js', names)
         self.assertNotIn('sw.js', names)
-        self.assertEqual(set(names), {p.stem for p in ROOT.glob('*.py') if p.name != 'server.py'})
+        self.assertEqual(set(names), set(bundle_test_support.server._SOURCES))
+        for name, source in bundle_test_support.server._SOURCES.items():
+            compile(source, name, 'exec')
+        self.assertNotIn('support.js', bundle_test_support.server._RESOURCES)
+        self.assertNotIn('sw.js', bundle_test_support.server._RESOURCES)

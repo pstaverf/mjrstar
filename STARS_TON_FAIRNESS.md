@@ -2,7 +2,7 @@
 
 ## Configuration (disabled by default)
 
-Source configuration remains in `payments_backend.py`, as requested. Never print these values in logs or API responses.
+Source configuration is in the `payments_backend.py` section of `server.py`; separate Python modules are no longer required. Never print these values in logs or API responses.
 
 - `FRAGMENT_API_JWT`: raw **Fragment Connection JWT**, created in the provider dashboard. Not a Telegram bot token, not `/auth/authentication`.
 - `FRAGMENT_CURRENCY`: `ton` or `usdt_ton`. USDT settlement needs provider-wallet USDT **and TON for gas**. This does not enable USDT deposits.
@@ -67,6 +67,6 @@ This does not independently audit payouts, prove when a commitment was published
 
 ## Tests and runtime
 
-`tests/test_stars_ton_fairness.py` covers ownership/auth, minimums, client-recipient tampering, concurrent confirms, quote/request replay, pending/blockchain states, refunds, ambiguous POSTs, restart, original credentials, wager/recent-deposit gates, modern costs, TON verification and deterministic fairness/tampering. `tests/test_stars_ton_fairness_ui.js` checks UI contracts and nonterminal history statuses. Existing suites remain regression coverage, not Telegram/browser/provider E2E.
+`tests/test_stars_ton_fairness.py` loads the canonical `server.py` and covers ownership/auth, minimums, client-recipient tampering, concurrent confirms, quote/request replay, pending/blockchain states, refunds, ambiguous POSTs, restart, original credentials, wager/recent-deposit gates, modern costs, TON verification and deterministic fairness/tampering. `tests/test_stars_ton_fairness_ui.js` checks UI contracts and nonterminal history statuses. Existing suites remain regression coverage, not Telegram/browser/provider E2E.
 
 A regression run exposed a live worker remaining in a cancelling state at its next sleep. The loop now checks requested cancellation before opening another transaction. This is a shutdown safeguard, **not** a diagnosis of the earlier production profile/crash report. No production database path, database/WAL files, deployment or real payouts were changed.

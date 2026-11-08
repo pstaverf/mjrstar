@@ -8,6 +8,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.parse_args()
     # Keep --help usable before installing application dependencies.
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    import server  # Register embedded backend modules.
     from complete_games import CompleteGamesBackend
     from games_backend import GameError
     from payment_errors import PaymentProviderError

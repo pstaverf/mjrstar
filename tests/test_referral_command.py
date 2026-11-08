@@ -1,5 +1,5 @@
+import bundle_test_support  # Register backend modules from server.py.
 import asyncio
-import importlib.util
 import re
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,9 +13,7 @@ from aiogram.methods import SendMessage
 class ReferralCommandTests(unittest.IsolatedAsyncioTestCase):
     @classmethod
     def setUpClass(cls):
-        spec = importlib.util.spec_from_file_location('referral_command_test_main', Path(__file__).resolve().parents[1] / 'main.py')
-        cls.runtime = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(cls.runtime)
+        cls.runtime = bundle_test_support.load_application('referral_command_test_main')
 
     async def asyncSetUp(self):
         self.message = SimpleNamespace(from_user=SimpleNamespace(id=42), answer=AsyncMock())

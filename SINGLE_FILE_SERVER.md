@@ -1,12 +1,12 @@
-# Deploying the Python backend as server.py
+# One canonical backend: server.py
 
-`server.py` is a self-contained Python backend bundle. You do **not** need to upload the separate `*_backend.py`, TON, game, wallet/rule modules or `main.py` alongside it. The emoji rules catalog is embedded too. Module namespaces remain isolated internally, so imports, mixins and identically named helpers do not overwrite each other.
+`server.py` is the **only Python backend source**. The former root Python modules, duplicate emoji catalog and build/rebuild script have been removed. Backend module namespaces are maintained inside this file; there are no extracted or generated `.py` modules to upload or keep synchronized.
 
-## What stays separate
+## Hosting
 
-As requested, **`sw.js` and `support.js` are not included or modified**. All frontend HTML/JS/CSS, images, animations and other static assets remain separate. Keep the existing frontend files and directories next to `server.py`, just as they were next to `main.py`.
+Keep existing frontend assets beside `server.py`. **`sw.js`, `support.js`, HTML/CSS, other frontend scripts, images and animations stay separate and unchanged.** Tests, documentation and development diagnostic tools need not be uploaded to run the application.
 
-External Python libraries still need installation. A single source file does not include Python or its installed packages:
+Install dependencies and start:
 
 ```sh
 python -m pip install -r requirements.txt
@@ -14,40 +14,39 @@ python server.py --check
 python server.py
 ```
 
-If the hosting panel only lets you upload the server file, install the dependencies through its package settings: `aiogram==3.31.0`, `aiohttp==3.14.5`, `aiosqlite==0.22.1`, `tonsdk==1.0.15`.
+Required packages: `aiogram==3.31.0`, `aiohttp==3.14.5`, `aiosqlite==0.22.1`, `tonsdk==1.0.15`. External Python libraries still need installation; they are not copied into the source file.
 
-Change the hosting startup command from `python main.py` to `python server.py`. Do not start both processes against the same production database. Keep the previous working directory: `DB_PATH = "bot.db"` is unchanged, and static resources are resolved beside `server.py`. Do not replace, delete or recreate the existing database/WAL or private seed file during upload.
+Change the hosting startup command from `python main.py` to `python server.py`. Do not start an old process and the new server against the same database. Keep the previous working directory: `DB_PATH = "bot.db"` is unchanged, and static resources are located beside `server.py`. Do not delete/replace the existing database, WAL, backups or private seed file when updating code.
 
-`--check` imports all bundled backend modules without starting the HTTP server, initializing a database, buying Stars or sending payments. It is not a live Telegram/provider test.
+`--check` imports the complete embedded backend without starting the server, initializing a database or making payments. It is not a live provider/Telegram test.
 
-Wallet diagnostics are also built in, so the helper Python file is not required on hosting:
+Wallet diagnostics are built in:
 
 ```sh
 python server.py --check-ton-wallet --local-only
 python server.py --check-ton-wallet
 ```
 
-The second command uses your configured own mainnet gateway; the first only checks local derivation. Neither accepts or prints a seed phrase.
+The first verifies local mnemonic/address derivation only. The second also uses the configured own mainnet gateway to check the deployed wallet account. Neither accepts or prints a seed phrase.
 
-## Settings
+## Editing settings and backend code
 
-Inside `server.py`, search for the clearly labelled sections:
+Edit **`server.py` directly**. There is no rebuild step. Search for its labelled source sections, such as:
 
-- `main.py`: bot/server settings already used by the application.
-- `payments_backend.py`: payment settings, Fragment JWT, server wallet configuration, own TON gateway and exchange rate.
+- `main.py`: existing bot/server settings and application entry logic.
+- `payments_backend.py`: payment configuration, Fragment JWT, server seed configuration, own TON gateway and exchange rate.
+- `ton_wallet.py`, `ton_deposits.py`, other backend names: the corresponding implementation.
 
-The code in these sections is readable source inside raw string literals. Preserve their surrounding delimiters. When deploying only this file, edit **its embedded section**, not an absent neighbouring `payments_backend.py`. The bundle's loader gives its embedded modules precedence over neighbouring source files on a clean process startup.
+These are section labels/module names, **not files that must exist on disk**. Each section is readable source inside a raw triple-quoted string. Preserve its outer delimiters. New backend code belongs in the appropriate section, not in a new root Python file. Internal imports use the embedded module loader.
 
-No real new seed/Fragment JWT was inserted. The recommended seed location is still a private server-only `0600` file; `.secrets/` is not an asset directory. `server.py` itself contains source configuration and must not be exposed by a web server or served from a public asset directory. Existing static-file authorization does not permit it.
+No new real seed or Fragment JWT was inserted. Prefer a private server-only `0600` seed file in `.secrets/` (never a public asset folder); keep secrets out of Git, chat, logs and command arguments. `server.py` itself contains server configuration and must not be served by a web server.
 
-## Development and rebuilding
-
-The original Python files remain in the repository as development/test sources. They need not be uploaded. Rebuild the deployment file after changing those sources:
+## Tests and tools
 
 ```sh
-python tools/build_server.py
+python -m unittest discover -s tests -q
 ```
 
-**Rebuilding overwrites `server.py` with the source modules' settings.** Do not rebuild over a host-local edited deployment file or copy production secrets into the repository to rebuild it. Keep private secrets/backups outside Git. Pick either source-driven development plus rebuild, or deliberate server-local configuration in the deployment file, rather than editing both and expecting automatic synchronization.
+Tests register the embedded modules via `tests/bundle_test_support.py`; fresh application fixtures come from `server.load_application(name)` without a separate `main.py`. Standalone tests also copy only `server.py` into an empty directory and verify imports, startup dispatch, in-memory initialization and local wallet failure behaviour. No source files are extracted.
 
-The builder never embeds frontend scripts, databases, seed files, virtual environments or arbitrary files from the checkout. Standalone tests copy only `server.py` into an empty directory and check imports, startup dispatch, in-memory backend initialization and local wallet failure behaviour without depending on the original `.py` files.
+Optional `tools/check_payment_providers.py` and the benchmark utility load the canonical backend too. They are development/diagnostic commands, not backend modules needed on hosting. The old rebuild tool and redundant TON wallet helper are removed.
