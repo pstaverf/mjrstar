@@ -29144,9 +29144,11 @@ function depositSbpWaitingHTML() {
     }
     const paid = inv.state === "processing";
     const feeLine = (inv.feePercent ? '<div class="deposit-invoice-meta">Комиссия СБП (' + fmtNum(inv.feePercent) + "%): " + fmtNum(inv.feeAmount) + "⭐️</div>" : "") + depositPromoWaitingHTML() + depositTagWaitingHTML();
-    const status = paid ? '<div class="deposit-invoice-status"><span class="deposit-spinner-sm"></span>Платёж получен, зачисляем…</div>' : '<div class="deposit-invoice-status"><span class="deposit-spinner-sm"></span>Ожидаем оплату · осталось <b id="depositSbpTimer">' + depositSbpTimerText() + "</b></div>";
-    const buttons = paid ? "" : '<button class="gv-start-btn deposit-go-btn" type="button" data-deposit-open="' + escapeHtml(inv.payUrl) + '">Оплатить</button>' + (inv.directUrl ? '<button class="gv-start-btn deposit-secondary-btn" type="button" data-deposit-open="' + escapeHtml(inv.directUrl) + '">Открыть СБП</button>' : "");
-    return '<div class="deposit-waiting deposit-invoice">' + '<div class="deposit-invoice-card">' + '<div class="deposit-invoice-label">Счёт создан</div>' + '<div class="deposit-invoice-amount">' + fmtNum(inv.rubAmount) + " ₽</div>" + '<div class="deposit-invoice-meta">На баланс: ' + fmtNum(inv.amount) + "⭐️ · 1 USDT = " + Number(inv.rate).toFixed(2) + " ₽</div>" + feeLine + status + "</div>" + buttons + '<div class="deposit-waiting-text">После оплаты баланс пополнится автоматически — это окно можно не закрывать. Сообщение об оплате придёт в личные сообщения.</div>' + '<button class="gv-start-btn deposit-secondary-btn" type="button" id="depositSbpLeave">Назад к способам</button>' + "</div>";
+    const status = inv.overdue ? '<div class="deposit-waiting-text">Срок оплаты вышел. Не платите: проверяем итог, поздний платёж ещё может зачислиться.</div>' : paid ? '<div class="deposit-invoice-status"><span class="deposit-spinner-sm"></span>Платёж получен, зачисляем…</div>' : '<div class="deposit-invoice-status"><span class="deposit-spinner-sm"></span>Ожидаем оплату · осталось <b id="depositSbpTimer">' + depositSbpTimerText() + "</b></div>";
+    const phone = inv.method === "phone" && inv.payPhone && inv.expiresIn > 0 && !inv.overdue;
+    const phoneHTML = phone ? '<div class="deposit-waiting-text">Пополните мобильный номер <b>' + escapeHtml(inv.payPhone) + '</b><br>Страна: ' + escapeHtml(inv.payCountry || '') + ' · ' + escapeHtml(inv.payOperator || '') + '<br>Проверьте страну в банке. Ровно ' + escapeHtml(String(inv.rubAmount)) + ' ₽, одним платежом, до окончания таймера. После срока не платите.</div>' : '';
+    const buttons = paid || inv.overdue || inv.expiresIn <= 0 ? "" : phone ? phoneHTML : '<button class="gv-start-btn deposit-go-btn" type="button" data-deposit-open="' + escapeHtml(inv.payUrl) + '">Оплатить</button>' + (inv.directUrl ? '<button class="gv-start-btn deposit-secondary-btn" type="button" data-deposit-open="' + escapeHtml(inv.directUrl) + '">Открыть СБП</button>' : "");
+    return '<div class="deposit-waiting deposit-invoice">' + '<div class="deposit-invoice-card">' + '<div class="deposit-invoice-label">Счёт создан</div>' + '<div class="deposit-invoice-amount">' + fmtNum(inv.rubAmount) + " ₽</div>" + '<div class="deposit-invoice-meta">На баланс: ' + fmtNum(inv.amount) + "⭐️ · 1 USDT = " + Number(inv.rate).toFixed(2) + " ₽</div>" + feeLine + status + "</div>" + buttons + '<div class="deposit-waiting-text">После оплаты баланс пополнится автоматически — это окно можно не закрывать. Статус проверяется автоматически.</div>' + '<button class="gv-start-btn deposit-secondary-btn" type="button" id="depositSbpLeave">Назад к способам</button>' + "</div>";
 }
 
 const DEPOSIT_SBP_FAIL_TEXTS = {
@@ -29208,6 +29210,8 @@ function renderDepositStep() {
             const el = document.getElementById("depositAmountInput");
             if (el) el.focus();
         }, 50);
+    } else if (depositState.step === "laveProviders") {
+        body.innerHTML = depositLaveProvidersHTML();
     } else if (depositState.step === "currency") {
         body.innerHTML = depositCurrencyStepHTML();
     } else if (depositState.step === "tonkeeper") {
@@ -29366,7 +29370,7 @@ function depositSbpApply(data) {
         const prev = depositState.sbpInvoice;
         depositState.sbpInvoice = data;
         depositState.sbpDeadline = Date.now() + (data.expiresIn || 0) * 1e3;
-        if (!prev || prev.state !== data.state) {
+        if (!prev || JSON.stringify(prev) !== JSON.stringify(data)) {
             renderDepositStep();
             if (!depositState.tickTimer) {
                 depositState.tickTimer = setInterval(() => {
@@ -29403,11 +29407,15 @@ function depositCreateSbp() {
     fetch("/api/deposit/sbp/create", {
         method: "POST",
         headers: {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "Idempotency-Key": depositState.laveRequestKey || (depositState.laveRequestKey = wdNewReqId())
         },
         body: JSON.stringify({
             uid: CURRENT_UID,
-            amount: depositState.amount
+            amount: depositState.amount,
+            method: depositState.laveProvider.method,
+            providerId: depositState.laveProvider.id,
+            rid: depositState.laveRequestKey || (depositState.laveRequestKey = wdNewReqId())
         })
     }).then(r => r.json()).then(data => {
         if (depositState.method !== "sbp" || depositState.step !== "waiting") return;
@@ -29417,7 +29425,8 @@ function depositCreateSbp() {
             renderDepositStep();
             return;
         }
-        depositSbpStartPolling(data.requestId);
+        depositSbpApply(data);
+        if (data.state !== "paid") depositSbpStartPolling(data.requestId);
     }).catch(() => {
         if (depositState.method !== "sbp" || depositState.step !== "waiting") return;
         showToast("Ошибка сети", "error");
@@ -29489,7 +29498,13 @@ function depositCreateXrocket(currency) {
 }
 
 function depositLavePollFn() {
-    return () => fetch("/api/deposit/laveshka/status?paymentId=" + encodeURIComponent(depositState.invoiceId)).then(r => r.json());
+    return () => fetch("/api/deposit/laveshka/status?paymentId=" + encodeURIComponent(depositState.invoiceId)).then(r => r.json()).then(data => {
+        if (data.ok && data.payUrl && depositState.payUrl !== data.payUrl) {
+            depositState.payUrl = data.payUrl;
+            renderDepositStep();
+        }
+        return data;
+    });
 }
 
 function depositCreateLaveshka() {
@@ -29502,11 +29517,12 @@ function depositCreateLaveshka() {
     fetch("/api/deposit/laveshka/create", {
         method: "POST",
         headers: {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "Idempotency-Key": depositState.laveRequestKey || (depositState.laveRequestKey = wdNewReqId())
         },
         body: JSON.stringify({
             amount: depositState.amount,
-            reqId: wdNewReqId()
+            rid: depositState.laveRequestKey || (depositState.laveRequestKey = wdNewReqId())
         })
     }).then(r => r.json()).then(data => {
         if (depositState.method !== "laveshka" || depositState.step !== "waiting") return;
@@ -30704,11 +30720,12 @@ wvBody.addEventListener("click", e => {
         errEl.classList.remove("show");
         depositState.amount = Math.round(val * 1e3) / 1e3;
         depositState.method = method;
+        depositState.laveRequestKey = null;
         if (method === "cryptobot") depositCreateCryptobot();
         else if (method === "xrocket") {
             depositState.step = "currency";
             renderDepositStep();
-        } else if (method === "sbp") depositCreateSbp();
+        } else if (method === "sbp") depositChooseLaveProvider();
         else if (method === "laveshka") depositCreateLaveshka();
         else if (method === "stars") depositCreateStars();
         else if (method === "tonkeeper") depositShowTonkeeper();
@@ -62361,3 +62378,37 @@ crashRoundFairBtn.addEventListener("click", () => {
     window.addEventListener('pagehide', () => { stopped = true; clearTimeout(reconnect); if (socket) socket.close(); });
     connect();
 })();
+
+
+function depositLaveProvidersHTML() {
+    const rows = depositState.laveProviders;
+    if (!rows) return '<div class="deposit-waiting-text">Загружаем провайдеров…</div>';
+    if (!rows.length) return '<div class="deposit-waiting-text">Нет доступных провайдеров. Попробуйте позже.</div><button class="gv-start-btn" id="depositSbpLeave">Назад</button>';
+    return '<div class="deposit-waiting-title">Выберите провайдера</div>' + rows.map((p, i) => '<button class="deposit-method-btn" type="button" data-lave-provider="' + i + '">' + escapeHtml(String(p.name || p.provider || 'Laveshka')) + ' · ' + (p.method === 'phone' ? 'Пополнение телефона' : 'СБП') + '<br>' + escapeHtml(String(p.rate || '')) + ' ₽ / USDT · ' + escapeHtml(String(p.min_rub || '')) + '–' + escapeHtml(String(p.max_rub || '')) + ' ₽</button>').join('');
+}
+
+function depositChooseLaveProvider() {
+    depositState.laveProviders = null;
+    depositState.step = 'laveProviders';
+    renderDepositStep();
+    fetch('/api/deposit/laveshka/providers').then(r => r.json()).then(data => {
+        if (depositState.step !== 'laveProviders') return;
+        if (!data.ok) throw new Error(data.error || 'Не удалось получить провайдеров');
+        depositState.laveProviders = (data.providers || []).filter(p => p.method === 'sbp' || p.method === 'phone');
+        renderDepositStep();
+    }).catch(() => {
+        if (depositState.step !== 'laveProviders') return;
+        depositState.laveProviders = [];
+        renderDepositStep();
+    });
+}
+
+document.addEventListener('click', function(event) {
+    const button = event.target.closest('[data-lave-provider]');
+    if (!button || depositState.step !== 'laveProviders') return;
+    const provider = depositState.laveProviders[Number(button.dataset.laveProvider)];
+    if (!provider) return;
+    depositState.laveProvider = {id: provider.id != null ? provider.id : provider.provider_id, method: provider.method};
+    depositState.laveRequestKey = wdNewReqId();
+    depositCreateSbp();
+});

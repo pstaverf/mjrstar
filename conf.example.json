@@ -22,5 +22,7 @@
   "TON_WALLET_WORKCHAIN": 0,
   "TON_WALLET_ID": null,
   "TON_RPC_URL": "",
-  "TON_USD_RATE": ""
+  "TON_USD_RATE": "",
+  "LAVESHKA_API_KEY": "",
+  "LAVESHKA_WEBHOOK_SECRET": ""
 }

@@ -23,7 +23,10 @@ class ConfigError(ValueError):
 
 
 _CONFIG_DEFAULTS = {'BOT_TOKEN': '', 'CHANNEL_ID': '@mjrstars', 'CHANNEL_URL': 'https://t.me/mjrstars', 'CHAT_URL': 'https://t.me/mjrstars', 'WEBHOOK_HOST': '', 'WEBHOOK_PATH': '/webhook', 'WEBHOOK_SECRET': '', 'WEBAPP_HOST': '0.0.0.0', 'WEBAPP_PORT': 16341, 'ADMIN_ID': 0, 'BOT_USERNAME': 'mjrstarsbot', 'CRYPTOBOT_API_TOKEN': '', 'XROCKET_API_TOKEN': '', 'XROCKET_WEBHOOK_SECRET': '', 'FRAGMENT_API_JWT': '', 'FRAGMENT_CURRENCY': 'ton', 'TONKEEPER_ADDRESS': '', 'TON_WALLET_MNEMONIC': '', 'TON_WALLET_SEED_FILE': '', 'TON_WALLET_VERSION': 'v4r2', 'TON_WALLET_WORKCHAIN': 0, 'TON_WALLET_ID': None, 'TON_RPC_URL': '', 'TON_USD_RATE': ''}
+_CONFIG_DEFAULTS.update({'LAVESHKA_API_KEY': '', 'LAVESHKA_WEBHOOK_SECRET': ''})
 _MODULE_CONFIG = {'main': ['BOT_TOKEN', 'WEBHOOK_SECRET', 'WEBHOOK_HOST', 'WEBHOOK_PATH', 'WEBAPP_HOST', 'WEBAPP_PORT', 'ADMIN_ID', 'BOT_USERNAME', 'CHANNEL_ID', 'CHANNEL_URL', 'CHAT_URL'], 'payments_backend': ['CRYPTOBOT_API_TOKEN', 'XROCKET_API_TOKEN', 'XROCKET_WEBHOOK_SECRET', 'FRAGMENT_API_JWT', 'FRAGMENT_CURRENCY', 'TONKEEPER_ADDRESS', 'TON_WALLET_MNEMONIC', 'TON_WALLET_SEED_FILE', 'TON_WALLET_VERSION', 'TON_WALLET_WORKCHAIN', 'TON_WALLET_ID', 'TON_RPC_URL', 'TON_USD_RATE']}
+
+_MODULE_CONFIG['payments_backend'] += ['LAVESHKA_API_KEY', 'LAVESHKA_WEBHOOK_SECRET']
 
 
 def _load_config(path=None):
@@ -1193,6 +1196,7 @@ class CompleteGamesBackend(TonDepositsMixin, FairnessMixin, StarWithdrawalsMixin
             await connection.commit()
 
         await self.initialize_payments()
+        await self.initialize_lave(application)
         await self.initialize_account()
         await self.initialize_checks()
         await self.initialize_star_withdrawals()
@@ -10545,6 +10549,12 @@ def verify_rocket_signature(body, headers, secret, now=None):
 
 class PaymentsMixin:
     def register_payments(self, application):
+        for provider in ("laveshka", "sbp"):
+            application.router.add_post(f"/api/deposit/{provider}/create", self.handle_lave_create)
+            application.router.add_get(f"/api/deposit/{provider}/status", self.handle_lave_status)
+        application.router.add_get("/api/deposit/laveshka/providers", self.handle_lave_providers)
+        application.router.add_post("/laveshka", self.handle_lave_webhook)
+        application.router.add_post("/api/deposit/laveshka/cancel", self.handle_lave_cancel)
         application.router.add_get("/api/deposit/info", self.handle_deposit_info)
         for provider in ("cryptobot", "xrocket", "stars"):
             application.router.add_post(f"/api/deposit/{provider}/create", self.handle_deposit_create)
@@ -10582,7 +10592,7 @@ class PaymentsMixin:
         self.referral_notices_task = asyncio.create_task(self.referral_notices_loop())
 
     def payment_token(self, provider):
-        defaults = {"cryptobot": CRYPTOBOT_API_TOKEN, "xrocket": XROCKET_API_TOKEN}
+        defaults = {"cryptobot": CRYPTOBOT_API_TOKEN, "xrocket": XROCKET_API_TOKEN, "laveshka": __server_config__.get("LAVESHKA_API_KEY", "")}
         token = getattr(self, "payment_tokens", {}).get(provider, defaults.get(provider))
         return token.strip() if isinstance(token, str) else None
 
@@ -10651,7 +10661,7 @@ class PaymentsMixin:
             errors["xrocket"] = "xRocket: API-токен отсутствует, повреждён или истёк. Нужен оригинальный JWT Current API."
         elif not self.rocket_secret():
             errors["xrocket"] = "xRocket: Webhook Secret не настроен."
-        return self.response({"ok": True, "methods": {"cryptobot": crypto_ready, "xrocket": not rocket_problem and bool(self.rocket_secret()), "stars": getattr(self, "telegram_bot", None) is not None, "tonkeeper": self.ton_ready() if hasattr(self, "ton_ready") else False, "sbp": False, "laveshka": False}, "methodErrors": errors, "limits": {"min_deposit_cryptobot": 1, "min_deposit_xrocket": 1, "min_deposit_stars": 1}, "usdPerStar": str(STAR_USD), "promo": None, "tagPromo": None})
+        return self.response({"ok": True, "methods": {"cryptobot": crypto_ready, "xrocket": not rocket_problem and bool(self.rocket_secret()), "stars": getattr(self, "telegram_bot", None) is not None, "tonkeeper": self.ton_ready() if hasattr(self, "ton_ready") else False, "sbp": self.lave_ready(), "laveshka": self.lave_ready()}, "methodErrors": errors, "limits": {"min_deposit_cryptobot": 1, "min_deposit_xrocket": 1, "min_deposit_stars": 1, "min_deposit_sbp": 5, "min_deposit_laveshka": 5}, "laveshka": {"minUsd":5,"maxUsd":10000}, "usdPerStar": str(STAR_USD), "promo": None, "tagPromo": None})
 
     async def deposit_row(self, connection, order_id, user_id=None):
         sql = "SELECT id,user_id,provider,provider_id,stars_cents,price_amount,price_currency,status,created_at,expires_at,pay_url FROM webapp_deposits WHERE id = ?"
@@ -10987,7 +10997,7 @@ class PaymentsMixin:
                 raise GameError("Неизвестный фильтр.")
             async with self.database_lock:
                 connection = self.database()
-                sources = ["SELECT 'deposit' AS type,stars_cents/100.0 AS amount,CASE provider WHEN 'cryptobot' THEN 'CryptoBot' WHEN 'xrocket' THEN 'xRocket' WHEN 'tonkeeper' THEN 'Tonkeeper (TON)' ELSE 'Stars' END AS description,status,strftime('%s',COALESCE(paid_at,created_at)) AS created_at,user_id FROM webapp_deposits WHERE status != 'creating'", "SELECT 'deposit',amount,CASE WHEN substr(charge_id,1,14)='admin-deposit:' THEN 'Депозит от администратора' ELSE 'Stars' END,'paid',strftime('%s',created_at),user_id FROM payments WHERE charge_id NOT IN (SELECT provider_id FROM webapp_deposits WHERE provider_id IS NOT NULL)", "SELECT 'withdrawal',amount,'Stars',status,strftime('%s',created_at),user_id FROM withdrawals", "SELECT 'withdrawal',quantity,'Stars · Fragment',state,strftime('%s',created_at),user_id FROM webapp_star_withdrawals"]
+                sources = ["SELECT 'deposit' AS type,stars_cents/100.0 AS amount,CASE provider WHEN 'cryptobot' THEN 'CryptoBot' WHEN 'xrocket' THEN 'xRocket' WHEN 'tonkeeper' THEN 'Tonkeeper (TON)' WHEN 'laveshka' THEN 'Лавэшка' WHEN 'sbp' THEN 'Лавэшка · СБП / телефон' ELSE 'Stars' END AS description,status,strftime('%s',COALESCE(paid_at,created_at)) AS created_at,user_id FROM webapp_deposits WHERE status != 'creating'", "SELECT 'deposit',amount,CASE WHEN substr(charge_id,1,14)='admin-deposit:' THEN 'Депозит от администратора' ELSE 'Stars' END,'paid',strftime('%s',created_at),user_id FROM payments WHERE charge_id NOT IN (SELECT provider_id FROM webapp_deposits WHERE provider_id IS NOT NULL)", "SELECT 'withdrawal',amount,'Stars',status,strftime('%s',created_at),user_id FROM withdrawals", "SELECT 'withdrawal',quantity,'Stars · Fragment',state,strftime('%s',created_at),user_id FROM webapp_star_withdrawals"]
                 condition = " WHERE user_id = ?"
                 values = [user.id]
                 if filter_name != "all":
@@ -11073,6 +11083,308 @@ class PaymentsMixin:
 
 
 # Fragment Connection JWT from the provider dashboard (raw JWT, never a bot token).
+    def lave_ready(self):
+        return bool(self.payment_token("laveshka") and __server_config__.get("LAVESHKA_WEBHOOK_SECRET"))
+
+    async def lave_api(self, method, path, data=None):
+        token = self.payment_token("laveshka")
+        if not self.lave_ready():
+            raise GameError("Лавэшка не настроена.", 503)
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=35)) as session:
+                async with session.request(method, "https://laveshka.io/merchant/v1" + path,
+                        headers={"X-Api-Key": token}, json=data if method == "POST" else None,
+                        params=data if method == "GET" else None, allow_redirects=False) as response:
+                    result = await response.json(content_type=None)
+                    if response.status >= 300 or not isinstance(result, dict) or result.get("ok") is not True:
+                        raise GameError("Лавэшка отклонила запрос. Проверьте статус или повторите позже.", 502)
+                    if not isinstance(result.get("data"), dict):
+                        raise GameError("Некорректный ответ Лавэшки.", 502)
+                    return result["data"]
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+            raise GameError("Нет подтверждённого ответа Лавэшки. Счёт сохранён, проверяем статус.", 502) from None
+
+    async def initialize_lave(self, application):
+        async with self.database_lock:
+            await self.database().execute("CREATE TABLE IF NOT EXISTS webapp_lave_orders(id TEXT PRIMARY KEY,request TEXT NOT NULL,object TEXT,checked_at INTEGER NOT NULL DEFAULT 0)")
+            await self.database().commit()
+        if application is not None and not hasattr(self, "lave_task"):
+            self.lave_task = asyncio.create_task(self.lave_reconcile_loop())
+            application.on_shutdown.append(self.cleanup_lave)
+
+    async def cleanup_lave(self, application):
+        self.lave_task.cancel()
+        await asyncio.gather(self.lave_task, return_exceptions=True)
+
+    async def lave_reconcile_loop(self):
+        while True:
+            try:
+                if self.lave_ready():
+                    async with self.database_lock:
+                        async with self.database().execute("SELECT d.id FROM webapp_deposits d JOIN webapp_lave_orders l ON l.id=d.id WHERE provider IN ('laveshka','sbp') AND status IN ('creating','active','pending','awaiting_payment','processing','overdue','cancelled') ORDER BY l.checked_at LIMIT 20") as cursor:
+                            ids = [row[0] for row in await cursor.fetchall()]
+                    for order_id in ids:
+                        try:
+                            await self.lave_refresh(order_id)
+                        except GameError:
+                            pass
+            except Exception as error:
+                logging.warning("Laveshka reconciliation: %s", type(error).__name__)
+            await asyncio.sleep(30)
+
+    async def lave_load(self, order_id, user_id=None):
+        async with self.database_lock:
+            order = await self.deposit_row(self.database(), order_id, user_id)
+            if order["provider"] not in {"laveshka", "sbp"}:
+                raise GameError("Счёт не найден.", 404)
+            async with self.database().execute("SELECT request,object FROM webapp_lave_orders WHERE id=?", (order_id,)) as cursor:
+                row = await cursor.fetchone()
+            if not row:
+                raise GameError("Счёт не найден.", 404)
+            return order, json.loads(row[0]), json.loads(row[1]) if row[1] else {}
+
+    async def lave_refresh(self, order_id):
+        order, body, obj = await self.lave_load(order_id)
+        async with self.database_lock:
+            await self.database().execute("UPDATE webapp_lave_orders SET checked_at=? WHERE id=?", (time.time(), order_id))
+            await self.database().commit()
+        if order["status"] == "paid":
+            return
+        if order["provider"] == "laveshka":
+            if order["provider_id"]:
+                obj = await self.lave_api("GET", "/invoices/" + order["provider_id"])
+            else:
+                # order_id is a durable provider-side idempotency key.
+                obj = await self.lave_api("POST", "/invoices", body)
+        else:
+            # Replaying the exact frozen body is safe even after a lost response.
+            if order["provider_id"]:
+                obj = await self.lave_api("GET", "/buy/orders/" + order["provider_id"])
+            else:
+                obj = await self.lave_api("POST", "/buy/orders", body)
+        await self.lave_apply(order_id, obj)
+
+    async def lave_apply(self, order_id, obj, event_id=None):
+        order, body, previous = await self.lave_load(order_id)
+        token = self.payment_token("laveshka") or ""
+        merchant = re.fullmatch(r"LAVE-([0-9]+)-[^\s]+", token)
+        is_invoice = order["provider"] == "laveshka"
+        try:
+            identifier = obj.get("id")
+            if not isinstance(identifier, str) or not re.fullmatch(r"(?:inv|buy)_[A-Za-z0-9-]+", identifier):
+                raise ValueError
+            if not identifier.startswith("inv_" if is_invoice else "buy_"):
+                raise ValueError
+            if order["provider_id"] and identifier != order["provider_id"]:
+                raise ValueError
+            if is_invoice:
+                if obj.get("order_id") != order_id or obj.get("currency") != "USD" or decimal_amount(obj.get("face_amount")) != decimal_amount(order["price_amount"]) or decimal_amount(obj.get("amount")) != decimal_amount(order["price_amount"]):
+                    raise ValueError
+                if not merchant or str(obj.get("merchant_id")) != merchant[1]:
+                    raise ValueError
+            elif (obj.get("idempotency_key") != order_id or obj.get("currency") != "USDT"
+                    or decimal_amount(obj.get("amount_usdt")) < decimal_amount(order["price_amount"])
+                    or obj.get("method") != body["method"]
+                    or str(obj.get("provider_id")) != str(body["provider_id"])):
+                raise ValueError
+            status = obj.get("status")
+            allowed = {"active", "paid", "expired", "cancelled", "refunded"} if is_invoice else {"pending", "awaiting_payment", "overdue", "completed", "cancelled"}
+            if status not in allowed:
+                raise ValueError
+        except (ValueError, TypeError, GameError):
+            raise GameError("Данные платежа Лавэшки не совпадают.", 409) from None
+        paid = status == ("paid" if is_invoice else "completed")
+        url = obj.get("pay_url" if is_invoice else "payment_url")
+        if url and not self.lave_safe_url(url, is_invoice):
+            raise GameError("Некорректная ссылка оплаты.", 502)
+        async with self.database_lock:
+            connection = self.database()
+            try:
+                await connection.execute("BEGIN IMMEDIATE")
+                if event_id:
+                    async with connection.execute("SELECT 1 FROM webapp_payment_events WHERE provider='laveshka' AND event_id=?", (event_id,)) as cursor:
+                        if await cursor.fetchone():
+                            await connection.rollback()
+                            return
+                fresh = await self.deposit_row(connection, order_id)
+                if fresh["status"] != "paid":
+                    await connection.execute("UPDATE webapp_deposits SET provider_id=?,pay_url=?,status=?,paid_at=? WHERE id=?", (identifier, url, "paid" if paid else status, self.clock().isoformat() if paid else None, order_id))
+                    if paid:
+                        await self.wallet_credit(connection, order["user_id"], order["stars_cents"], "deposit", "deposit:" + order_id)
+                        await self.referral_credit(connection, order["user_id"], order["stars_cents"], "deposit:" + order_id)
+                await connection.execute("UPDATE webapp_lave_orders SET object=? WHERE id=?", (json.dumps(obj), order_id))
+                if event_id:
+                    await connection.execute("INSERT OR IGNORE INTO webapp_payment_events(provider,event_id,created_at) VALUES ('laveshka',?,?)", (event_id, self.clock().isoformat()))
+                await connection.commit()
+            except BaseException:
+                await connection.rollback()
+                raise
+
+    @staticmethod
+    def lave_safe_url(url, invoice=False):
+        from urllib.parse import urlsplit
+        if not isinstance(url, str):
+            return False
+        try:
+            parsed = urlsplit(url)
+            port = parsed.port
+        except ValueError:
+            return False
+        return parsed.scheme == "https" and parsed.hostname in ({"t.me"} if invoice else {"qr.nspk.ru"}) and not parsed.username and not parsed.password and port in (None, 443)
+
+    async def handle_lave_providers(self, request):
+        try:
+            self.validate_user(request)
+            rate = await self.lave_api("GET", "/buy/rate")
+            providers = rate.get("providers", [])
+            if not isinstance(providers, list):
+                raise GameError("Некорректный список провайдеров.", 502)
+            return self.response({"ok": True, "providers": providers})
+        except GameError as error:
+            return self.payment_failure(error)
+
+    async def handle_lave_create(self, request):
+        try:
+            payload = await self.payload(request)
+            user = self.validate_user(request, payload)
+            if not self.lave_ready():
+                raise GameError("Лавэшка не настроена.", 503)
+            provider = request.path.split("/")[3]
+            cents = money_cents(payload.get("amount"), 100, 1000000)
+            price = (Decimal(cents) / 100 * STAR_USD).quantize(Decimal("0.01"), rounding=ROUND_UP)
+            if not Decimal("0.10") <= price <= Decimal("10000"):
+                raise GameError("Сумма счёта должна быть от $0.10 до $10000.")
+            key, digest = self.request_identity(request, payload)
+            lock = self.deposit_create_locks.setdefault(user.id, asyncio.Lock())
+            async with lock:
+                async with self.database_lock:
+                    async with self.database().execute("SELECT id,request_digest FROM webapp_deposits WHERE user_id=? AND request_key=?", (user.id, key)) as cursor:
+                        existing = await cursor.fetchone()
+                if existing:
+                    if existing[1] != digest:
+                        raise GameError("Ключ использован для другого платежа.", 409)
+                    order_id = existing[0]
+                else:
+                    order_id = "ms_" + secrets.token_hex(16)
+                    body = {"amount": str(price), "currency": "USD", "accept": ["USDT"], "order_id": order_id, "ttl": PAYMENT_LIFETIME, "description": "MajorStars"}
+                    if provider == "sbp":
+                        method = payload.get("method")
+                        provider_id = payload.get("providerId")
+                        if method not in {"sbp", "phone"} or not isinstance(provider_id, (str, int)) or isinstance(provider_id, bool):
+                            raise GameError("Выберите провайдера оплаты.")
+                        rates = await self.lave_api("GET", "/buy/rate", {"provider_id": str(provider_id), "method": method, "amount_usdt": str(price)})
+                        if rates.get("available") is not True or rates.get("method") != method:
+                            raise GameError("Этот способ временно недоступен.", 409)
+                        rate = decimal_amount(rates.get("rate"))
+                        body = {"amount_usdt": str(price), "max_rate": str(rate), "method": method, "provider_id": provider_id, "idempotency_key": order_id}
+                    async with self.database_lock:
+                        connection = self.database()
+                        try:
+                            async with connection.execute("SELECT COUNT(*) FROM webapp_deposits WHERE user_id=? AND created_at>=?", (user.id, self.clock().fromtimestamp(time.time()-60, self.clock().tzinfo).isoformat())) as cursor:
+                                if (await cursor.fetchone())[0] >= 5:
+                                    raise GameError("Слишком много счетов. Подождите минуту.", 429)
+                            await connection.execute("INSERT INTO webapp_deposits(id,user_id,provider,stars_cents,price_amount,price_currency,status,created_at,expires_at,request_key,request_digest) VALUES (?,?,?,?,?,?,'creating',?,?,?,?)", (order_id,user.id,provider,cents,str(price),"USD" if provider == "laveshka" else "USDT",self.clock().isoformat(),int(time.time())+PAYMENT_LIFETIME,key,digest))
+                            await connection.execute("INSERT INTO webapp_lave_orders(id,request) VALUES (?,?)", (order_id,json.dumps(body)))
+                            await connection.commit()
+                        except BaseException:
+                            await connection.rollback()
+                            raise
+                try:
+                    await self.lave_refresh(order_id)
+                except GameError:
+                    # Return the durable local ID, so clients can poll ambiguous outcomes.
+                    pass
+                return self.response(await self.lave_result(order_id, user.id))
+        except GameError as error:
+            return self.payment_failure(error)
+
+    async def lave_result(self, order_id, user_id):
+        from datetime import datetime
+        order, body, obj = await self.lave_load(order_id, user_id)
+        result = self.deposit_result(order)
+        result.update({"paymentId":order_id,"requestId":order_id,"state":order["status"],"feePercent":0,"feeAmount":0,"total":order["stars_cents"]/100})
+        if order["provider"] == "sbp":
+            state = order["status"]
+            result["state"] = "pending" if state in {"pending","awaiting_payment","overdue"} else state
+            result.update({"rubAmount":obj.get("amount_rub"),"rate":obj.get("rate"),"method":obj.get("method"),"payPhone":obj.get("pay_phone"),"payCountry":obj.get("pay_country"),"payOperator":obj.get("pay_operator"),"overdue":state == "overdue"})
+            if obj.get("pay_until"):
+                try:
+                    result["expiresIn"] = max(0,int(datetime.fromisoformat(obj["pay_until"]).timestamp()-time.time()))
+                except (ValueError, TypeError):
+                    result["expiresIn"] = 0
+            else:
+                result["expiresIn"] = 0
+        async with self.database_lock:
+            result["balance"] = await self.balance(self.database(), user_id)
+        return result
+
+    async def handle_lave_status(self, request):
+        try:
+            user = self.validate_user(request)
+            order_id = request.query.get("paymentId") or request.query.get("requestId") or ""
+            order, body, obj = await self.lave_load(order_id, user.id)
+            if order["provider"] != request.path.split("/")[3]:
+                raise GameError("Счёт не найден.", 404)
+            # Reconciliation also runs without an open browser.
+            return self.response(await self.lave_result(order_id, user.id))
+        except GameError as error:
+            return self.payment_failure(error)
+
+    async def handle_lave_cancel(self, request):
+        try:
+            payload = await self.payload(request)
+            user = self.validate_user(request, payload)
+            order_id = payload.get("paymentId", "")
+            order, body, obj = await self.lave_load(order_id, user.id)
+            if order["provider"] != "laveshka":
+                raise GameError("Этот способ не поддерживает отмену.", 409)
+            if order["status"] == "paid":
+                return self.response(await self.lave_result(order_id, user.id))
+            if not order["provider_id"]:
+                raise GameError("Сначала дождитесь подтверждения создания счёта.", 409)
+            obj = await self.lave_api("POST", "/invoices/" + order["provider_id"] + "/cancel", {})
+            await self.lave_apply(order_id, obj)
+            return self.response(await self.lave_result(order_id, user.id))
+        except GameError as error:
+            return self.payment_failure(error)
+
+    async def handle_lave_webhook(self, request):
+        try:
+            body = await request.read()
+            timestamp = request.headers.get("X-LavePay-Timestamp", "")
+            signature = request.headers.get("X-LavePay-Signature", "")
+            secret = __server_config__.get("LAVESHKA_WEBHOOK_SECRET", "")
+            if not secret or not re.fullmatch(r"[0-9]{1,12}", timestamp) or abs(time.time()-int(timestamp)) > 300:
+                raise GameError("Недействительная подпись.", 401)
+            expected = "v1=" + hmac.new(secret.encode(), timestamp.encode()+b"."+body, hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(signature, expected):
+                raise GameError("Недействительная подпись.", 401)
+            try:
+                event = json.loads(body)
+            except ValueError:
+                raise GameError("Некорректное событие.") from None
+            token = self.payment_token("laveshka") or ""
+            merchant = re.fullmatch(r"LAVE-([0-9]+)-[^\s]+", token)
+            if not isinstance(event, dict) or not merchant or str(event.get("merchant_id")) != merchant[1] or not re.fullmatch(r"evt_[A-Za-z0-9-]+", str(event.get("id", ""))):
+                raise GameError("Событие другого мерчанта.", 401)
+            if event.get("type") == "webhook.test":
+                return self.response({"ok":True})
+            if event.get("type") not in {"invoice.paid","invoice.expired","invoice.cancelled","buy_order.completed","buy_order.cancelled"}:
+                return self.response({"ok":True})
+            obj = event.get("data")
+            if not isinstance(obj, dict):
+                raise GameError("Некорректное событие.")
+            order_id = obj.get("order_id") if event["type"].startswith("invoice.") else obj.get("idempotency_key")
+            async with self.database_lock:
+                async with self.database().execute("SELECT 1 FROM webapp_lave_orders WHERE id=?", (order_id,)) as cursor:
+                    known = await cursor.fetchone()
+            if known:
+                await self.lave_apply(order_id, obj, event["id"])
+            return self.response({"ok":True})
+        except GameError as error:
+            return self.payment_failure(error)
+
+
 FRAGMENT_API_JWT = __server_config__['FRAGMENT_API_JWT']
 FRAGMENT_CURRENCY = __server_config__['FRAGMENT_CURRENCY']  # or usdt_ton; USDT settlement still needs TON for gas
 # Native TON receiving wallet. Empty configuration keeps Tonkeeper disabled.
@@ -11086,6 +11398,7 @@ TON_WALLET_WORKCHAIN = __server_config__['TON_WALLET_WORKCHAIN']
 TON_WALLET_ID = __server_config__['TON_WALLET_ID']  # None = SDK default; match the actual wallet's subwallet ID
 TON_RPC_URL = __server_config__['TON_RPC_URL']  # Own mainnet v3-compatible read-only indexer, e.g. http://127.0.0.1:8081/api/v3
 TON_USD_RATE = __server_config__['TON_USD_RATE']  # Explicit server-side USD per TON; no client-supplied rates
+
 '''
 
 # ==================== pot_games.py ====================
