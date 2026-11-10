@@ -193,3 +193,52 @@ class LaveshkaTests(unittest.IsolatedAsyncioTestCase):
         _,_,obj=await self.backend.lave_load(self.order_id)
         await self.backend.lave_apply(self.order_id,dict(obj,status='paid'),'evt_once')
         self.assertEqual(await self.runtime.get_balance(42),1100)
+
+    async def test_creation_error_visible_and_recovery_keeps_same_order(self):
+        self.backend.lave_api=AsyncMock(side_effect=GameError('Лавэшка: API-ключ не принят.',502,'LAVE_API_ERROR'))
+        response,data=await self.create()
+        self.assertEqual(response.status,200)
+        self.assertEqual(data['status'],'creating')
+        self.assertIn('API-ключ не принят',data['creationError'])
+        order_id=data['paymentId']
+        response=await self.client.get('/api/deposit/laveshka/status?paymentId='+order_id,headers=self.headers())
+        self.assertIn('API-ключ не принят',(await response.json())['creationError'])
+        self.backend.lave_api=AsyncMock(side_effect=self.api)
+        await self.backend.lave_refresh(order_id)
+        result=await self.backend.lave_result(order_id,42)
+        self.assertIsNone(result['creationError'])
+        self.assertEqual(result['status'],'active')
+        self.assertTrue(result['payUrl'])
+        self.assertEqual(await self.runtime.get_balance(42),1000)
+
+    async def test_missing_payment_link_is_not_silently_active(self):
+        original=self.api
+        async def no_link(method,path,data=None):
+            obj=await original(method,path,data)
+            obj['pay_url']=None
+            return obj
+        self.backend.lave_api=AsyncMock(side_effect=no_link)
+        _,data=await self.create()
+        self.assertEqual(data['status'],'creating')
+        self.assertIn('pay_url',data['creationError'])
+
+    async def test_api_rejection_redacted_but_actionable(self):
+        from unittest.mock import MagicMock
+        response=MagicMock()
+        response.status=401
+        response.json=AsyncMock(return_value={'ok':False,'error':{'code':'unauthorized','message':'PRIVATE_PROVIDER_MESSAGE'}})
+        request_context=MagicMock()
+        request_context.__aenter__=AsyncMock(return_value=response)
+        request_context.__aexit__=AsyncMock(return_value=False)
+        session=MagicMock()
+        session.request.return_value=request_context
+        session_context=MagicMock()
+        session_context.__aenter__=AsyncMock(return_value=session)
+        session_context.__aexit__=AsyncMock(return_value=False)
+        with patch.object(payments_backend.aiohttp,'ClientSession',return_value=session_context):
+            with self.assertRaises(GameError) as caught:
+                await payments_backend.PaymentsMixin.lave_api(self.backend,'POST','/invoices',{'amount':'2.20'})
+        self.assertIn('API-ключ не принят',str(caught.exception))
+        self.assertIn('HTTP 401',str(caught.exception))
+        self.assertNotIn('PRIVATE_PROVIDER_MESSAGE',str(caught.exception))
+        self.assertNotIn('LAVE-12-test',str(caught.exception))

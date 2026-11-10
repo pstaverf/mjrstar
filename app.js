@@ -29184,6 +29184,9 @@ function depositLaveFeeHTML() {
 function depositWaitingStepHTML() {
     if (depositState.method === "sbp") return depositSbpWaitingHTML();
     if (depositState.method === "laveshka" && !depositState.payUrl) {
+        if (depositState.laveCreationError) {
+            return '<div class="deposit-waiting"><div class="deposit-waiting-title">Ссылка на оплату пока не получена</div><div class="deposit-waiting-text">' + escapeHtml(depositState.laveCreationError) + '</div><div class="deposit-waiting-text">Заявка сохранена: ' + escapeHtml(depositState.invoiceId || '') + '. Проверка продолжится автоматически. Не создавайте новый платёж до выяснения результата.</div><button class="gv-start-btn deposit-secondary-btn" type="button" id="depositSbpLeave">Назад</button></div>';
+        }
         return '<div class="deposit-waiting">' + '<div class="deposit-spinner"></div>' + '<div class="deposit-waiting-title">Создаём счёт на оплату…</div>' + '<div class="deposit-waiting-text">Сумма: ' + fmtNum(depositState.amount) + "⭐️ через Лавэшку</div>" + '<button class="gv-start-btn deposit-secondary-btn" type="button" id="depositSbpLeave">Назад</button>' + "</div>";
     }
     if (depositState.payUrl) {
@@ -29354,7 +29357,10 @@ function depositSbpApply(data) {
         depositSbpFail("error", data && data.error);
         return;
     }
-    if (data.state === "creating") return;
+    if (data.state === "creating") {
+        if (data.creationError) depositSbpFail("error", data.creationError + " Заявка: " + data.requestId + ". Не создавайте повторный платёж до проверки.");
+        return;
+    }
     if (data.state === "paid") {
         depositStopPolling();
         depositState.creditedAmount = data.amount != null ? data.amount : depositState.amount;
@@ -29499,6 +29505,10 @@ function depositCreateXrocket(currency) {
 
 function depositLavePollFn() {
     return () => fetch("/api/deposit/laveshka/status?paymentId=" + encodeURIComponent(depositState.invoiceId)).then(r => r.json()).then(data => {
+        if (data.ok && depositState.laveCreationError !== data.creationError) {
+            depositState.laveCreationError = data.creationError || null;
+            renderDepositStep();
+        }
         if (data.ok && data.payUrl && depositState.payUrl !== data.payUrl) {
             depositState.payUrl = data.payUrl;
             renderDepositStep();
@@ -29508,6 +29518,7 @@ function depositLavePollFn() {
 }
 
 function depositCreateLaveshka() {
+    depositState.laveCreationError = null;
     depositState.invoiceId = null;
     depositState.payUrl = null;
     depositState.laveFee = null;
@@ -29532,6 +29543,7 @@ function depositCreateLaveshka() {
             renderDepositStep();
             return;
         }
+        depositState.laveCreationError = data.creationError || null;
         depositState.invoiceId = data.paymentId;
         depositState.payUrl = data.payUrl;
         depositState.laveFee = {

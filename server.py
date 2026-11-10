@@ -11097,7 +11097,21 @@ class PaymentsMixin:
                         params=data if method == "GET" else None, allow_redirects=False) as response:
                     result = await response.json(content_type=None)
                     if response.status >= 300 or not isinstance(result, dict) or result.get("ok") is not True:
-                        raise GameError("Лавэшка отклонила запрос. Проверьте статус или повторите позже.", 502)
+                        code = result.get("error", {}).get("code") if isinstance(result, dict) and isinstance(result.get("error"), dict) else None
+                        messages = {
+                            "unauthorized": "Лавэшка: API-ключ не принят. Администратору нужно проверить LAVESHKA_API_KEY.",
+                            "forbidden": "Лавэшка: операция запрещена. Проверьте, что мерчант активен.",
+                            "validation_error": "Лавэшка отклонила параметры или сумму счёта. Администратору нужно проверить ограничения мерчанта.",
+                            "rate_limited": "Лавэшка: превышен лимит запросов. Проверим этот же счёт позже.",
+                            "provider_not_configured": "Лавэшка: это направление временно отключено у провайдера.",
+                            "rate_changed": "Лавэшка: курс изменился выше допустимого. Нужна проверка сохранённой заявки.",
+                            "buy_blocked": "Лавэшка: покупка USDT временно заблокирована для мерчанта.",
+                            "duplicate_operation": "Лавэшка: конфликт параметров существующего счёта. Не создавайте повторный платёж.",
+                            "idempotency_conflict": "Лавэшка: конфликт ключа существующей покупки. Нужна проверка заявки.",
+                        }
+                        safe_code = code if code in messages else "api_error"
+                        message = messages.get(code, "Лавэшка не подтвердила создание счёта.")
+                        raise GameError(message + " (HTTP " + str(response.status) + ", " + safe_code + ")", 502, "LAVE_API_ERROR")
                     if not isinstance(result.get("data"), dict):
                         raise GameError("Некорректный ответ Лавэшки.", 502)
                     return result["data"]
@@ -11107,6 +11121,7 @@ class PaymentsMixin:
     async def initialize_lave(self, application):
         async with self.database_lock:
             await self.database().execute("CREATE TABLE IF NOT EXISTS webapp_lave_orders(id TEXT PRIMARY KEY,request TEXT NOT NULL,object TEXT,checked_at INTEGER NOT NULL DEFAULT 0)")
+            await self.database().execute("CREATE TABLE IF NOT EXISTS webapp_lave_errors(id TEXT PRIMARY KEY,message TEXT NOT NULL,updated_at TEXT NOT NULL)")
             await self.database().commit()
         if application is not None and not hasattr(self, "lave_task"):
             self.lave_task = asyncio.create_task(self.lave_reconcile_loop())
@@ -11144,6 +11159,20 @@ class PaymentsMixin:
             return order, json.loads(row[0]), json.loads(row[1]) if row[1] else {}
 
     async def lave_refresh(self, order_id):
+        try:
+            await self._lave_refresh(order_id)
+        except GameError as error:
+            async with self.database_lock:
+                await self.database().execute("INSERT INTO webapp_lave_errors(id,message,updated_at) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET message=excluded.message,updated_at=excluded.updated_at", (order_id, error.message, self.clock().isoformat()))
+                await self.database().commit()
+            # No provider response, API key or raw body is logged.
+            logging.warning("Laveshka order %s: status=%s code=%s", order_id, error.status, error.code or "LAVE_CONFIRMATION_ERROR")
+            raise
+        async with self.database_lock:
+            await self.database().execute("DELETE FROM webapp_lave_errors WHERE id=?", (order_id,))
+            await self.database().commit()
+
+    async def _lave_refresh(self, order_id):
         order, body, obj = await self.lave_load(order_id)
         async with self.database_lock:
             await self.database().execute("UPDATE webapp_lave_orders SET checked_at=? WHERE id=?", (time.time(), order_id))
@@ -11195,6 +11224,8 @@ class PaymentsMixin:
             raise GameError("Данные платежа Лавэшки не совпадают.", 409) from None
         paid = status == ("paid" if is_invoice else "completed")
         url = obj.get("pay_url" if is_invoice else "payment_url")
+        if is_invoice and status == "active" and not url:
+            raise GameError("Лавэшка вернула счёт без ссылки pay_url. Нужна проверка ответа провайдера.", 502)
         if url and not self.lave_safe_url(url, is_invoice):
             raise GameError("Некорректная ссылка оплаты.", 502)
         async with self.database_lock:
@@ -11316,6 +11347,9 @@ class PaymentsMixin:
                 result["expiresIn"] = 0
         async with self.database_lock:
             result["balance"] = await self.balance(self.database(), user_id)
+            async with self.database().execute("SELECT message FROM webapp_lave_errors WHERE id=?", (order_id,)) as cursor:
+                error = await cursor.fetchone()
+            result["creationError"] = error[0] if error and order["status"] != "paid" else None
         return result
 
     async def handle_lave_status(self, request):

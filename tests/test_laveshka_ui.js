@@ -29,3 +29,15 @@ for (const name of ['depositCreateSbp','depositCreateLaveshka']) {
 assert.match(fn('depositCreateSbp'),/providerId: depositState.laveProvider.id/);
 assert.match(fn('depositLavePollFn'),/depositState.payUrl = data.payUrl/);
 console.log('Laveshka UI tests passed');
+vm.runInContext(fn('depositWaitingStepHTML'),ctx);
+ctx.depositState.method='laveshka';
+ctx.depositState.payUrl=null;
+ctx.depositState.invoiceId='ms_test';
+ctx.depositState.laveCreationError='<script>Rejected</script>';
+html=ctx.depositWaitingStepHTML();
+assert.match(html,/Ссылка на оплату пока не получена/);
+assert.match(html,/ms_test/);
+assert.match(html,/&lt;script&gt;/);
+assert.ok(!html.includes('deposit-spinner'));
+assert.match(fn('depositCreateLaveshka'),/laveCreationError = data.creationError/);
+assert.match(fn('depositLavePollFn'),/laveCreationError = data.creationError/);
