@@ -11195,33 +11195,59 @@ class PaymentsMixin:
 
     async def lave_apply(self, order_id, obj, event_id=None):
         order, body, previous = await self.lave_load(order_id)
+        if not isinstance(obj, dict):
+            raise GameError("Данные платежа Лавэшки не совпадают (код проверки: LAVE_CONFIRMATION_OBJECT).", 409, "LAVE_CONFIRMATION_OBJECT")
         token = self.payment_token("laveshka") or ""
         merchant = re.fullmatch(r"LAVE-([0-9]+)-[^\s]+", token)
         is_invoice = order["provider"] == "laveshka"
-        try:
-            identifier = obj.get("id")
-            if not isinstance(identifier, str) or not re.fullmatch(r"(?:inv|buy)_[A-Za-z0-9-]+", identifier):
-                raise ValueError
-            if not identifier.startswith("inv_" if is_invoice else "buy_"):
-                raise ValueError
-            if order["provider_id"] and identifier != order["provider_id"]:
-                raise ValueError
-            if is_invoice:
-                if obj.get("order_id") != order_id or obj.get("currency") != "USD" or decimal_amount(obj.get("face_amount")) != decimal_amount(order["price_amount"]) or decimal_amount(obj.get("amount")) != decimal_amount(order["price_amount"]):
-                    raise ValueError
-                if not merchant or str(obj.get("merchant_id")) != merchant[1]:
-                    raise ValueError
-            elif (obj.get("idempotency_key") != order_id or obj.get("currency") != "USDT"
-                    or decimal_amount(obj.get("amount_usdt")) < decimal_amount(order["price_amount"])
-                    or obj.get("method") != body["method"]
-                    or str(obj.get("provider_id")) != str(body["provider_id"])):
-                raise ValueError
-            status = obj.get("status")
-            allowed = {"active", "paid", "expired", "cancelled", "refunded"} if is_invoice else {"pending", "awaiting_payment", "overdue", "completed", "cancelled"}
-            if status not in allowed:
-                raise ValueError
-        except (ValueError, TypeError, GameError):
-            raise GameError("Данные платежа Лавэшки не совпадают.", 409) from None
+
+        def confirmation_error(code):
+            return GameError("Данные платежа Лавэшки не совпадают (код проверки: " + code + ").", 409, code)
+
+        def amount_equals(value, expected):
+            try:
+                return decimal_amount(value) == decimal_amount(expected)
+            except GameError:
+                return False
+
+        identifier = obj.get("id")
+        if (not isinstance(identifier, str)
+                or not re.fullmatch(r"(?:inv|buy)_[A-Za-z0-9-]+", identifier)
+                or not identifier.startswith("inv_" if is_invoice else "buy_")):
+            raise confirmation_error("LAVE_CONFIRMATION_ID")
+        if order["provider_id"] and identifier != order["provider_id"]:
+            raise confirmation_error("LAVE_CONFIRMATION_PROVIDER_ID")
+        if is_invoice:
+            if obj.get("order_id") != order_id:
+                raise confirmation_error("LAVE_CONFIRMATION_ORDER_ID")
+            if obj.get("currency") != "USD":
+                raise confirmation_error("LAVE_CONFIRMATION_CURRENCY")
+            if not amount_equals(obj.get("face_amount"), order["price_amount"]):
+                raise confirmation_error("LAVE_CONFIRMATION_FACE_AMOUNT")
+            if not amount_equals(obj.get("amount"), order["price_amount"]):
+                raise confirmation_error("LAVE_CONFIRMATION_AMOUNT")
+            if not merchant or str(obj.get("merchant_id")) != merchant[1]:
+                raise confirmation_error("LAVE_CONFIRMATION_MERCHANT_ID")
+        else:
+            if obj.get("idempotency_key") != order_id:
+                raise confirmation_error("LAVE_CONFIRMATION_IDEMPOTENCY_KEY")
+            if obj.get("currency") != "USDT":
+                raise confirmation_error("LAVE_CONFIRMATION_CURRENCY")
+            try:
+                amount_usdt = decimal_amount(obj.get("amount_usdt"))
+                expected_usdt = decimal_amount(order["price_amount"])
+            except GameError:
+                raise confirmation_error("LAVE_CONFIRMATION_AMOUNT_USDT") from None
+            if amount_usdt < expected_usdt:
+                raise confirmation_error("LAVE_CONFIRMATION_AMOUNT_USDT")
+            if obj.get("method") != body["method"]:
+                raise confirmation_error("LAVE_CONFIRMATION_METHOD")
+            if str(obj.get("provider_id")) != str(body["provider_id"]):
+                raise confirmation_error("LAVE_CONFIRMATION_PROVIDER_ID")
+        status = obj.get("status")
+        allowed = {"active", "paid", "expired", "cancelled", "refunded"} if is_invoice else {"pending", "awaiting_payment", "overdue", "completed", "cancelled"}
+        if status not in allowed:
+            raise confirmation_error("LAVE_CONFIRMATION_STATUS")
         paid = status == ("paid" if is_invoice else "completed")
         url = obj.get("pay_url" if is_invoice else "payment_url")
         if is_invoice and status == "active" and not url:

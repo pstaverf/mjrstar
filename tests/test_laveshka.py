@@ -87,13 +87,24 @@ class LaveshkaTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(response.status,200,await response.text())
         self.assertEqual(await self.runtime.get_balance(42),1100)
 
-    async def test_mismatched_money_merchant_key_rejected(self):
+    async def test_mismatched_invoice_fields_have_safe_diagnostic_codes(self):
         await self.create()
         order,body,obj=await self.backend.lave_load(self.order_id)
         obj['status']='paid'
-        for changes in ({'face_amount':'3.00'},{'merchant_id':13},{'order_id':'wrong'},{'currency':'GRAM'}):
-            with self.assertRaises(GameError):
+        cases = (
+            ({'face_amount':'3.00'}, 'LAVE_CONFIRMATION_FACE_AMOUNT'),
+            ({'amount':'3.00'}, 'LAVE_CONFIRMATION_AMOUNT'),
+            ({'merchant_id':13}, 'LAVE_CONFIRMATION_MERCHANT_ID'),
+            ({'order_id':'wrong'}, 'LAVE_CONFIRMATION_ORDER_ID'),
+            ({'currency':'GRAM'}, 'LAVE_CONFIRMATION_CURRENCY'),
+            ({'status':'pending'}, 'LAVE_CONFIRMATION_STATUS'),
+        )
+        for changes,code in cases:
+            with self.subTest(code=code), self.assertRaises(GameError) as caught:
                 await self.backend.lave_apply(self.order_id,dict(obj,**changes))
+            self.assertEqual(caught.exception.status,409)
+            self.assertEqual(caught.exception.code,code)
+            self.assertNotIn('3.00',caught.exception.message)
         self.assertEqual(await self.runtime.get_balance(42),1000)
 
     async def test_bad_signature_and_merchant(self):
