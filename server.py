@@ -159,6 +159,11 @@ class AccountMixin:
         async with self.database_lock:
             connection = self.database()
             await connection.execute("CREATE TABLE IF NOT EXISTS webapp_privacy(user_id INTEGER PRIMARY KEY,mode TEXT NOT NULL DEFAULT 'username',nickname TEXT NOT NULL DEFAULT '',hidden INTEGER NOT NULL DEFAULT 0,clickable INTEGER NOT NULL DEFAULT 1,game_uid TEXT NOT NULL UNIQUE)")
+            await connection.execute("CREATE TABLE IF NOT EXISTS ref_balance(user_id INTEGER PRIMARY KEY,signup_earned REAL NOT NULL DEFAULT 0,deposit_earned REAL NOT NULL DEFAULT 0,group_earned REAL NOT NULL DEFAULT 0,frozen INTEGER NOT NULL DEFAULT 0)")
+            async with connection.execute("PRAGMA table_info(ref_balance)") as cursor:
+                ref_columns = {row[1] for row in await cursor.fetchall()}
+            if "group_earned" not in ref_columns:
+                await connection.execute("ALTER TABLE ref_balance ADD COLUMN group_earned REAL NOT NULL DEFAULT 0")
             await connection.execute("CREATE TABLE IF NOT EXISTS webapp_preferences(user_id INTEGER PRIMARY KEY,ref_notifications INTEGER NOT NULL DEFAULT 1,check_notifications INTEGER NOT NULL DEFAULT 1)")
             await connection.execute("CREATE TABLE IF NOT EXISTS usernames(user_id INTEGER PRIMARY KEY,username TEXT,full_name TEXT NOT NULL DEFAULT '',updated_at TEXT NOT NULL)")
             async with connection.execute("SELECT user_id,mode,nickname,hidden,clickable,game_uid FROM webapp_privacy") as cursor:
@@ -444,18 +449,20 @@ class AccountMixin:
                             continue
                         async with connection.execute("SELECT username,full_name FROM usernames WHERE user_id = ?", (referral,)) as cursor:
                             name = await cursor.fetchone()
-                        rows.append({"type": kind, "amount": cents / 100, "date": created, "percent": runtime.get("REF_DEPOSIT_PERCENT", 0.10) * 100 if kind == "deposit" else None, "referral_id": referral, "referral_username": name[0] if name else "", "referral_name": name[1] if name else ""})
+                        rows.append({"type": kind, "amount": cents / 100, "date": created, "percent": runtime.get("REF_DEPOSIT_PERCENT", 0.10) * 100 if kind == "deposit" else 50 if kind == "group_loss" else None, "referral_id": referral, "referral_username": name[0] if name else "", "referral_name": name[1] if name else ""})
                     return self.response({"ok": True, "rows": rows[(page - 1) * 10:page * 10], "page": page, "totalPages": max(1, (len(rows) + 9) // 10)})
-                async with connection.execute("SELECT signup_earned,deposit_earned,frozen FROM ref_balance WHERE user_id = ?", (user.id,)) as cursor:
-                    balance = await cursor.fetchone() or (0, 0, 0)
+                async with connection.execute("SELECT signup_earned,deposit_earned,group_earned,frozen FROM ref_balance WHERE user_id = ?", (user.id,)) as cursor:
+                    balance = await cursor.fetchone() or (0, 0, 0, 0)
                 deposits = [row[1] / 100 for row in journal if row[0] == "deposit"]
                 signups = [row[1] / 100 for row in journal if row[0] == "signup"]
+                group_losses = [row[1] / 100 for row in journal if row[0] == "group_loss"]
                 week = sum(row[1] for row in journal if datetime.fromisoformat(row[2]) >= self.clock() - timedelta(days=7)) / 100
                 async with connection.execute("SELECT signup_cents,deposit_cents,captured_at FROM webapp_ref_baselines WHERE user_id = ?", (user.id,)) as cursor:
                     baseline = await cursor.fetchone() or (0, 0, None)
                 signup_total = round(sum(signups) + baseline[0] / 100, 2)
                 deposit_total = round(sum(deposits) + baseline[1] / 100, 2)
-                return self.response({"ok": True, "refCount": len(records), "totalEarnings": round(signup_total + deposit_total, 2), "signupBase": runtime.get("REF_SIGNUP_BASE", 2.5), "signupPremium": runtime.get("REF_SIGNUP_PREMIUM", 5), "signupEarnings": signup_total, "signupCount": len(signups), "avgSignup": sum(signups) / len(signups) if signups else 0, "maxSignup": max(signups, default=0), "depositEarnings": deposit_total, "gameEarnings": 0, "depositPercent": runtime.get("REF_DEPOSIT_PERCENT", 0.10) * 100, "lossPercent": 0, "weekEarnings": week, "totalCount": len(journal), "depositCount": len(deposits), "gameCount": 0, "avgDeposit": sum(deposits) / len(deposits) if deposits else 0, "avgGame": 0, "maxDeposit": max(deposits, default=0), "maxGame": 0, "availableBalance": round(balance[0] + balance[1], 2), "frozen": bool(balance[2]), "minimumWithdraw": runtime.get("REF_MIN_WITHDRAW", 10), "historySince": baseline[2], "openingBalance": (baseline[0] + baseline[1]) / 100})
+                group_total = round(sum(group_losses), 2)
+                return self.response({"ok": True, "refCount": len(records), "totalEarnings": round(signup_total + deposit_total + group_total, 2), "signupBase": runtime.get("REF_SIGNUP_BASE", 2.5), "signupPremium": runtime.get("REF_SIGNUP_PREMIUM", 5), "signupEarnings": signup_total, "signupCount": len(signups), "avgSignup": sum(signups) / len(signups) if signups else 0, "maxSignup": max(signups, default=0), "depositEarnings": deposit_total, "gameEarnings": group_total, "depositPercent": runtime.get("REF_DEPOSIT_PERCENT", 0.10) * 100, "lossPercent": 50, "weekEarnings": week, "totalCount": len(journal), "depositCount": len(deposits), "gameCount": len(group_losses), "avgDeposit": sum(deposits) / len(deposits) if deposits else 0, "avgGame": sum(group_losses) / len(group_losses) if group_losses else 0, "maxDeposit": max(deposits, default=0), "maxGame": max(group_losses, default=0), "availableBalance": round(balance[0] + balance[1] + balance[2], 2), "frozen": bool(balance[3]), "minimumWithdraw": runtime.get("REF_MIN_WITHDRAW", 10), "historySince": baseline[2], "openingBalance": (baseline[0] + baseline[1]) / 100})
         except GameError as error:
             return self.failure(error)
 
@@ -478,12 +485,12 @@ class AccountMixin:
                         deposited = (await cursor.fetchone())[0]
                     if len(records) > runtime.get("REF_BASE_LIMIT", 2) + runtime.get("REF_LIMIT_PER_DEPOSIT", 2) * deposited:
                         raise GameError("Заработок с приглашений заморожен.")
-                    async with connection.execute("SELECT signup_earned + deposit_earned FROM ref_balance WHERE user_id = ?", (user.id,)) as cursor:
+                    async with connection.execute("SELECT signup_earned + deposit_earned + group_earned FROM ref_balance WHERE user_id = ?", (user.id,)) as cursor:
                         row = await cursor.fetchone()
                     cents = round(row[0] * 100) if row else 0
                     if cents < runtime.get("REF_MIN_WITHDRAW", 10) * 100:
                         raise GameError("Недостаточно средств на реферальном балансе.")
-                    await connection.execute("UPDATE ref_balance SET signup_earned = 0,deposit_earned = 0 WHERE user_id = ?", (user.id,))
+                    await connection.execute("UPDATE ref_balance SET signup_earned = 0,deposit_earned = 0,group_earned = 0 WHERE user_id = ?", (user.id,))
                     await self.wallet_credit(connection, user.id, cents, "referral_withdraw", "referral:" + str(user.id) + ":" + key)
                     result = {"ok": True, "creditedAmount": cents / 100, "balance": await self.balance(connection, user.id)}
                     await self.save_receipt(connection, user.id, key, signature, result)
@@ -3961,6 +3968,7 @@ import string
 import sys
 import threading
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, ROUND_HALF_UP
 from functools import lru_cache
 from html import escape as html_escape
 from types import SimpleNamespace
@@ -3969,11 +3977,12 @@ from pathlib import Path
 import aiosqlite
 from complete_games import CompleteGamesBackend
 from games_backend import GameError
-from privacy_rules import TELEGRAM_NAMES, player_identity
+from privacy_rules import PRIVACY_CACHE, TELEGRAM_NAMES, player_identity
 from aiohttp import web
 from static_assets import static_response
 
 from aiogram import BaseMiddleware, Bot, Dispatcher, Router, F
+from aiogram.client.session.middlewares.base import BaseRequestMiddleware
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode, ChatMemberStatus, ChatType
 from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError, TelegramRetryAfter
@@ -3992,6 +4001,7 @@ from aiogram.types import (
 )
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiogram.utils.web_app import safe_parse_webapp_init_data
+from contextvars import ContextVar
 
 BOT_TOKEN = __server_config__['BOT_TOKEN']
 CHANNEL_ID = __server_config__['CHANNEL_ID']
@@ -4029,6 +4039,942 @@ BONUS_BASE_MIN = 1.0
 BONUS_BASE_MAX = 3.0
 BONUS_STREAK_BASE = 0.1
 BONUS_STREAK_STEP = 0.05
+
+# Telegram language preference is stored per account. The outgoing API middleware
+# localizes messages and keyboard labels, including delayed game results.
+TELEGRAM_LANGUAGE_CACHE: dict[int, str] = {}
+CURRENT_TELEGRAM_USER: ContextVar[int | None] = ContextVar("telegram_locale_user", default=None)
+CURRENT_TELEGRAM_LANGUAGE: ContextVar[str] = ContextVar("telegram_locale_language", default="ru")
+
+RU_EN_PHRASES = {
+    "Заработать на чате": "Earn with your chat",
+    "Профиль | Бонусы": "Profile | Bonuses",
+    "Топ | Реф. программа": "Top | Referral program",
+    "Хочу своё казино": "I want my own casino",
+    "Добавить в чат": "Add to chat",
+    "Заработок на чате": "Earn with your chat",
+    "Пополнить | Вывести": "Deposit | Withdraw",
+    "Пополнить": "Deposit",
+    "Вывести": "Withdraw",
+    "Вывести всё": "Withdraw all",
+    "Транзакции": "Transactions",
+    "Все операции": "All operations",
+    "Пополнения": "Deposits",
+    "Выводы": "Withdrawals",
+    "Назад": "Back",
+    "Настройки": "Settings",
+    "Русский": "Russian",
+    "Анонимность": "Anonymous",
+    "Анонимно": "Anonymous",
+    "Имя Telegram": "Telegram name",
+    "Telegram-имя": "Telegram name",
+    "Никнейм": "Nickname",
+    "Добавить никнейм": "Add nickname",
+    "Изменить никнейм": "Change nickname",
+    "Отображаемое имя в топе": "Leaderboard display name",
+    "Ваш профиль": "Your profile",
+    "Профиль:": "Profile:",
+    "Дата регистрации:": "Registration date:",
+    "Регистрация:": "Registration:",
+    "Баланс:": "Balance:",
+    "Оборот:": "Turnover:",
+    "Выданные бонусы:": "Bonuses received:",
+    "Пополнено:": "Deposits:",
+    "Выведено:": "Withdrawals:",
+    "Имя:": "Name:",
+    "ID:": "ID:",
+    "Страница": "Page",
+    "Страница не найдена.": "Page not found.",
+    "Операций пока нет.": "No transactions yet.",
+    "Нет операций для выбранного фильтра.": "No transactions for this filter.",
+    "Введите сумму цифрами или нажмите «Вывести всё». Для отмены напишите «отмена».": "Enter an amount or tap “Withdraw all”. To cancel, send “cancel”.",
+    "Псевдоним должен содержать от 3 до 20 букв, цифр или знаков подчёркивания.": "A nickname must be 3–20 letters, digits, or underscores.",
+    "Отправьте новый псевдоним одним сообщением. Для отмены нажмите «Назад».": "Send your new nickname in one message. Tap “Back” to cancel.",
+    "Псевдоним сохранён.": "Nickname saved.",
+    "Сначала добавьте никнейм.": "Add a nickname first.",
+    "Выберите отображаемое имя для рейтинга.": "Choose a display name for the leaderboard.",
+    "Показывать в рейтинге как «Аноним».": "Show as “Anonymous” in the leaderboard.",
+    "В чате участники автоматически связываются с его владельцем. Вы получаете 50% чистых проигрышей по ставкам, сделанным именно в этом чате.": "Chat members are automatically linked to the chat owner. Earn 50% of net losses on bets placed in this chat.",
+    "Добавьте бота в чат администратором, чтобы автоматическое подключение участников работало.": "Add the bot to your chat as an administrator to link members automatically.",
+    "Канал обновлений": "Updates channel",
+    "Мы обновили MajorStars! Теперь в боте есть профиль, настройки и подробная история операций.": "MajorStars has been updated! The bot now includes a profile, settings, and a detailed transaction history.",
+    "«Большие победы начинаются с одного шага».": "“Big wins begin with a single step.”",
+    "Установить язык: Русский": "Set language: Russian",
+    "Установить язык: English": "Set language: English",
+    "Новый псевдоним:": "New nickname:",
+    "Укажите сумму.": "Enter an amount.",
+    "Недостаточно средств!": "Insufficient funds!",
+    "Недостаточно средств": "Insufficient funds",
+    "Ошибка результата. Ставка возвращена.": "Invalid result. Your bet has been refunded.",
+    "Не удалось отправить игру. Ставка возвращена.": "Could not start the game. Your bet has been refunded.",
+    "Игра уже завершена.": "The game is already over.",
+    "Это не ваша игра!": "This is not your game!",
+    "Откройте хотя бы одну клетку!": "Open at least one cell!",
+    "Эта клетка уже открыта!": "This cell is already open!",
+    "Вы не подписаны на обязательные каналы!": "You are not subscribed to the required channels!",
+    "вы <b>выиграли</b>": "you <b>won</b>",
+    "вы <b>проиграли</b>": "you <b>lost</b>",
+    "правильное использование команды": "Correct command usage",
+    "Ваш баланс:": "Your balance:",
+    "Баланс после вывода:": "Balance after withdrawal:",
+    "Минимальная ставка": "Minimum bet",
+    "минимальная сумма вывода —": "minimum withdrawal amount is",
+    "минимальный баланс для вывода —": "minimum balance for withdrawal is",
+    "Ваш профиль:": "Your profile:",
+    "Дата регистрации": "Registration date",
+    "Самый большой выигрыш": "Largest win",
+    "Самая большая ставка за игру": "Largest bet",
+    "Сыграно игр": "Games played",
+    "Реферальная система": "Referral program",
+    "Пополнение": "Deposit",
+    "Вывод": "Withdrawal",
+    "Выберите": "Choose",
+    "введите": "enter",
+    "Ставка:": "Bet:",
+    "Мин:": "Mines:",
+    "Потенциальный выигрыш:": "Potential payout:",
+    "Могли выиграть:": "Possible win:",
+    "Вы выиграли": "You won",
+    "вы проиграли": "you lost",
+    "вы забрали выигрыш!": "you collected your winnings!",
+    "вы добрались до конца!": "you reached the end!",
+    "Ваша заявка добавлена в обработку!": "Your request has been queued for processing!",
+    "Ракета упала на": "The rocket crashed at",
+    "Новая заявка на вывод": "New withdrawal request",
+    "Пополнение баланса": "Balance deposit",
+    "Подписка": "Subscription",
+    "На вашем балансе:": "Your balance:",
+    "Ваш реферальный баланс:": "Your referral balance:",
+}
+
+# Word-level fallback covers generated game quotes and variable messages. Common
+# full sentences above are translated first so the English stays natural.
+RU_EN_WORDS = {
+    "не": "not", "в": "in", "и": "and", "но": "but", "тебя": "you", "тебе": "you",
+    "твою": "your", "твоей": "your", "твой": "your", "твой": "your", "твоё": "your",
+    "твоего": "your", "твои": "your", "твоим": "your", "это": "this", "за": "for",
+    "на": "on", "а": "and", "с": "with", "по": "for", "от": "from", "ты": "you",
+    "вы": "you", "ваш": "your", "ваша": "your", "вас": "you", "вам": "you", "ваши": "your",
+    "сегодня": "today", "против": "against", "пользу": "favor", "значит": "so", "удачу": "luck",
+    "удача": "luck", "удачной": "good", "игры": "games", "игра": "game", "игру": "game",
+    "игре": "game", "игрок": "player", "игрока": "player", "игроки": "players", "игр": "games",
+    "ставка": "bet", "ставки": "bets", "ставку": "bet", "ставкой": "bet", "ставке": "bet",
+    "баланс": "balance", "баланса": "balance", "балансе": "balance", "балансу": "balance",
+    "сумма": "amount", "сумму": "amount", "суммы": "amount", "суммой": "amount", "число": "number",
+    "числа": "numbers", "чисел": "numbers", "числу": "number", "игра": "game", "игре": "game",
+    "больше": "higher", "меньше": "lower", "бонус": "bonus", "бонусы": "bonuses", "игра": "game",
+    "мимо": "miss", "классик": "classic", "классика": "classic", "число": "number", "аут": "out",
+    "цель": "target", "целью": "target", "результат": "result", "результата": "result", "результате": "result",
+    "попал": "hit", "попадание": "hit", "попала": "hit", "попало": "hit", "попали": "hit",
+    "выиграли": "won", "выиграл": "won", "выиграла": "won", "выигрыш": "win", "выигрыша": "win",
+    "выиграть": "win", "выигрышные": "winning", "выигрышное": "winning", "проиграли": "lost",
+    "проиграл": "lost", "проиграла": "lost", "проигрыш": "loss", "победа": "victory", "поражение": "defeat",
+    "уже": "already", "недостаточно": "not enough", "средств": "funds", "средства": "funds",
+    "минимальная": "minimum", "минимальный": "minimum", "минимальное": "minimum", "минимальное": "minimum",
+    "максимальный": "maximum", "максимальная": "maximum", "минимум": "minimum", "максимум": "maximum",
+    "сумма": "amount", "вывод": "withdrawal", "вывода": "withdrawal", "вывести": "withdraw", "выводы": "withdrawals",
+    "пополнение": "deposit", "пополнения": "deposits", "пополнить": "deposit", "пополнений": "deposits",
+    "выводом": "withdrawal", "депозит": "deposit", "депозита": "deposit", "депозитов": "deposits",
+    "игра": "game", "завершена": "over", "окончена": "over", "закончена": "over", "ошибка": "error",
+    "некорректный": "invalid", "правильное": "correct", "использование": "usage", "команды": "commands",
+    "команда": "command", "команду": "command", "команде": "command", "команд": "commands",
+    "введите": "enter", "введи": "enter", "нажмите": "tap", "выберите": "choose", "выбери": "choose",
+    "получить": "get", "получил": "received", "получили": "received", "успешно": "successfully",
+    "успешный": "successful", "успешная": "successful", "возвращена": "refunded", "возврат": "refund",
+    "вернули": "refunded", "вернуть": "refund", "отправить": "send", "отправлено": "sent", "удалось": "could",
+    "не": "not", "временно": "temporarily", "недоступен": "unavailable", "канал": "channel", "каналы": "channels",
+    "подписаны": "subscribed", "подписан": "subscribed", "подписаны": "subscribed", "ссылка": "link",
+    "реферальная": "referral", "реферальный": "referral", "реферальном": "referral", "рефералов": "referrals",
+    "рефералы": "referrals", "реферал": "referral", "рефералов": "referrals", "приглашений": "invites",
+    "приглашении": "inviting", "приглашения": "invites", "заработок": "earnings", "заработано": "earned",
+    "заработать": "earn", "заработал": "earned", "награда": "reward", "друга": "friend", "друзей": "friends",
+    "знакомых": "acquaintances", "пользователь": "user", "пользователя": "user", "пользователю": "user",
+    "пользователи": "users", "профиль": "profile", "профиле": "profile", "настройки": "settings",
+    "регистрация": "registration", "дата": "date", "неизвестна": "unknown", "получатель": "recipient",
+    "имя": "name", "псевдоним": "nickname", "новый": "new", "новая": "new", "сохранён": "saved",
+    "сохранена": "saved", "описание": "bio", "текст": "text", "сообщение": "message", "сообщения": "messages",
+    "игрок": "player", "игры": "games", "начните": "start", "начните": "start", "начать": "start",
+    "сначала": "first", "можно": "can", "должен": "must", "нужно": "need", "нужен": "needed",
+    "подождите": "wait", "попробуйте": "try", "снова": "again", "осталось": "remaining", "ждать": "wait",
+    "очереди": "queue", "очередь": "queue", "минуты": "minutes", "минут": "minutes", "часа": "hours",
+    "часов": "hours", "день": "day", "дня": "days", "дней": "days", "сумму": "amount",
+    "клетка": "cell", "клетку": "cell", "клетки": "cells", "открыта": "open", "откройте": "open",
+    "одну": "one", "хотя": "at least", "мине": "mine", "мина": "mine", "мины": "mines", "мин": "mines",
+    "проиграли": "lost", "игракено": "Keno", "играрулетка": "Roulette", "доступные": "available",
+    "баскетбол": "basketball", "футбол": "football", "боулинг": "bowling", "дартс": "darts", "слоты": "slots",
+    "краш": "crash", "мины": "mines", "куб": "dice", "кубы": "dice", "кубик": "die", "играть": "play",
+    "играйте": "play", "красное": "red", "красный": "red", "белое": "white", "белый": "white",
+    "чёт": "even", "чет": "even", "нечет": "odd", "нечёт": "odd", "числа": "numbers", "диапазон": "range",
+    "диапазоны": "ranges", "минимальная": "minimum", "множитель": "multiplier", "мяч": "ball", "гол": "goal",
+    "ворот": "goal", "ворота": "goal", "штанга": "post", "перелёт": "over", "девятка": "top corner",
+    "нижний": "low", "право": "right", "вправо": "right", "центр": "center", "прямо": "straight",
+    "отскок": "bounce", "застрянет": "gets stuck", "застрял": "got stuck", "почти": "almost", "бросок": "shot",
+    "кегли": "pins", "кеглей": "pins", "кегля": "pin", "страйк": "strike", "тройка": "three", "четвёрка": "four",
+    "пятёрка": "five", "шестёрка": "six", "двойка": "two", "единица": "one", "один": "one", "одно": "one",
+    "одна": "one", "два": "two", "две": "two", "три": "three", "четыре": "four", "пять": "five", "шесть": "six",
+    "первое": "first", "второе": "second", "третье": "third", "четвёртое": "fourth", "пятое": "fifth", "шестое": "sixth",
+    "барабаны": "reels", "остановились": "stopped", "крутил": "spun", "шар": "ball", "сектор": "sector",
+    "цвет": "color", "красный": "red", "белый": "white", "белое": "white", "черный": "black", "чёрный": "black",
+    "выбрала": "chose", "фортуну": "fortune", "удаче": "luck", "удача": "luck", "везения": "luck", "везение": "luck",
+    "мяч": "ball", "щит": "backboard", "щита": "backboard", "кольцо": "hoop", "кольца": "hoop", "кольцом": "hoop",
+    "попал": "hit", "попала": "hit", "попало": "hit", "забить": "score", "забил": "scored", "забили": "scored",
+    "удар": "shot", "ударом": "shot", "низкий": "low", "низом": "low", "верхний": "upper", "угол": "corner",
+    "деньгам": "money", "деньги": "money", "денег": "money", "минус": "loss", "плюсе": "ahead", "сгорела": "was lost",
+    "сгорело": "was lost", "сгорел": "was lost", "кассы": "cash desk", "результат": "result", "раз": "time", "бывает": "happens",
+    "просто": "just", "чуть": "a little", "и": "and", "тоже": "too", "значит": "means", "почти": "almost", "зато": "but",
+    "без": "without", "красиво": "beautifully", "больно": "painful", "игры": "games", "классика": "classic", "жанра": "style",
+    "надёжно": "reliably", "надежно": "reliably", "учебнику": "textbook", "стандартный": "standard", "плану": "plan",
+    "стороне": "side", "принесла": "brought", "принёс": "brought", "сыграло": "played", "сыграл": "played", "сыграли": "played",
+    "принёс": "brought", "зашло": "hit", "зашла": "hit", "хватило": "was enough", "твой": "your", "твоей": "your",
+    "сантиметры": "centimeters", "отделили": "separated", "идеальный": "perfect", "удар": "shot", "цель": "target",
+    "штанги": "post", "вратаря": "goalkeeper", "дерево": "wood", "спасло": "saved", "спасла": "saved", "помог": "helped",
+    "помогла": "helped", "помешала": "got in the way", "рикoшет": "ricochet", "рикoшет": "ricochet", "рикошет": "ricochet",
+    "вмешалась": "intervened", "случай": "case", "редкий": "rare", "судьба": "fate", "завис": "got stuck", "застрял": "got stuck",
+    "грани": "edge", "залетел": "went in", "центр": "center", "центру": "center", "вправо": "right", "правее": "to the right",
+    "ушёл": "went", "ушел": "went", "неберущийся": "unstoppable", "точнее": "more accurately", "прямолинейно": "directly",
+    "эффективно": "effectively", "вернее": "safer", "прогадал": "misjudged", "земле": "ground", "вверх": "up", "выше": "above",
+    "ниже": "below", "настроение": "mood", "признак": "sign", "мастерства": "skill", "стабильность": "consistency",
+    "подвела": "let down", "изменила": "failed", "соперника": "opponent", "соперник": "opponent", "разочарование": "disappointment",
+    "попытка": "attempt", "засчитана": "counts", "трибуны": "stands", "орбите": "orbit", "мусорке": "trash", "пропасть": "abyss",
+    "яблочко": "bullseye", "мишени": "target", "стену": "wall", "проволоки": "wire", "проволока": "wire", "срикошетил": "ricocheted",
+    "крутить": "spin", "чётное": "even", "четное": "even", "нечётное": "odd", "нечетное": "odd", "малое": "small", "большое": "large",
+    "игра": "game", "много": "many", "пара": "pair", "набор": "set", "полный": "full", "половины": "half", "всего": "total",
+    "остановился": "stopped", "неважно": "doesn't matter", "снесена": "knocked down", "снесены": "knocked down",
+    "формат": "format", "целое": "whole", "платёжный": "payment", "следующий": "next", "предыдущей": "previous",
+    "операции": "transactions", "ошибке": "error", "удалось": "possible", "отдельная": "separate", "отдельно": "separately",
+    "принято": "accepted", "принятый": "accepted", "подтверждены": "confirmed", "проверены": "checked", "проверенных": "checked",
+    "обработано": "processed", "обработан": "processed", "обнаружены": "found", "тест": "test", "иконки": "icons", "кнопка": "button",
+    "кнопок": "buttons", "контекстам": "contexts", "отправляю": "sending", "отправками": "between sends", "пауза": "pause",
+    "виден": "visible", "сообщении": "message", "проверка": "check", "проверьте": "check", "проверить": "check", "при": "on",
+    "у": "at", "вас": "you", "профиле": "profile", "отсутствует": "missing", "нужное": "required", "подождите": "wait",
+    "если": "if", "установили": "set", "снова": "again", "серию": "streak", "забираете": "claim", "размере": "amount",
+    "встали": "joined", "очередь": "queue", "получен": "received", "получена": "received", "заявка": "request", "заявку": "request",
+    "сервис": "service", "подключён": "connected", "учитывается": "counted", "основной": "main", "данном": "this", "боте": "bot",
+    "можешь": "can", "поднять": "earn", "звезды": "Stars", "звёзды": "Stars", "свой": "your", "аккаунт": "account",
+    "автоматическая": "automatic", "повторная": "duplicate", "доставка": "delivery", "исходного": "original", "сообщения": "message",
+    "защищена": "protected", "двойного": "duplicate", "начисления": "credits", "начисление": "credit", "выполняются": "processed",
+    "анимацию": "animation", "клиенте": "client", "менялись": "changed", "гарантирует": "guarantees", "среди": "among",
+    "начислен": "credited", "готов": "ready", "позже": "later", "итог": "result", "пополнен": "credited", "администратору": "administrator",
+    "установи": "set", "данный": "this", "нужен": "needed", "быть": "be", "самому": "yourself", "себе": "yourself",
+    "получатель": "recipient", "обязательные": "required", "каналы": "channels", "бот": "bot", "запущен": "started", "использовано": "used",
+    "другого": "another", "отправьте": "send", "новую": "new", "команду": "command", "того": "that", "сервис": "service",
+    "временно": "temporarily", "недоступен": "unavailable", "перевод": "transfer", "переводить": "transfer", "переводы": "transfers",
+    "комиссия": "fee", "комиссии": "fees", "комиссией": "fee", "процентов": "percent", "процентах": "percent", "бесплатно": "free",
+    "попробуйте": "try", "добавить": "add", "добавлена": "added", "добавлен": "added", "добавлена": "added", "обработка": "processing",
+    "время": "time", "суммой": "amount", "получили": "received", "выданные": "issued", "бонусы": "bonuses", "оборот": "turnover",
+    "пополнений": "deposits", "выводов": "withdrawals", "дата": "date", "регистрации": "registration", "аноним": "anonymous",
+    "никнейм": "nickname", "имя": "name", "имени": "name", "русский": "Russian", "английский": "English", "пока": "for now",
+    "скоро": "soon", "подписку": "subscription", "проверить": "check", "последний": "last", "последняя": "last", "номер": "number",
+    "идентификатор": "ID", "попробуйте": "try", "всегда": "always", "правильно": "correctly", "первый": "first", "первого": "first",
+    "следующего": "next", "следующая": "next", "выберите": "select", "выбрали": "selected", "текущий": "current", "текущая": "current",
+    "текущую": "current", "остаток": "remaining", "сумме": "amount", "сумма": "amount", "внесли": "deposited", "неделя": "week",
+    "неделю": "week", "недели": "weeks", "доступен": "available", "доступно": "available", "сохранены": "saved", "сохраните": "save",
+    "открыть": "open", "проверил": "checked", "проверь": "check", "отказ": "rejected", "отклонено": "rejected", "отклонена": "rejected",
+    "одобрено": "approved", "одобрена": "approved", "одобрить": "approve", "отклонить": "reject", "отменён": "cancelled", "отмена": "cancel",
+    "наличии": "available", "введите": "enter", "цифрами": "using digits", "нажмите": "tap", "напишите": "send", "сумму": "amount",
+    "платёж": "payment", "счёт": "invoice", "инвойс": "invoice", "покупка": "purchase", "пополните": "deposit", "балансе": "balance",
+    "главное": "the key", "значит": "means", "бывает": "happens", "просто": "just", "игра": "game", "пользователь": "user",
+    "про": "about", "наш": "our", "нашем": "our", "нашей": "our", "чате": "chat", "беседе": "chat", "канал": "channel",
+    "владельца": "owner", "владельцем": "owner", "участник": "member", "участники": "members", "сообщение": "message",
+    "связаны": "linked", "автоматически": "automatically", "проигрышей": "losses", "чистых": "net", "проигрыш": "loss",
+    "проигрыши": "losses", "каждого": "each", "именно": "exactly", "сделанным": "placed", "добавьте": "add", "администратором": "as administrator",
+    "работало": "works", "участников": "members", "приглашённый": "invited", "приглашенные": "invited", "собственных": "own", "своё": "own",
+    "казино": "casino", "познакомиться": "meet", "исходный": "original", "попытка": "attempt", "закрыто": "closed", "открыто": "open",
+    "когда": "when", "где": "where", "разницу": "difference", "мог": "could", "получить": "get", "подписаны": "subscribed",
+}
+
+
+RU_EN_PHRASES.update({
+    "Привет,": "Hello,",
+    "Канал обновлений:": "Updates channel:",
+    "Мы обновили MajorStars!": "MajorStars has been updated!",
+    "Теперь в боте удобнее следить за профилем, балансом и операциями.": "The bot now makes it easier to track your profile, balance, and transactions.",
+    "Добавьте бота администратором. Участники, вступившие в чат, автоматически связываются с его владельцем. Владелец получает 50% чистых проигрышей по ставкам, сделанным именно в этом чате.": "Add the bot as an administrator. New chat members are automatically linked to the chat owner. The owner receives 50% of net losses on bets placed in that chat.",
+    "Отображаемое имя в топе:": "Leaderboard display name:",
+    "По умолчанию используется имя Telegram. Режим «Анонимность» показывает в рейтинге имя «Аноним».": "Your Telegram name is used by default. Anonymous mode shows your leaderboard name as “Anonymous”.",
+    "Выберите раздел MajorStars:": "Choose a MajorStars section:",
+    "Отправьте новый псевдоним одним сообщением. Для отмены нажмите «Назад».": "Send your new nickname in one message. Tap “Back” to cancel.",
+    "Псевдоним должен содержать от 3 до 20 букв, цифр или знаков подчёркивания.": "A nickname must contain 3–20 letters, digits, or underscores.",
+    "Барабаны остановились там, где нужно.": "The reels stopped where they should.",
+    "Три в ряд — и это твой день.": "Three in a row — this is your day.",
+    "Слоты улыбнулись именно тебе.": "The slots smiled on you.",
+    "Крутил не зря.": "That spin was worth it.",
+    "Фортуна выбрала тебя.": "Fortune chose you.",
+    "Барабаны остановились, но не там.": "The reels stopped, but not in the right place.",
+    "Удача — дама капризная.": "Luck can be fickle.",
+    "Не в этот раз.": "Not this time.",
+    "Слоты — игра терпеливых.": "Slots reward the patient.",
+    "Крути ещё, повезёт.": "Spin again; your luck may turn.",
+    "Барабаны остановились, но не там.": "The reels stopped, but not in the right place.",
+    "Мяч улетел на трибуны.": "The ball flew into the stands.",
+    "Гол есть гол.": "A goal is a goal.",
+    "Штанга. Ещё чуть-чуть и был бы гол.": "The post! Just a little closer and it would have been a goal.",
+    "Звон штанги — музыка для ушей.": "The post's clang is music to the ears.",
+    "Просто и со вкусом.": "Simple and tasteful.",
+    "Мяч в сетке.": "The ball is in the net.",
+    "Чётко и по делу.": "Clean and effective.",
+    "Правее — оно и вернее.": "A little to the right can be just right.",
+    "Вправо, но в точку.": "To the right and right on target.",
+    "Перелёт. Мяч улетел за ворота.": "Too high. The ball sailed over the goal.",
+    "Низом пошёл.": "A low shot.",
+    "Мяч прошёл по земле.": "The ball rolled along the ground.",
+    "Мимо. И это стоило тебе ставки.": "A miss, and it cost you your bet.",
+    "Гол был, но не в твою сторону.": "There was a goal, but not in your favor.",
+    "Мяч в сетке, а ставка сгорела.": "The ball is in the net, but your bet is gone.",
+    "Гол есть гол, но не для тебя.": "A goal is a goal, just not for you.",
+    "Мяч в сетке, ставка в мусорке.": "The ball is in the net; your bet is in the trash.",
+    "Чётко и по делу — против тебя.": "Clean and effective — against you.",
+    "Без выкрутасов, зато с твоим минусом.": "No tricks, just a loss for you.",
+    "Вправо, и не в твою сторону.": "To the right, but not in your favor.",
+    "Право — не всегда стратегия.": "Going right is not always a strategy.",
+    "Перелёт. Мяч улетел, деньги тоже.": "Too high. The ball flew away, and so did the money.",
+    "Мяч на орбите, а ты на дне.": "The ball is in orbit, and you're down in the dumps.",
+    "Низом пошёл, и мимо тебя.": "A low shot, and you missed out.",
+    "Низкий удар — низкий результат для тебя.": "A low shot means a low return for you.",
+    "Скромно, но обидно.": "Small, but painful.",
+    "Чистое попадание.": "A clean hit.",
+    "Как по учебнику.": "Textbook perfect.",
+})
+
+RU_EN_WORDS.update({
+    "выпала": "came up", "выпал": "came up", "выпало": "came up", "выпали": "came up",
+    "промах": "miss", "засчитано": "counts", "нет": "no", "нету": "none", "ждал": "waited",
+    "пришло": "came", "то": "that", "как": "as", "всё": "all", "все": "all", "ноль": "zero",
+    "улетел": "flew away", "для": "for", "выкрутасов": "tricks", "или": "or", "банк": "bank",
+    "дротик": "dart", "забирай": "collect", "дать": "give", "ещё": "more", "реф": "referral",
+    "только": "only", "учили": "taught", "до": "to", "там": "there", "есть": "is", "стоило": "cost",
+    "стратегия": "strategy", "скромно": "modestly", "повторить": "play again", "половина": "half", "половину": "half",
+    "этот": "this", "этого": "this", "его": "its", "был": "was", "сетке": "net", "чистое": "clean",
+    "оказался": "turned out", "выгодным": "profitable", "иногда": "sometimes", "зашёл": "worked", "зашел": "worked",
+    "никуда": "nowhere", "обошёлся": "cost", "обошелся": "cost", "дорого": "dearly", "к": "to", "зарегистрирован": "registered",
+    "эмодзи": "emoji", "чат": "chat", "чате": "chat", "чата": "chat", "чаты": "chats", "чату": "chat",
+    "ровно": "exactly", "бота": "bot", "чётко": "precisely", "четко": "precisely", "делу": "matter", "пошёл": "went",
+    "пошел": "went", "прошёл": "passed", "прошел": "passed", "сторону": "side", "обидно": "painful", "успех": "success",
+    "между": "between", "такое": "such", "году": "year", "нестандартный": "unusual", "сможешь": "you can", "точно": "exactly",
+    "забрал": "collected", "приносит": "brings", "жёлоб": "gutter", "желоб": "gutter", "сыграла": "played", "хороший": "good",
+    "принесло": "brought", "раздел": "section", "запустите": "start", "личном": "private", "ботом": "bot", "включая": "including",
+    "чтобы": "so that", "обработана": "processed", "приложение": "app", "запрос": "request", "найден": "found", "он": "it",
+    "будет": "will be", "количество": "number", "ответом": "response", "нельзя": "cannot", "ракета": "rocket", "упала": "crashed",
+    "например": "for example", "ряд": "row", "улыбнулись": "smiled", "зря": "in vain", "фортуна": "fortune", "дама": "lady",
+    "капризная": "fickle", "терпеливых": "patient", "крути": "spin", "повезёт": "may be lucky", "повезет": "may be lucky",
+    "хочешь": "want", "открывает": "unlocks", "переводах": "transfers", "никакой": "no", "чистый": "clean", "обычные": "regular",
+    "почувствуй": "feel", "должны": "should", "доходить": "arrive", "полностью": "fully", "забудь": "forget", "о": "about",
+    "переводит": "transfers", "мы": "we", "обновили": "updated", "теперь": "now", "удобнее": "easier", "следить": "track",
+    "профилем": "profile", "балансом": "balance", "операциями": "transactions", "вступившие": "who joined", "связываются": "are linked",
+    "владелец": "owner", "получает": "receives", "ставкам": "bets", "этом": "this", "бы": "would", "звон": "clang",
+    "музыка": "music", "ушей": "ears", "со": "with", "вкусом": "taste", "оно": "it", "точку": "spot", "минусом": "loss",
+    "дне": "bottom", "дамках": "on top", "щитом": "backboard", "зачли": "counted", "уплыли": "drifted away", "ключевое": "key",
+    "слово": "word", "считается": "counts", "повторного": "duplicate", "идёт": "is running", "идет": "is running", "подорвались": "hit a mine",
+    "тут": "here", "своих": "your", "обычного": "regular", "также": "also", "будете": "will", "получать": "receive", "ваших": "your",
+    "статистика": "statistics", "заработка": "earnings", "чатах": "chats", "каждом": "each", "грязный": "dirty", "десять": "ten",
+    "шара": "ball", "чистая": "clean", "дорожка": "lane", "одним": "one", "выигрышная": "winning", "случился": "happened",
+    "устояли": "held", "получился": "turned out", "оба": "both", "крупно": "big", "выигрышный": "winning", "единицу": "one",
+    "двойку": "two", "тройку": "three", "четвёрку": "four", "четверку": "four", "пятёрку": "five", "пятерку": "five",
+    "шестёрку": "six", "шестерку": "six", "совершили": "made", "составила": "was", "перевел": "transferred", "перевёл": "transferred",
+    "привет": "hello", "умолчанию": "default", "используется": "is used", "режим": "mode", "показывает": "shows", "рейтинге": "leaderboard",
+    "доступна": "available", "учёт": "account", "невалидные": "invalid", "никакие": "no", "друг": "friend", "после": "after",
+    "реферальные": "referral", "добро": "welcome", "пожаловать": "welcome", "диагностическая": "diagnostic", "администратора": "administrator",
+    "ввод": "entry", "заморожен": "frozen", "через": "through", "доступа": "access", "чужому": "someone else's", "аккаунту": "account",
+    "связан": "linked", "несколькими": "multiple", "записями": "records", "уточните": "please clarify", "выполнено": "completed",
+    "подтверждён": "confirmed", "подтвержден": "confirmed", "историю": "history", "отправки": "sending", "новой": "new", "вашей": "your",
+    "ссылке": "link", "уникальных": "unique", "одному": "one", "принятого": "accepted", "отметка": "note", "ближайшее": "soon",
+    "сняли": "withdrew", "пополнили": "deposited", "максимальное": "maximum", "произошла": "occurred", "ботам": "bots", "перевода": "transfer",
+    "вход": "entry", "устарел": "expired", "недействителен": "invalid", "перезапустите": "restart", "зарегистрироваться": "register",
+    "снять": "withdraw", "скопировать": "copy", "забрать": "collect", "топ": "top", "программа": "program", "отклонил": "rejected",
+    "другая": "another", "владельцу": "owner", "привлечения": "attraction", "потерь": "losses", "чистых": "net", "чистый": "net",
+    "регистрация": "registration", "бонусом": "bonus", "бонусы": "bonuses", "бонуса": "bonus", "выводами": "withdrawals",
+})
+
+RU_EN_PHRASES.update({
+    "Заработок с приглашений заморожен": "Referral earnings are frozen.",
+    "На реферальном балансе меньше ": "Your referral balance is below ",
+    "Запустите /addep в личном чате с ботом.": "Run /addep in a private chat with the bot.",
+    "Формат: /addep @username 50. Сумма — целое число от 1 до 1 000 000 Stars.": "Format: /addep @username 50. The amount must be a whole number from 1 to 1,000,000 Stars.",
+    "Результат начисления не подтверждён. Проверьте историю до отправки новой команды. Автоматическая повторная доставка исходного сообщения защищена от двойного начисления.": "The credit result is unconfirmed. Check the history before sending another command. Automatic redelivery of the original message is protected against duplicate credits.",
+    "Тест иконки. Никакие операции не выполняются.": "Icon test. No transactions are performed.",
+    "Это диагностическая кнопка администратора.": "This diagnostic button is for administrators only.",
+    "Ваша заявка на вывод ": "Your withdrawal request for ",
+    " одобрена! В ближайшее время вывод будет обработан.": " has been approved! Your withdrawal will be processed soon.",
+    " отклонена. Сумма возвращена на баланс.": " was rejected. The amount has been returned to your balance.",
+    "Минимальная ставка ": "Minimum bet: ",
+    ", диапазон должен быть больше 1.00": ", the multiplier must be greater than 1.00",
+    ", максимальный множитель ": ", maximum multiplier: ",
+    "минимальное количество мин — ": "minimum number of mines: ",
+    "максимальное количество мин — ": "maximum number of mines: ",
+    ", вы успешно получили бонус в размере ": ", you received a bonus of ",
+    "для того чтобы получить бонус, установи данный текст в описание": "To claim the bonus, add this text to your bio",
+    "у вас в профиле отсутствует нужное описание": "your profile is missing the required bio text",
+    "Подождите 1-2 минуты если установили описание и попробуйте снова": "Wait 1–2 minutes if you just updated your bio, then try again",
+    "вы уже в очереди, осталось ждать ": "you are already in the queue; time remaining: ",
+    "вы успешно встали в очередь, осталось ждать 12:00:00.": "you have joined the queue; please wait 12 hours.",
+    "бонус уже получен.": "you have already claimed this bonus.",
+    "Ваша реферальная ссылка:": "Your referral link:",
+    "Заработок с приглашений:": "Referral earnings:",
+    "Текущий реферальный баланс:": "Current referral balance:",
+    "Заработано с рефералов:": "Earned from referrals:",
+    "Статистика заработка:": "Earnings breakdown:",
+    "Заработано с приглашений:": "Earned from referrals:",
+    "Заработано с пополнений:": "Earned from deposits:",
+    "Заработано в чатах:": "Earned in chats:",
+    " Тут ты сможешь заработать Telegram Stars на приглашении своих друзей и знакомых. ": " Earn Telegram Stars by inviting your friends and contacts. ",
+    "За обычного друга награда — ": "Reward for a standard referral: ",
+    ", награда за друга с Telegram Premium — ": ", reward for a Telegram Premium referral: ",
+    ". Также вы будете получать 10% от пополнения ваших рефералов.": ". You also earn 10% of your referrals' deposits.",
+    " Статистика заработка:\n": " Earnings breakdown:\n",
+    " Stars.\nСумма учитывается как депозит, включая реферальные начисления.": " Stars.\nThis amount counts as a deposit, including referral credits.",
+    "Баланс после начисления:": "Balance after credit:",
+    " Stars\\nБаланс после начисления: ": " Stars\\nBalance after credit: ",
+    "Пользователь не найден. Он должен быть зарегистрирован в боте.": "User not found. They must be registered with the bot.",
+    "нельзя переводить самому себе.": "You cannot transfer money to yourself.",
+    "минимальная сумма перевода — ": "Minimum transfer amount: ",
+    "получатель не зарегистрирован в боте.": "The recipient is not registered with the bot.",
+    "не удалось отправить заявку. Сумма возвращена.": "Could not submit the request. The amount has been refunded.",
+    "не удалось отправить игру. Ставка возвращена.": "Could not start the game. Your bet has been refunded.",
+    "вы не подписаны на обязательные каналы!": "you are not subscribed to the required channels!",
+    "вы всё ещё не подписаны!": "you are still not subscribed!",
+    "Ты не зарегистрирован!": "You are not registered!",
+    " Stars. Баланс: ": " Stars. Balance: ",
+    "Баланс пополнен на ": "Balance topped up by ",
+    "на основной баланс!": "to your main balance!",
+    "Для вывода введите сумму чтобы вывести Telegram Stars": "Enter the amount of Telegram Stars you want to withdraw",
+    "введите сумму": "enter an amount",
+    "выберите или введите": "choose or enter",
+    "Введите сумму цифрами": "Enter an amount using digits",
+    "Платёжный сервис просит подождать.": "The payment provider asked you to wait.",
+    "Осталось ждать ": "Time remaining: ",
+    "Сумма возвращена на баланс.": "The amount has been returned to your balance.",
+    "Создать новый чек": "Create a new check",
+    "Открыть MajorStars и подтвердить создание чека": "Open MajorStars to confirm check creation",
+    "Создайте внутренний чек MajorStars в приложении.": "Create a MajorStars internal check in the app.",
+    "Создать чек": "Create check",
+    "добро пожаловать в ": "welcome to ",
+    " В данном боте ты сможешь поднять и вывести звезды на свой Telegram аккаунт!": " In this bot, you can earn and withdraw Telegram Stars to your account!",
+    "Удачной игры в Major!": "Enjoy playing Major!",
+    "Классика подвела.": "The classic let you down.",
+    "Классика жанра.": "A classic.",
+    "Классика жанра — чистая дорожка.": "A classic move: a clean lane.",
+    "Классика жанра — и это твой день.": "A classic move — and it's your day.",
+    "Просто, надёжно, но не в твою пользу.": "Simple and reliable, but not in your favor.",
+    "Просто, надёжно, в цель.": "Simple, reliable, and right on target.",
+    "Просто, надёжно, в твою пользу.": "Simple and reliable — in your favor.",
+    "Стандартный бросок — нестандартный проигрыш.": "A standard throw, an unexpected loss.",
+    "Стандартный бросок — стандартный успех.": "A standard throw, a standard win.",
+    "Как учили, но учили не тебя.": "Just like they taught — but not you.",
+    "Как по учебнику, но учили не тебя.": "Textbook technique — just not yours.",
+    "Без выкрутасов, зато в минус.": "No tricks — but you're still down.",
+    "Без выкрутасов, зато зашло.": "No tricks — just a win.",
+    "Стабильность изменила.": "Consistency let you down.",
+    "Стабильность — признак мастерства.": "Consistency is a sign of skill.",
+    "Всё по плану.": "Everything went to plan.",
+    "Всё по плану, но плану соперника.": "Everything went to plan — your opponent's plan.",
+    "Не попал, и ты тоже.": "You missed — and so did your bet.",
+    "Промах обошёлся дорого.": "That miss was costly.",
+    "Мимо кольца, мимо кассы.": "Missed the hoop, lost the bet.",
+    "Промах — просто промах.": "A miss is just a miss.",
+    "Не попал. Бывает.": "You missed. It happens.",
+    "Мяч улетел, ставка сгорела.": "The ball flew off, and your bet was lost.",
+    "Отскок от щита — и мимо.": "It bounced off the backboard and missed.",
+    "Щит не помог.": "The backboard couldn't save it.",
+    "Рикошет сыграл против тебя.": "The ricochet worked against you.",
+    "Отскок — не попадание.": "A bounce isn't a basket.",
+    "Щит сегодня не на твоей стороне.": "The backboard wasn't on your side today.",
+    "Мяч от щита и в аут.": "Off the backboard and out.",
+    "Везения не хватило.": "Luck wasn't on your side.",
+    "Отскок принёс только разочарование.": "That bounce brought nothing but disappointment.",
+    "Мяч застрял, а ставка сгорела.": "The ball got stuck, and your bet was lost.",
+    "Застрял — и не в твою пользу.": "It got stuck — not in your favor.",
+    "Редкий случай, но против тебя.": "A rare outcome, but not in your favor.",
+    "Мяч завис, деньги уплыли.": "The ball got stuck; your money drifted away.",
+    "Такое бывает раз в году, и не в твой день.": "It happens once a year — and today isn't your day.",
+    "Застрял. И это не твой день.": "It got stuck. Not your day.",
+    "Судьба вмешалась против тебя.": "Fate intervened against you.",
+    "Мяч застрял, ты проиграл.": "The ball got stuck; you lost.",
+    "Почти попал. Ключевое слово — почти.": "Almost hit it. The key word is almost.",
+    "Чуть-чуть не хватило.": "You were just short.",
+    "Почти — не считается.": "Almost doesn't count.",
+    "На грани, но не в твою пользу.": "It was close, but not in your favor.",
+    "Сантиметры сыграли против тебя.": "A few centimeters made the difference — against you.",
+    "Почти попал, но проиграл.": "Almost hit it, but still lost.",
+    "Чуть не залетел — и чуть не выиграл.": "It nearly went in — and you nearly won.",
+    "Почти — и это поражение.": "So close, but still a loss.",
+    "Мимо, но ставка зашла.": "It missed, but your bet won.",
+    "Не попал, зато заработал.": "You missed, but still earned a payout.",
+    "Мяч улетел в аут, а ты в плюсе.": "The ball went out, but you're ahead.",
+    "Промах оказался выгодным.": "That miss turned out to be profitable.",
+    "Мимо кольца, но в цель по деньгам.": "Missed the hoop, hit the jackpot.",
+    "Иногда промах — это стратегия.": "Sometimes a miss is the right strategy.",
+    "Не попал — и правильно.": "You missed — and that was the right move.",
+    "Мяч мимо, ты в дамках.": "The ball missed, but you're on top.",
+    "Отскок от щита — и в кольцо.": "Off the backboard and into the hoop.",
+    "Щит помог, мяч зашёл.": "The backboard helped — it went in.",
+    "Рикошет сыграл за тебя.": "The ricochet worked in your favor.",
+    "Отскок — тоже попадание.": "A bounce still counts.",
+    "Щит сегодня на твоей стороне.": "The backboard is on your side today.",
+    "Мяч от щита и в цель.": "Off the backboard and on target.",
+    "Не без везения, но зашло.": "A little luck — and it went in.",
+    "Отскок принёс результат.": "That bounce paid off.",
+    "Мяч застрял между кольцом и щитом.": "The ball got stuck between the rim and the backboard.",
+    "Застрял — и это засчитано.": "It got stuck — and it counts.",
+    "Редкий случай, но в твою пользу.": "A rare outcome — in your favor.",
+    "Мяч завис, ставка зашла.": "The ball got stuck, but your bet won.",
+    "Такое бывает раз в году.": "It happens once a year.",
+    "Застрял. И это твой день.": "It got stuck. It's your day.",
+    "Судьба вмешалась в твою пользу.": "Fate intervened in your favor.",
+    "Мяч застрял, ты выиграл.": "The ball got stuck — and you won.",
+    "Страйк был нужен, но не случился.": "You needed a strike, but it didn't happen.",
+    "Все кегли устояли.": "All the pins stayed up.",
+    "Идеальный бросок не получился.": "That wasn't a perfect throw.",
+    "Страйк прошёл мимо.": "The strike never came.",
+    "Шар ушёл в жёлоб, деньги в никуда.": "The ball went into the gutter, and your money went with it.",
+    "Мимо кеглей, мимо кассы.": "Missed the pins, lost the bet.",
+    "Одна кегля, а ставка сгорела.": "One pin — and your bet was gone.",
+    "Всего одна, но не в твою пользу.": "Just one — and not in your favor.",
+    "Скромно и обидно.": "A small result, and a painful one.",
+    "Одна кегля сыграла против тебя.": "One pin worked against you.",
+    "Минимум, но и его не хватило.": "The bare minimum still wasn't enough.",
+    "Одна — значит мимо кассы.": "One pin means a losing bet.",
+    "Три кегли, а ставка сгорела.": "Three pins — and your bet was gone.",
+    "Три сыграли против тебя.": "Three worked against you.",
+    "Не много, и не в твою пользу.": "Not many — and not in your favor.",
+    "Три кегли — и ноль результата.": "Three pins, and nothing to show for it.",
+    "Тройка не принесла удачу.": "Three wasn't lucky.",
+    "Три — значит мимо кассы.": "Three means no payout.",
+    "Четыре кегли — и ноль результата.": "Four pins, and nothing to show for it.",
+    "Четвёрка не принесла удачу.": "Four pins didn't bring you luck.",
+    "Пять кеглей — и ноль результата.": "Five pins, and nothing to show for it.",
+    "Пятёрка не принесла удачу.": "Five pins didn't bring you luck.",
+    "Шесть кеглей — и ноль результата.": "Six pins, and nothing to show for it.",
+    "Шестёрка не принесла удачу.": "Six pins didn't bring you luck.",
+    "Страйк. Все десять с первого шара.": "Strike! All ten pins on the first ball.",
+    "Страйк, и это твой день.": "A strike — it's your day.",
+    "Все кегли снесены одним ударом.": "All the pins fell with one throw.",
+    "Как по учебнику — страйк.": "Textbook-perfect strike.",
+    "Шар ушёл в жёлоб, а ты в плюсе.": "The ball went into the gutter, but you're ahead.",
+    "Одна кегля — и этого хватило.": "One pin was all it took.",
+    "Всего одна, но в твою пользу.": "Just one — and in your favor.",
+    "Скромно, зато зашло.": "A small win, but a win.",
+    "Одна кегля сыграла за тебя.": "One pin worked in your favor.",
+    "Минимум, но результат есть.": "The minimum — but it counts.",
+    "Одна — значит выигрышная.": "One pin, and it's a winning bet.",
+    "Три кегли — и это засчитано.": "Three pins — it counts.",
+    "Три сыграли за тебя.": "Three worked in your favor.",
+    "Не много, но в твою пользу.": "Not many, but in your favor.",
+    "Три кегли — уже результат.": "Three pins — that's a result.",
+    "Тройка принесла удачу.": "Three pins brought you luck.",
+    "Три — значит выигрышные.": "Three means a winning result.",
+    "Четыре кегли — и это засчитано.": "Four pins — it counts.",
+    "Четыре сыграли за тебя.": "Four pins worked in your favor.",
+    "Пять кеглей — и это засчитано.": "Five pins — it counts.",
+    "Пять сыграли за тебя.": "Five pins worked in your favor.",
+    "Шесть кеглей — и это засчитано.": "Six pins — it counts.",
+    "Шесть сыграли за тебя.": "Six pins worked in your favor.",
+    "Проверьте баланс и историю до повторной попытки.": "Check your balance and history before trying again.",
+    "Чат участники автоматически связываются": "Chat members are automatically linked",
+})
+
+
+RU_EN_PHRASES.update({
+    "Куб остановился не там.": "The die landed on the wrong number.",
+    "Куб остановился там, где нужно.": "The die landed exactly where you needed it.",
+    "Классик сыграл против тебя.": "The classic result went against you.",
+    "Классик сыграл за тебя.": "The classic result went your way.",
+    "Чёт не выпал.": "No even number came up.",
+    "Чётное число сыграло против тебя.": "The even number worked against you.",
+    "Чёт — но не в твою пользу.": "Even — but not in your favor.",
+    "Ждал чёт, а пришло не то.": "You called even, but got something else.",
+    "Чёт сегодня не на твоей стороне.": "Even isn't on your side today.",
+    "Чётное — и мимо кассы.": "Even came up, but your bet missed.",
+    "Нечёт не выпал.": "No odd number came up.",
+    "Нечётное число сыграло против тебя.": "The odd number worked against you.",
+    "Нечёт — но не в твою пользу.": "Odd — but not in your favor.",
+    "Ждал нечёт, а пришло не то.": "You called odd, but got something else.",
+    "Нечёт сегодня не на твоей стороне.": "Odd isn't on your side today.",
+    "Нечётное — и мимо кассы.": "Odd came up, but your bet missed.",
+    "Чёт выпал, и это твой день.": "Even came up — it's your day.",
+    "Чётное число сыграло за тебя.": "The even number worked in your favor.",
+    "Чёт — значит выигрышное.": "Even means a winning result.",
+    "Двойка, четвёрка или шестёрка — неважно, зашло.": "Two, four, or six — it doesn't matter; your bet won.",
+    "Чёт сегодня на твоей стороне.": "Even is on your side today.",
+    "Чётное — и ставка зашла.": "Even came up, and your bet won.",
+    "Нечёт выпал, и это твой день.": "Odd came up — it's your day.",
+    "Нечётное число сыграло за тебя.": "The odd number worked in your favor.",
+    "Нечёт — значит выигрышное.": "Odd means a winning result.",
+    "Единица, тройка или пятёрка — неважно, зашло.": "One, three, or five — it doesn't matter; your bet won.",
+    "Нечёт сегодня на твоей стороне.": "Odd is on your side today.",
+    "Нечётное — и ставка зашла.": "Odd came up, and your bet won.",
+    "Два числа, а ставка сгорела.": "Two numbers came up, but your bet was lost.",
+    "Два сыграли против тебя.": "The two worked against you.",
+    "Пара чисел — и ноль результата.": "A pair of numbers, and no payout.",
+    "Два — значит мимо кассы.": "Two means no payout.",
+    "Двойка чисел не принесла удачу.": "The pair didn't bring you luck.",
+    "Два числа, но не твои.": "Two numbers — but not the ones you needed.",
+    "Три числа, а ставка сгорела.": "Three numbers came up, but your bet was lost.",
+    "Полный набор — и ноль результата.": "A full set, and no payout.",
+    "Тройка чисел не принесла удачу.": "Three numbers didn't bring you luck.",
+    "Три числа, но не твои.": "Three numbers — but not the ones you needed.",
+    "Меньше не выпало.": "No low number came up.",
+    "Малое число сыграло против тебя.": "The low number worked against you.",
+    "Меньше — но не в твою пользу.": "Low — but not in your favor.",
+    "Ждал меньше, а пришло не то.": "You called low, but got something else.",
+    "Меньше сегодня не на твоей стороне.": "Low isn't on your side today.",
+    "Малое число — и мимо кассы.": "A low number, but no payout.",
+    "Больше не выпало.": "No high number came up.",
+    "Большое число сыграло против тебя.": "The high number worked against you.",
+    "Больше — но не в твою пользу.": "High — but not in your favor.",
+    "Ждал больше, а пришло не то.": "You called high, but got something else.",
+    "Больше сегодня не на твоей стороне.": "High isn't on your side today.",
+    "Большое число — и мимо кассы.": "A high number, but no payout.",
+    "Единица не выпала.": "The one didn't come up.",
+    "Один сыграл против тебя.": "The one worked against you.",
+    "Первое число — но не в твою пользу.": "The first number — but not in your favor.",
+    "Единица не принесла удачу.": "One wasn't lucky.",
+    "Один сегодня не на твоей стороне.": "One isn't on your side today.",
+    "Ждал единицу, а пришло не то.": "You called one, but got something else.",
+    "Одно число, а ставка сгорела.": "One number came up, but your bet was lost.",
+    "Ровно одно, но не в твою пользу.": "Exactly one — but not in your favor.",
+    "Одно число сыграло против тебя.": "The number one worked against you.",
+    "Минимум, и его не хватило.": "The minimum still wasn't enough.",
+    "Одно — значит мимо кассы.": "One means no payout.",
+    "Одно число, но не твоё.": "One number — but not the one you needed.",
+    "Двойка не выпала.": "The two didn't come up.",
+    "Два сыграло против тебя.": "The two worked against you.",
+    "Второе число — но не в твою пользу.": "The second number — but not in your favor.",
+    "Двойка не принесла удачу.": "Two wasn't lucky.",
+    "Два сегодня не на твоей стороне.": "Two isn't on your side today.",
+    "Ждал двойку, а пришло не то.": "You called two, but got something else.",
+    "Тройка не выпала.": "The three didn't come up.",
+    "Три сыграло против тебя.": "The three worked against you.",
+    "Третье число — но не в твою пользу.": "The third number — but not in your favor.",
+    "Три сегодня не на твоей стороне.": "Three isn't on your side today.",
+    "Ждал тройку, а пришло не то.": "You called three, but got something else.",
+    "Четвёрка не выпала.": "The four didn't come up.",
+    "Четыре сыграло против тебя.": "The four worked against you.",
+    "Четвёртое число — но не в твою пользу.": "The fourth number — but not in your favor.",
+    "Четыре сегодня не на твоей стороне.": "Four isn't on your side today.",
+    "Ждал четвёрку, а пришло не то.": "You called four, but got something else.",
+    "Пятёрка не выпала.": "The five didn't come up.",
+    "Пять сыграло против тебя.": "The five worked against you.",
+    "Пятое число — но не в твою пользу.": "The fifth number — but not in your favor.",
+    "Пять сегодня не на твоей стороне.": "Five isn't on your side today.",
+    "Ждал пятёрку, а пришло не то.": "You called five, but got something else.",
+    "Шестёрка не выпала.": "The six didn't come up.",
+    "Шесть сыграло против тебя.": "The six worked against you.",
+    "Шестое число — но не в твою пользу.": "The sixth number — but not in your favor.",
+    "Шесть сегодня не на твоей стороне.": "Six isn't on your side today.",
+    "Ждал шестёрку, а пришло не то.": "You called six, but got something else.",
+    "Единица выпала, и это твой день.": "The one came up — it's your day.",
+    "Один — значит выигрышный.": "One means a winning result.",
+    "Первое число сыграло за тебя.": "The first number worked in your favor.",
+    "Единица принесла удачу.": "One brought you luck.",
+    "Один сегодня на твоей стороне.": "One is on your side today.",
+    "Выпала единица — забирай своё.": "The one came up — collect your winnings.",
+    "Одно число — и этого хватило.": "One number was all it took.",
+    "Одно число сыграло за тебя.": "The number one worked in your favor.",
+    "Одно — значит выигрышное.": "One means a winning result.",
+    "Одно число, зато твоё.": "One number — and it's yours.",
+    "Двойка выпала, и это твой день.": "The two came up — it's your day.",
+    "Два — значит выигрышное.": "Two means a winning result.",
+    "Второе число сыграло за тебя.": "The second number worked in your favor.",
+    "Двойка принесла удачу.": "Two brought you luck.",
+    "Два сегодня на твоей стороне.": "Two is on your side today.",
+    "Выпала двойка — забирай своё.": "The two came up — collect your winnings.",
+    "Тройка выпала, и это твой день.": "The three came up — it's your day.",
+    "Три — значит выигрышное.": "Three means a winning result.",
+    "Третье число сыграло за тебя.": "The third number worked in your favor.",
+    "Три сегодня на твоей стороне.": "Three is on your side today.",
+    "Выпала тройка — забирай своё.": "The three came up — collect your winnings.",
+    "Четвёрка выпала, и это твой день.": "The four came up — it's your day.",
+    "Четыре — значит выигрышное.": "Four means a winning result.",
+    "Четвёртое число сыграло за тебя.": "The fourth number worked in your favor.",
+    "Четыре сегодня на твоей стороне.": "Four is on your side today.",
+    "Выпала четвёрка — забирай своё.": "The four came up — collect your winnings.",
+    "Пятёрка выпала, и это твой день.": "The five came up — it's your day.",
+    "Пять — значит выигрышное.": "Five means a winning result.",
+    "Пятое число сыграло за тебя.": "The fifth number worked in your favor.",
+    "Пять сегодня на твоей стороне.": "Five is on your side today.",
+    "Выпала пятёрка — забирай своё.": "The five came up — collect your winnings.",
+    "Шестёрка выпала, и это твой день.": "The six came up — it's your day.",
+    "Шесть — значит выигрышное.": "Six means a winning result.",
+    "Шестое число сыграло за тебя.": "The sixth number worked in your favor.",
+    "Шесть сегодня на твоей стороне.": "Six is on your side today.",
+    "Выпала шестёрка — забирай своё.": "The six came up — collect your winnings.",
+    "Сегодня не твой день.": "It's not your day today.",
+    "Сегодня удача на твоей стороне.": "Luck is on your side today.",
+    "Сегодня удача на твоей стороне.": "Luck is on your side today.",
+    "Три в ряд — и это твой день.": "Three in a row — it's your day.",
+    "Слоты улыбнулись именно тебе.": "The slots smiled on you.",
+    "Крутил не зря.": "That spin was worth it.",
+    "Фортуна выбрала тебя.": "Fortune chose you.",
+    "Барабаны остановились, но не там.": "The reels stopped — just not where you wanted.",
+    "Удача — дама капризная.": "Luck can be fickle.",
+    "Не в этот раз.": "Not this time.",
+    "Слоты — игра терпеливых.": "Slots reward the patient.",
+    "Крути ещё, повезёт.": "Spin again — your luck may turn.",
+    "Барабаны остановились там, где нужно.": "The reels stopped exactly where you wanted.",
+})
+
+
+RU_EN_PHRASES.update({
+    # Exact English versions for every built-in game result line.
+    "Классик сегодня против тебя.": "The classic result went against you today.",
+    "По вашей ссылке зашёл новый пользователь: ": "A new user joined using your referral link: ",
+    "Произошла ошибка, попробуйте ещё раз.": "Something went wrong. Please try again.",
+    "Произошла ошибка, попробуйте ещё раз": "Something went wrong. Please try again",
+    "нельзя переводить самому себе": "You cannot transfer money to yourself",
+    "Нельзя переводить самому себе.": "You cannot transfer money to yourself.",
+    "Мяч в аут, деньги в никуда.": "The ball went out, and your bet went with it.",
+    "Почти попал — и этого хватило.": "It nearly went in — and that was enough.",
+    "Чуть-чуть, но в твою пользу.": "It was close, but it went your way.",
+    "Почти — тоже результат.": "Almost counts.",
+    "На грани, но зашло.": "A close call, but it paid off.",
+    "Сантиметры сыграли за тебя.": "A few centimeters made the difference — in your favor.",
+    "Почти попал, но выиграл.": "It nearly went in, but you still won.",
+    "Чуть не залетел, но зачли.": "It nearly went in, but it counted.",
+    "Почти — и это победа.": "So close — and still a win.",
+    "Четыре кегли, а ставка сгорела.": "Four pins fell, but your bet was lost.",
+    "Четыре сыграли против тебя.": "Four pins worked against you.",
+    "Половина снесена, но не в твою пользу.": "Half the pins fell, but not in your favor.",
+    "Четыре — значит мимо кассы.": "Four pins, but no payout.",
+    "Пять кеглей, а ставка сгорела.": "Five pins fell, but your bet was lost.",
+    "Пять сыграли против тебя.": "Five pins worked against you.",
+    "Больше половины, но не в твою пользу.": "More than half the pins fell, but it still went against you.",
+    "Пять — значит мимо кассы.": "Five pins, but no payout.",
+    "Шесть кеглей, а ставка сгорела.": "Six pins fell, but your bet was lost.",
+    "Шесть сыграли против тебя.": "Six pins worked against you.",
+    "Хороший бросок, но не в твою пользу.": "A good throw, but not in your favor.",
+    "Шесть — значит мимо кассы.": "Six pins, but no payout.",
+    "Идеальный бросок.": "A perfect throw.",
+    "Мимо кеглей, но в цель по деньгам.": "Missed the pins, but hit the payout.",
+    "Половина снесена, но в твою пользу.": "Half the pins fell — and it worked in your favor.",
+    "Четыре кегли — уже результат.": "Four pins — that's a result.",
+    "Четвёрка принесла удачу.": "Four pins brought you luck.",
+    "Четыре — значит выигрышные.": "Four pins mean a winning result.",
+    "Больше половины, и в твою пользу.": "More than half the pins fell, and it went your way.",
+    "Пять кеглей — уже результат.": "Five pins — that's a result.",
+    "Пятёрка принесла удачу.": "Five pins brought you luck.",
+    "Пять — значит выигрышные.": "Five pins mean a winning result.",
+    "Хороший бросок, и в твою пользу.": "A good throw — and it went your way.",
+    "Шесть кеглей — уже результат.": "Six pins — that's a result.",
+    "Шестёрка принесла удачу.": "Six pins brought you luck.",
+    "Шесть — значит выигрышные.": "Six pins mean a winning result.",
+    "Как по учебнику — зашло.": "A textbook roll — and your bet paid off.",
+    "Без выкрутасов, зато выигрыш.": "No tricks, just a win.",
+    "Два числа — и это засчитано.": "Two numbers — that's a hit.",
+    "Два сыграли за тебя.": "Both numbers worked in your favor.",
+    "Пара чисел — уже результат.": "A pair of numbers — that's a result.",
+    "Два — значит выигрышные.": "Two means a winning result.",
+    "Двойка чисел принесла удачу.": "The pair brought you luck.",
+    "Два числа, и оба твои.": "Two numbers, both in your favor.",
+    "Три числа — максимум, и это твоё.": "Three numbers — the maximum, and you got them.",
+    "Полный набор — уже результат.": "A full set — that's a result.",
+    "Тройка чисел принесла удачу.": "Three numbers brought you luck.",
+    "Три числа, и все твои.": "Three numbers, all in your favor.",
+    "Меньше — и это засчитано.": "Low — and it counts.",
+    "Малое число сыграло за тебя.": "The low number worked in your favor.",
+    "Меньше — значит выигрышное.": "Low means a winning result.",
+    "Скромно, но в твою пользу.": "A modest result, but in your favor.",
+    "Меньше сегодня на твоей стороне.": "Low is on your side today.",
+    "Малое число принесло удачу.": "A low number brought you luck.",
+    "Больше — и это засчитано.": "High — and it counts.",
+    "Большое число сыграло за тебя.": "The high number worked in your favor.",
+    "Больше — значит выигрышное.": "High means a winning result.",
+    "Крупно, и в твою пользу.": "A high roll — and it went your way.",
+    "Больше сегодня на твоей стороне.": "High is on your side today.",
+    "Большое число принесло удачу.": "A high number brought you luck.",
+    "Ровно одно, но в твою пользу.": "Exactly one — but in your favor.",
+    "Дротик точно в цель, но не в твою пользу.": "The dart hit the mark, but not in your favor.",
+    "Прямо в яблочко — и мимо тебя.": "Right in the bullseye — but your bet still missed.",
+    "Чистое попадание, грязный проигрыш.": "A clean hit, but a costly loss.",
+    "Дротик улетел в стену, деньги в никуда.": "The dart hit the wall, and your money went with it.",
+    "Мимо мишени, мимо кассы.": "Missed the target, lost the bet.",
+    "Отскок от проволоки — и мимо.": "It bounced off the wire and missed.",
+    "Дротик срикошетил и ушёл.": "The dart ricocheted away.",
+    "Отскок сыграл против тебя.": "The bounce worked against you.",
+    "Проволока помешала, а не помогла.": "The wire got in the way instead of helping.",
+    "Рикошет принёс только разочарование.": "The ricochet brought nothing but disappointment.",
+    "Красное — но не в твою пользу.": "Red — but not in your favor.",
+    "Красный сектор сыграл против тебя.": "The red segment worked against you.",
+    "Попал в красное, а ставка сгорела.": "You hit red, but your bet was lost.",
+    "Красное сегодня не на твоей стороне.": "Red isn't on your side today.",
+    "Красный цвет не всегда к удаче.": "Red doesn't always bring luck.",
+    "Красное — значит мимо кассы.": "Red, but no payout.",
+    "Белое — но не в твою пользу.": "White — but not in your favor.",
+    "Белый сектор сыграл против тебя.": "The white segment worked against you.",
+    "Попал в белое, а ставка сгорела.": "You hit white, but your bet was lost.",
+    "Белое сегодня не на твоей стороне.": "White isn't on your side today.",
+    "Белый цвет не всегда к удаче.": "White doesn't always bring luck.",
+    "Белое — значит мимо кассы.": "White, but no payout.",
+    "Дротик точно в цель.": "The dart hit the mark.",
+    "Прямо в яблочко.": "Right in the bullseye.",
+    "Дротик улетел в стену, а ты в плюсе.": "The dart hit the wall, but your bet still paid off.",
+    "Мимо мишени, но в цель по деньгам.": "Missed the target, but hit the payout.",
+    "Отскок от проволоки — и в цель.": "It bounced off the wire and hit the mark.",
+    "Дротик срикошетил, но зашёл.": "The dart ricocheted — and still scored.",
+    "Отскок сыграл за тебя.": "The bounce worked in your favor.",
+    "Не без везения, но засчитано.": "A little luck — and it counts.",
+    "Проволока помогла, а не помешала.": "The wire helped instead of getting in the way.",
+    "Рикошет принёс результат.": "The ricochet paid off.",
+    "Красное — и это засчитано.": "Red — and it counts.",
+    "Красный сектор сыграл за тебя.": "The red segment worked in your favor.",
+    "Попал в красное, забрал своё.": "You hit red — collect your winnings.",
+    "Красное сегодня на твоей стороне.": "Red is on your side today.",
+    "Красный цвет приносит удачу.": "Red brings good luck.",
+    "Красное — значит выигрышное.": "Red means a winning result.",
+    "Белое — и это засчитано.": "White — and it counts.",
+    "Белый сектор сыграл за тебя.": "The white segment worked in your favor.",
+    "Попал в белое, забрал своё.": "You hit white — collect your winnings.",
+    "Белое сегодня на твоей стороне.": "White is on your side today.",
+    "Белый цвет приносит удачу.": "White brings good luck.",
+    "Белое — значит выигрышное.": "White means a winning result.",
+    "Мимо ворот, мимо денег.": "Wide of the goal — and there goes your bet.",
+    "Штанга спасла вратаря, но не тебя.": "The post saved the keeper, but not your bet.",
+    "Сантиметры отделили от выигрыша.": "You were just centimeters away from a win.",
+    "Дерево сыграло против тебя.": "The woodwork worked against you.",
+    "Девятка. Красиво и больно.": "Top corner. A beautiful shot, a painful result.",
+    "Идеальный удар — не в твою пользу.": "A perfect strike — but not for your bet.",
+    "Верхний угол, а ставка в пропасть.": "Top corner — but your bet went down the drain.",
+    "Прямо по центру, а мимо тебя.": "Straight down the middle — but not your way.",
+    "Центр — тоже результат, но не твой.": "Down the middle — but not the result you wanted.",
+    "Главное — забить, а забили не тебе.": "A goal is all that matters — and they scored against you.",
+    "Гол. Но не в твою пользу.": "A goal — just not for you.",
+    "Забили. Не ты.": "They scored. You didn't.",
+    "Прямо в цель, но не в твою.": "On target — but not your pick.",
+    "Ушёл вправо, а ты — в минус.": "It went right, and your balance went down.",
+    "Выше ворот — ниже твоё настроение.": "Over the bar — and your mood went down.",
+    "Мимо ворот, но попытка засчитана.": "Off target, but your pick still won.",
+    "Не попал, бывает.": "He missed. It happens.",
+    "Дерево спасло вратаря.": "The woodwork saved the keeper.",
+    "Девятка. Идеальный удар.": "Top corner. A perfect strike.",
+    "Верхний угол, неберущийся мяч.": "Top corner — an unstoppable shot.",
+    "Точнее не бывает.": "It couldn't be more accurate.",
+    "Прямо по центру.": "Straight down the middle.",
+    "Главное — забить.": "All that matters is scoring.",
+    "Гол.": "Goal!",
+    "Забил.": "Scored!",
+    "Прямо в цель.": "Right on target.",
+    "Прямолинейно, но эффективно.": "Straightforward, but effective.",
+    "Ушёл вправо и не прогадал.": "It went right — and that was the right call.",
+    "Выше ворот.": "Over the bar.",
+    "Мяч на орбите.": "The ball is in orbit.",
+    "Низкий удар.": "A low shot.",
+})
+
+_I18N_PROTECTED_RE = re.compile(r'(<a\b[^>]*>.*?</a>|<tg-emoji\b[^>]*>.*?</tg-emoji>|<[^>]+>)', re.IGNORECASE | re.DOTALL)
+_RUSSIAN_WORD_RE = re.compile(r"[А-Яа-яЁё]+")
+
+
+def translate_telegram_text(text: str, language: str = "en") -> str:
+    if not isinstance(text, str) or language != "en":
+        return text
+
+    def translate_span(span: str) -> str:
+        for russian, english in sorted(RU_EN_PHRASES.items(), key=lambda item: len(item[0]), reverse=True):
+            span = span.replace(russian, english)
+        def translate_word(match):
+            word = match.group(0)
+            translated = RU_EN_WORDS.get(word.lower())
+            if translated is None:
+                return word
+            if word.isupper():
+                return translated.upper()
+            if word[:1].isupper():
+                return translated[:1].upper() + translated[1:]
+            return translated
+        return _RUSSIAN_WORD_RE.sub(translate_word, span)
+
+    parts = _I18N_PROTECTED_RE.split(text)
+    return "".join(part if part.startswith("<") else translate_span(part) for part in parts)
+
+
+def user_language_from_update(update) -> int | None:
+    for name in ("message", "edited_message", "channel_post", "callback_query", "inline_query", "pre_checkout_query", "chat_member", "my_chat_member"):
+        event = getattr(update, name, None)
+        user = getattr(event, "from_user", None) if event is not None else None
+        if user is not None and type(getattr(user, "id", None)) is int:
+            return user.id
+    return None
+
+
+class TelegramLocaleContextMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        user_id = user_language_from_update(event)
+        user_token = CURRENT_TELEGRAM_USER.set(user_id)
+        lang_token = CURRENT_TELEGRAM_LANGUAGE.set(await get_telegram_language(user_id) if user_id else "ru")
+        try:
+            return await handler(event, data)
+        finally:
+            CURRENT_TELEGRAM_LANGUAGE.reset(lang_token)
+            CURRENT_TELEGRAM_USER.reset(user_token)
+
+
+def _telegram_method_locale_user(method) -> int | None:
+    chat_id = getattr(method, "chat_id", None)
+    if type(chat_id) is int and chat_id > 0:
+        return chat_id
+    return CURRENT_TELEGRAM_USER.get()
+
+
+def _localized_inline_result(result, language):
+    updates = {}
+    for field in ("title", "description", "caption"):
+        value = getattr(result, field, None)
+        if isinstance(value, str):
+            updates[field] = translate_telegram_text(value, language)
+    content = getattr(result, "input_message_content", None)
+    message_text = getattr(content, "message_text", None) if content is not None else None
+    if isinstance(message_text, str):
+        updates["input_message_content"] = content.model_copy(update={"message_text": translate_telegram_text(message_text, language)})
+    markup = getattr(result, "reply_markup", None)
+    if markup is not None:
+        updates["reply_markup"] = _localized_markup(markup, language)
+    return result.model_copy(update=updates) if updates else result
+
+
+def _localized_markup(markup, language):
+    rows = getattr(markup, "inline_keyboard", None)
+    if rows is not None:
+        return markup.model_copy(update={"inline_keyboard": [[button.model_copy(update={"text": translate_telegram_text(button.text, language)}) for button in row] for row in rows]})
+    rows = getattr(markup, "keyboard", None)
+    if rows is not None:
+        return markup.model_copy(update={"keyboard": [[button.model_copy(update={"text": translate_telegram_text(button.text, language)}) for button in row] for row in rows]})
+    return markup
+
+
+class TelegramLocaleRequestMiddleware(BaseRequestMiddleware):
+    async def __call__(self, make_request, bot, method):
+        user_id = _telegram_method_locale_user(method)
+        if user_id is None:
+            language = CURRENT_TELEGRAM_LANGUAGE.get()
+        elif user_id == CURRENT_TELEGRAM_USER.get():
+            language = CURRENT_TELEGRAM_LANGUAGE.get()
+        else:
+            language = await get_telegram_language(user_id)
+        if language != "en":
+            return await make_request(bot, method)
+        updates = {}
+        for field in ("text", "caption", "question", "explanation", "title", "description", "error_message"):
+            value = getattr(method, field, None)
+            if isinstance(value, str):
+                updates[field] = translate_telegram_text(value, language)
+        markup = getattr(method, "reply_markup", None)
+        if markup is not None:
+            updates["reply_markup"] = _localized_markup(markup, language)
+        prices = getattr(method, "prices", None)
+        if prices:
+            updates["prices"] = [price.model_copy(update={"label": translate_telegram_text(price.label, language)}) for price in prices]
+        media = getattr(method, "media", None)
+        if media:
+            updates["media"] = [item.model_copy(update={"caption": translate_telegram_text(item.caption, language)}) if getattr(item, "caption", None) else item for item in media]
+        options = getattr(method, "options", None)
+        if options:
+            updates["options"] = [option.model_copy(update={"text": translate_telegram_text(option.text, language)}) if hasattr(option, "model_copy") and isinstance(getattr(option, "text", None), str) else translate_telegram_text(option, language) if isinstance(option, str) else option for option in options]
+        results = getattr(method, "results", None)
+        if results:
+            updates["results"] = [_localized_inline_result(result, language) for result in results]
+        if not updates:
+            return await make_request(bot, method)
+        return await make_request(bot, method.model_copy(update=updates))
+
 
 REF_SIGNUP_BASE = 2.5
 REF_SIGNUP_PREMIUM = 5.0
@@ -4333,6 +5279,10 @@ class WithdrawStates(StatesGroup):
     waiting_amount = State()
 
 
+class TelegramProfileStates(StatesGroup):
+    waiting_nickname = State()
+
+
 router = Router()
 
 
@@ -4340,6 +5290,33 @@ def db() -> aiosqlite.Connection:
     if _db_conn is None:
         raise RuntimeError("DB is not initialized")
     return _db_conn
+
+
+async def get_telegram_language(user_id: int | None) -> str:
+    if type(user_id) is not int or user_id <= 0:
+        return "ru"
+    cached = TELEGRAM_LANGUAGE_CACHE.get(user_id)
+    if cached in {"ru", "en"}:
+        return cached
+    try:
+        async with _db_lock:
+            async with db().execute("SELECT language FROM telegram_user_settings WHERE user_id = ?", (user_id,)) as cursor:
+                row = await cursor.fetchone()
+        language = row[0] if row and row[0] in {"ru", "en"} else "ru"
+    except Exception:
+        language = "ru"
+    TELEGRAM_LANGUAGE_CACHE[user_id] = language
+    return language
+
+
+async def set_telegram_language(user_id: int, language: str) -> None:
+    if type(user_id) is not int or user_id <= 0 or language not in {"ru", "en"}:
+        raise ValueError("Invalid Telegram language preference")
+    async with _db_lock:
+        conn = db()
+        await conn.execute("INSERT INTO telegram_user_settings(user_id,language) VALUES (?,?) ON CONFLICT(user_id) DO UPDATE SET language = excluded.language", (user_id, language))
+        await conn.commit()
+    TELEGRAM_LANGUAGE_CACHE[user_id] = language
 
 
 async def db_init() -> None:
@@ -4611,6 +5588,11 @@ async def init_db() -> None:
         )
         await conn.execute("CREATE TABLE IF NOT EXISTS webapp_wallet_events(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,kind TEXT NOT NULL,amount_cents INTEGER NOT NULL,source TEXT NOT NULL UNIQUE,created_at TEXT NOT NULL)")
         await conn.execute("CREATE TABLE IF NOT EXISTS webapp_ref_events(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,referral_id INTEGER NOT NULL,kind TEXT NOT NULL,amount_cents INTEGER NOT NULL,source TEXT NOT NULL UNIQUE,created_at TEXT NOT NULL)")
+        await conn.execute("CREATE TABLE IF NOT EXISTS telegram_user_settings(user_id INTEGER PRIMARY KEY,language TEXT NOT NULL DEFAULT 'ru' CHECK(language IN ('ru','en')))")
+        await conn.execute("CREATE TABLE IF NOT EXISTS telegram_group_owners(chat_id INTEGER PRIMARY KEY,owner_id INTEGER NOT NULL,chat_title TEXT NOT NULL DEFAULT '',updated_at TEXT NOT NULL)")
+        await conn.execute("CREATE TABLE IF NOT EXISTS telegram_group_referrals(chat_id INTEGER NOT NULL,user_id INTEGER NOT NULL,referrer_id INTEGER NOT NULL,joined_at TEXT NOT NULL,PRIMARY KEY(chat_id,user_id))")
+        await conn.execute("CREATE TABLE IF NOT EXISTS telegram_group_loss_rewards(source TEXT PRIMARY KEY,chat_id INTEGER NOT NULL,user_id INTEGER NOT NULL,owner_id INTEGER NOT NULL,loss_cents INTEGER NOT NULL,share_cents INTEGER NOT NULL,created_at TEXT NOT NULL)")
+        await conn.execute("CREATE TABLE IF NOT EXISTS webapp_privacy(user_id INTEGER PRIMARY KEY,mode TEXT NOT NULL DEFAULT 'username',nickname TEXT NOT NULL DEFAULT '',hidden INTEGER NOT NULL DEFAULT 0,clickable INTEGER NOT NULL DEFAULT 1,game_uid TEXT NOT NULL UNIQUE)")
         await conn.execute(
             "CREATE TABLE IF NOT EXISTS bonus ("
             "user_id INTEGER PRIMARY KEY, "
@@ -4641,9 +5623,14 @@ async def init_db() -> None:
             "user_id INTEGER PRIMARY KEY, "
             "signup_earned REAL NOT NULL DEFAULT 0, "
             "deposit_earned REAL NOT NULL DEFAULT 0, "
+            "group_earned REAL NOT NULL DEFAULT 0, "
             "frozen INTEGER NOT NULL DEFAULT 0"
             ")"
         )
+        async with conn.execute("PRAGMA table_info(ref_balance)") as cursor:
+            referral_balance_columns = {row[1] for row in await cursor.fetchall()}
+        if "group_earned" not in referral_balance_columns:
+            await conn.execute("ALTER TABLE ref_balance ADD COLUMN group_earned REAL NOT NULL DEFAULT 0")
         await conn.execute(
             "CREATE TABLE IF NOT EXISTS payments ("
             "charge_id TEXT PRIMARY KEY, "
@@ -4741,6 +5728,10 @@ async def init_db() -> None:
             columns = {row[1] for row in rows}
         if "created_at" not in columns:
             await conn.execute("ALTER TABLE balances ADD COLUMN created_at TEXT")
+
+        async with conn.execute("SELECT user_id,language FROM telegram_user_settings") as cursor:
+            TELEGRAM_LANGUAGE_CACHE.clear()
+            TELEGRAM_LANGUAGE_CACHE.update({row[0]: row[1] for row in await cursor.fetchall() if row[1] in {"ru", "en"}})
 
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_payments_user_created "
@@ -5201,16 +6192,17 @@ async def next_nonce(user_id: int) -> int:
 async def get_ref_data(user_id: int) -> dict:
     async with _db_lock:
         async with db().execute(
-            "SELECT signup_earned, deposit_earned, frozen FROM ref_balance WHERE user_id = ?",
+            "SELECT signup_earned, deposit_earned, group_earned, frozen FROM ref_balance WHERE user_id = ?",
             (user_id,),
         ) as cursor:
             row = await cursor.fetchone()
             if row is None:
-                return {"signup_earned": 0.0, "deposit_earned": 0.0, "frozen": 0}
+                return {"signup_earned": 0.0, "deposit_earned": 0.0, "group_earned": 0.0, "frozen": 0}
             return {
                 "signup_earned": row[0],
                 "deposit_earned": row[1],
-                "frozen": row[2],
+                "group_earned": row[2],
+                "frozen": row[3],
             }
 
 
@@ -5420,6 +6412,104 @@ async def try_pay_referral_signup(user_id: int, user, bot: Bot) -> bool:
     return True
 
 
+def amount_to_stars_cents(value) -> int:
+    try:
+        amount = Decimal(str(value))
+    except Exception:
+        return 0
+    if not amount.is_finite():
+        return 0
+    return int((amount * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+async def refresh_telegram_group_owner(bot: Bot, chat_id: int, chat_title: str = "") -> int | None:
+    if type(chat_id) is not int or chat_id >= 0:
+        return None
+    try:
+        administrators = await bot.get_chat_administrators(chat_id=chat_id)
+    except Exception:
+        # Membership updates can race Telegram permissions while the bot is added.
+        return None
+    owner = next((item.user for item in administrators if item.status == ChatMemberStatus.CREATOR), None)
+    if owner is None or type(owner.id) is not int:
+        return None
+    async with _db_lock:
+        conn = db()
+        await conn.execute(
+            "INSERT INTO telegram_group_owners(chat_id,owner_id,chat_title,updated_at) VALUES (?,?,?,?) "
+            "ON CONFLICT(chat_id) DO UPDATE SET owner_id=excluded.owner_id,chat_title=excluded.chat_title,updated_at=excluded.updated_at",
+            (chat_id, owner.id, (chat_title or "")[:255], now_msk().isoformat()),
+        )
+        await conn.commit()
+    return owner.id
+
+
+async def record_telegram_group_members(bot: Bot, chat_id: int, chat_title: str, members) -> None:
+    owner_id = await refresh_telegram_group_owner(bot, chat_id, chat_title)
+    if owner_id is None:
+        return
+    stamp = now_msk().isoformat()
+    async with _db_lock:
+        conn = db()
+        for member in members:
+            if member is None or getattr(member, "is_bot", False) or type(getattr(member, "id", None)) is not int:
+                continue
+            await conn.execute(
+                "INSERT OR IGNORE INTO telegram_group_referrals(chat_id,user_id,referrer_id,joined_at) VALUES (?,?,?,?)",
+                (chat_id, member.id, owner_id, stamp),
+            )
+            display_name = " ".join(part for part in (getattr(member, "first_name", ""), getattr(member, "last_name", "")) if part)
+            await conn.execute(
+                "INSERT INTO usernames(user_id,username,full_name,updated_at) VALUES (?,?,?,?) "
+                "ON CONFLICT(user_id) DO UPDATE SET username=excluded.username,full_name=excluded.full_name,updated_at=excluded.updated_at "
+                "WHERE usernames.username IS NOT excluded.username OR usernames.full_name != excluded.full_name",
+                (member.id, getattr(member, "username", None), display_name, stamp),
+            )
+            TELEGRAM_NAMES[member.id] = getattr(member, "username", None)
+        await conn.commit()
+
+
+async def credit_telegram_group_loss(connection, chat_id: int | None, user_id: int, bet, payout, source: str, created_at: str | None = None) -> int:
+    """Credit half of a settled net loss to the chat's referral balance once."""
+    if type(chat_id) is not int or chat_id >= 0 or not isinstance(source, str) or not source:
+        return 0
+    loss_cents = max(0, amount_to_stars_cents(bet) - amount_to_stars_cents(payout))
+    if loss_cents <= 0:
+        return 0
+    # Half-up at the smallest supported wallet unit (0.01 Stars).
+    share_cents = (loss_cents + 1) // 2
+    async with connection.execute("SELECT owner_id FROM telegram_group_owners WHERE chat_id = ?", (chat_id,)) as cursor:
+        row = await cursor.fetchone()
+    if row is None:
+        return 0
+    owner_id = int(row[0])
+    stamp = created_at or now_msk().isoformat()
+    await connection.execute("SAVEPOINT telegram_group_loss_reward")
+    try:
+        cursor = await connection.execute(
+            "INSERT OR IGNORE INTO telegram_group_loss_rewards(source,chat_id,user_id,owner_id,loss_cents,share_cents,created_at) VALUES (?,?,?,?,?,?,?)",
+            (source, chat_id, user_id, owner_id, loss_cents, share_cents, stamp),
+        )
+        if cursor.rowcount != 1:
+            await connection.execute("RELEASE SAVEPOINT telegram_group_loss_reward")
+            return 0
+        await connection.execute(
+            "INSERT INTO ref_balance(user_id,group_earned) VALUES (?,?) "
+            "ON CONFLICT(user_id) DO UPDATE SET group_earned=ROUND(group_earned+excluded.group_earned,2)",
+            (owner_id, share_cents / 100),
+        )
+        await connection.execute(
+            "INSERT INTO webapp_ref_events(user_id,referral_id,kind,amount_cents,source,created_at) VALUES (?,?,'group_loss',?,?,?)",
+            (owner_id, user_id, share_cents, source, stamp),
+        )
+        await connection.execute("RELEASE SAVEPOINT telegram_group_loss_reward")
+        return share_cents
+    except BaseException:
+        await connection.execute("ROLLBACK TO SAVEPOINT telegram_group_loss_reward")
+        await connection.execute("RELEASE SAVEPOINT telegram_group_loss_reward")
+        raise
+
+
 async def save_crash_game(
     user_id: int,
     server_seed: str,
@@ -5430,22 +6520,26 @@ async def save_crash_game(
     bet: float,
     multiplier: float,
     won: bool,
+    chat_id: int | None = None,
+    idempotency_key: str | None = None,
 ) -> None:
     async with _db_lock:
         conn = db()
-        await conn.execute(
-            "INSERT INTO crash_games ("
-            "user_id, server_seed, client_seed, nonce, crash_point, "
-            "raw_crash_point, bet, multiplier, won, created_at"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                user_id, server_seed, client_seed, nonce,
-                crash_point, raw_crash_point,
-                bet, multiplier, int(won),
-                now_msk().isoformat(),
-            ),
-        )
-        await conn.commit()
+        stamp = now_msk().isoformat()
+        try:
+            cursor = await conn.execute(
+                "INSERT INTO crash_games ("
+                "user_id, server_seed, client_seed, nonce, crash_point, "
+                "raw_crash_point, bet, multiplier, won, created_at"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (user_id, server_seed, client_seed, nonce, crash_point, raw_crash_point, bet, multiplier, int(won), stamp),
+            )
+            payout = round(bet * multiplier, 2) if won else 0.0
+            await credit_telegram_group_loss(conn, chat_id, user_id, bet, payout, f"bot:crash:{idempotency_key}" if idempotency_key else f"bot:crash:{cursor.lastrowid}", stamp)
+            await conn.commit()
+        except BaseException:
+            await conn.rollback()
+            raise
 
 
 async def save_mines_game(
@@ -5456,20 +6550,22 @@ async def save_mines_game(
     multiplier: float,
     win_amount: float,
     won: bool,
+    chat_id: int | None = None,
+    idempotency_key: str | None = None,
 ) -> None:
     async with _db_lock:
         conn = db()
-        await conn.execute(
-            "INSERT INTO mines_history ("
-            "user_id, bet, mines_count, opened, multiplier, win_amount, won, created_at"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                user_id, bet, mines_count, opened,
-                multiplier, win_amount, int(won),
-                now_msk().isoformat(),
-            ),
-        )
-        await conn.commit()
+        stamp = now_msk().isoformat()
+        try:
+            cursor = await conn.execute(
+                "INSERT INTO mines_history (user_id, bet, mines_count, opened, multiplier, win_amount, won, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (user_id, bet, mines_count, opened, multiplier, win_amount, int(won), stamp),
+            )
+            await credit_telegram_group_loss(conn, chat_id, user_id, bet, win_amount, f"bot:mines:{idempotency_key}" if idempotency_key else f"bot:mines:{cursor.lastrowid}", stamp)
+            await conn.commit()
+        except BaseException:
+            await conn.rollback()
+            raise
 
 
 async def save_football_game(
@@ -5480,20 +6576,22 @@ async def save_football_game(
     multiplier: float,
     win_amount: float,
     won: bool,
+    chat_id: int | None = None,
+    idempotency_key: str | None = None,
 ) -> None:
     async with _db_lock:
         conn = db()
-        await conn.execute(
-            "INSERT INTO football_history ("
-            "user_id, bet, player_range, landed_range, multiplier, win_amount, won, created_at"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                user_id, bet, player_range, landed_range,
-                multiplier, win_amount, int(won),
-                now_msk().isoformat(),
-            ),
-        )
-        await conn.commit()
+        stamp = now_msk().isoformat()
+        try:
+            cursor = await conn.execute(
+                "INSERT INTO football_history (user_id, bet, player_range, landed_range, multiplier, win_amount, won, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (user_id, bet, player_range, landed_range, multiplier, win_amount, int(won), stamp),
+            )
+            await credit_telegram_group_loss(conn, chat_id, user_id, bet, win_amount, f"bot:football:{idempotency_key}" if idempotency_key else f"bot:football:{cursor.lastrowid}", stamp)
+            await conn.commit()
+        except BaseException:
+            await conn.rollback()
+            raise
 
 
 async def save_basketball_game(
@@ -5504,20 +6602,22 @@ async def save_basketball_game(
     multiplier: float,
     win_amount: float,
     won: bool,
+    chat_id: int | None = None,
+    idempotency_key: str | None = None,
 ) -> None:
     async with _db_lock:
         conn = db()
-        await conn.execute(
-            "INSERT INTO basketball_history ("
-            "user_id, bet, player_range, landed_range, multiplier, win_amount, won, created_at"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                user_id, bet, player_range, landed_range,
-                multiplier, win_amount, int(won),
-                now_msk().isoformat(),
-            ),
-        )
-        await conn.commit()
+        stamp = now_msk().isoformat()
+        try:
+            cursor = await conn.execute(
+                "INSERT INTO basketball_history (user_id, bet, player_range, landed_range, multiplier, win_amount, won, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (user_id, bet, player_range, landed_range, multiplier, win_amount, int(won), stamp),
+            )
+            await credit_telegram_group_loss(conn, chat_id, user_id, bet, win_amount, f"bot:basketball:{idempotency_key}" if idempotency_key else f"bot:basketball:{cursor.lastrowid}", stamp)
+            await conn.commit()
+        except BaseException:
+            await conn.rollback()
+            raise
 
 
 async def save_slot_game(
@@ -5527,20 +6627,22 @@ async def save_slot_game(
     multiplier: float,
     win_amount: float,
     won: bool,
+    chat_id: int | None = None,
+    idempotency_key: str | None = None,
 ) -> None:
     async with _db_lock:
         conn = db()
-        await conn.execute(
-            "INSERT INTO slot_history ("
-            "user_id, bet, dice_value, multiplier, win_amount, won, created_at"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                user_id, bet, dice_value,
-                multiplier, win_amount, int(won),
-                now_msk().isoformat(),
-            ),
-        )
-        await conn.commit()
+        stamp = now_msk().isoformat()
+        try:
+            cursor = await conn.execute(
+                "INSERT INTO slot_history (user_id, bet, dice_value, multiplier, win_amount, won, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (user_id, bet, dice_value, multiplier, win_amount, int(won), stamp),
+            )
+            await credit_telegram_group_loss(conn, chat_id, user_id, bet, win_amount, f"bot:slot:{idempotency_key}" if idempotency_key else f"bot:slot:{cursor.lastrowid}", stamp)
+            await conn.commit()
+        except BaseException:
+            await conn.rollback()
+            raise
 
 
 async def get_profile_stats(user_id: int) -> dict:
@@ -6445,7 +7547,8 @@ async def crash_game(message: Message, bet: float, multiplier: float, bet_id: in
         await save_crash_game(
             message.from_user.id, server_seed, client_seed, nonce,
             crash_point, raw_crash_point,
-            bet, multiplier, won,
+            bet, multiplier, won, chat_id=message.chat.id,
+            idempotency_key=f"{message.chat.id}:{message.message_id}",
         )
     except Exception:
         logging.critical(
@@ -6737,7 +7840,8 @@ def referral_text(user_id: int, ref_data: dict, active: bool) -> str:
         else '<tg-emoji emoji-id="5273914604752216432">❌</tg-emoji>'
     )
 
-    balance = ref_data["signup_earned"] + ref_data["deposit_earned"]
+    group_earned = ref_data.get("group_earned", 0.0)
+    balance = ref_data["signup_earned"] + ref_data["deposit_earned"] + group_earned
     ref_link = f"https://t.me/{BOT_USERNAME}?start=ref_{user_id}"
 
     return (
@@ -6771,6 +7875,9 @@ def referral_text(user_id: int, ref_data: dict, active: bool) -> str:
         '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>\n'
         '<tg-emoji emoji-id="5443127283898405358">📥</tg-emoji>'
         f' Заработано с пополнений: {round(ref_data["deposit_earned"], 2)}'
+        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>\n'
+        '<tg-emoji emoji-id="5472270097290634771">💬</tg-emoji>'
+        f' Заработано в чатах: {round(group_earned, 2)}'
         '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>'
         '</blockquote>'
     )
@@ -7084,42 +8191,14 @@ async def on_get_bonus(call: CallbackQuery, bot: Bot) -> None:
 )
 async def cmd_profile(message: Message, state: FSMContext) -> None:
     await state.clear()
-
     user = message.from_user
-    stats = await get_profile_stats(user.id)
-
-    d_win, d_bet, d_games = await get_dice_stats(user.id)
-    stats["max_win"] = max(stats["max_win"], d_win)
-    stats["max_bet"] = max(stats["max_bet"], d_bet)
-    stats["games"] += d_games
-
-    username_display = f"@{user.username}" if user.username else "нету"
-
-    reg_date = format_registration_date(stats["created_at"])
-
+    await save_username(user.id, user.username, " ".join(part for part in (user.first_name, user.last_name) if part))
+    await telegram_settings_data(user.id, user)
+    stats = await telegram_profile_overview(user.id)
+    language = await get_telegram_language(user.id)
     await message.answer(
-        '<tg-emoji emoji-id="5308004189677330658">👤</tg-emoji>'
-        f' <i>{user_link(user)}, <b>ваш профиль:</b></i>\n\n'
-        '<tg-emoji emoji-id="5888781182249738113">🆔</tg-emoji>'
-        f' <code>{user.id}</code>\n'
-        '<tg-emoji emoji-id="5771887475421090729">👤</tg-emoji>'
-        f' {username_display}\n'
-        '<tg-emoji emoji-id="5431897022456145283">📆</tg-emoji>'
-        f' Дата регистрации: {reg_date}\n\n'
-        '<blockquote>'
-        '<tg-emoji emoji-id="5055840333242303386">🤑</tg-emoji>'
-        f' Самый большой выигрыш: {round(stats["max_win"], 2)}'
-        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>'
-        '</blockquote>\n'
-        '<blockquote>'
-        '<tg-emoji emoji-id="5028746137645876535">📈</tg-emoji>'
-        f' Самая большая ставка за игру: {round(stats["max_bet"], 2)}'
-        '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>'
-        '</blockquote>\n'
-        '<blockquote>'
-        '<tg-emoji emoji-id="5098552537460508672">💰</tg-emoji>'
-        f' Сыграно игр: {stats["games"]}'
-        '</blockquote>'
+        translate_telegram_text(telegram_profile_text(user, stats), language),
+        reply_markup=telegram_profile_markup(language),
     )
 
 
@@ -7292,7 +8371,8 @@ async def football_start_game(
 
             await save_football_game(
                 user_id, bet, player_range, landed,
-                multiplier, total_return, True,
+                multiplier, total_return, True, chat_id=message.chat.id,
+                idempotency_key=f"{message.chat.id}:{message.message_id}",
             )
 
             quote = secrets.choice(FOOTBALL_QUOTES_WIN[player_range])
@@ -7318,7 +8398,8 @@ async def football_start_game(
 
             await save_football_game(
                 user_id, bet, player_range, landed,
-                0.0, 0.0, False,
+                0.0, 0.0, False, chat_id=message.chat.id,
+                idempotency_key=f"{message.chat.id}:{message.message_id}",
             )
 
             quote = secrets.choice(FOOTBALL_QUOTES_LOSE[player_range])
@@ -7552,7 +8633,8 @@ async def basketball_start_game(
 
             await save_basketball_game(
                 user_id, bet, player_range, landed,
-                multiplier, total_return, True,
+                multiplier, total_return, True, chat_id=message.chat.id,
+                idempotency_key=f"{message.chat.id}:{message.message_id}",
             )
 
             quote = secrets.choice(BASKETBALL_QUOTES_WIN[player_range])
@@ -7578,7 +8660,8 @@ async def basketball_start_game(
 
             await save_basketball_game(
                 user_id, bet, player_range, landed,
-                0.0, 0.0, False,
+                0.0, 0.0, False, chat_id=message.chat.id,
+                idempotency_key=f"{message.chat.id}:{message.message_id}",
             )
 
             quote = secrets.choice(BASKETBALL_QUOTES_LOSE[player_range])
@@ -7794,7 +8877,8 @@ async def slot_start_game(
 
             await save_slot_game(
                 user_id, bet, dice_value,
-                SLOT_MULTIPLIER, total_return, True,
+                SLOT_MULTIPLIER, total_return, True, chat_id=message.chat.id,
+                idempotency_key=f"{message.chat.id}:{message.message_id}",
             )
 
             quote = secrets.choice(SLOT_QUOTES_WIN)
@@ -7820,7 +8904,8 @@ async def slot_start_game(
 
             await save_slot_game(
                 user_id, bet, dice_value,
-                0.0, 0.0, False,
+                0.0, 0.0, False, chat_id=message.chat.id,
+                idempotency_key=f"{message.chat.id}:{message.message_id}",
             )
 
             quote = secrets.choice(SLOT_QUOTES_LOSE)
@@ -7936,7 +9021,7 @@ async def on_ref_withdraw(call: CallbackQuery) -> None:
         await call.answer("Заработок с приглашений заморожен", show_alert=True)
         return
 
-    balance = ref_data["signup_earned"] + ref_data["deposit_earned"]
+    balance = ref_data["signup_earned"] + ref_data["deposit_earned"] + ref_data.get("group_earned", 0.0)
 
     if balance < REF_MIN_WITHDRAW:
         await call.answer(
@@ -7950,14 +9035,14 @@ async def on_ref_withdraw(call: CallbackQuery) -> None:
         conn = db()
         try:
             async with conn.execute(
-                "SELECT signup_earned + deposit_earned FROM ref_balance WHERE user_id = ?",
+                "SELECT signup_earned + deposit_earned + group_earned FROM ref_balance WHERE user_id = ?",
                 (user_id,),
             ) as c:
                 row = await c.fetchone()
             credited = round(float(row[0]), 2) if row else 0.0
             if credited + 1e-9 >= REF_MIN_WITHDRAW:
                 await conn.execute(
-                    "UPDATE ref_balance SET signup_earned = 0, deposit_earned = 0 "
+                    "UPDATE ref_balance SET signup_earned = 0, deposit_earned = 0, group_earned = 0 "
                     "WHERE user_id = ?",
                     (user_id,),
                 )
@@ -8368,6 +9453,8 @@ async def mines_process_cell(call: CallbackQuery) -> None:
             could_mult,
             0.0,
             False,
+            chat_id=game.get("chat_id"),
+            idempotency_key=f"{game.get('chat_id')}:{game.get('message_id')}",
         )
 
         text_out = mines_lose_text(
@@ -8405,6 +9492,8 @@ async def mines_process_cell(call: CallbackQuery) -> None:
             mult,
             win_amount,
             True,
+            chat_id=game.get("chat_id"),
+            idempotency_key=f"{game.get('chat_id')}:{game.get('message_id')}",
         )
 
         text_out = mines_win_text(
@@ -8495,6 +9584,8 @@ async def mines_process_cashout(call: CallbackQuery) -> None:
         mult,
         win_amount,
         True,
+        chat_id=game.get("chat_id"),
+        idempotency_key=f"{game.get('chat_id')}:{game.get('message_id')}",
     )
 
     text_out = mines_cashout_text(
@@ -9113,20 +10204,22 @@ async def save_dice_game(
     multiplier: float,
     win_amount: float,
     won: bool,
+    chat_id: int | None = None,
+    idempotency_key: str | None = None,
 ) -> None:
     async with _db_lock:
         conn = db()
-        await conn.execute(
-            "INSERT INTO dice_history ("
-            "game, user_id, bet, player_range, dice_value, multiplier, win_amount, won, created_at"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                game, user_id, bet, player_range, dice_value,
-                multiplier, win_amount, int(won),
-                now_msk().isoformat(),
-            ),
-        )
-        await conn.commit()
+        stamp = now_msk().isoformat()
+        try:
+            cursor = await conn.execute(
+                "INSERT INTO dice_history (game, user_id, bet, player_range, dice_value, multiplier, win_amount, won, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (game, user_id, bet, player_range, dice_value, multiplier, win_amount, int(won), stamp),
+            )
+            await credit_telegram_group_loss(conn, chat_id, user_id, bet, win_amount, f"bot:dice:{idempotency_key}" if idempotency_key else f"bot:dice:{cursor.lastrowid}", stamp)
+            await conn.commit()
+        except BaseException:
+            await conn.rollback()
+            raise
 
 
 async def get_dice_stats(user_id: int) -> tuple[float, float, int]:
@@ -9249,7 +10342,8 @@ async def dice_game_start(message: Message, game: str, bet: float, spec, user_id
 
             await save_dice_game(
                 game, user_id, bet, label, dice_value,
-                multiplier, total_return, True,
+                multiplier, total_return, True, chat_id=message.chat.id,
+                idempotency_key=f"{message.chat.id}:{message.message_id}",
             )
 
             quote = secrets.choice(cfg["quotes_win"][quote_key])
@@ -9275,7 +10369,8 @@ async def dice_game_start(message: Message, game: str, bet: float, spec, user_id
 
             await save_dice_game(
                 game, user_id, bet, label, dice_value,
-                0.0, 0.0, False,
+                0.0, 0.0, False, chat_id=message.chat.id,
+                idempotency_key=f"{message.chat.id}:{message.message_id}",
             )
 
             quote = secrets.choice(cfg["quotes_lose"][quote_key])
@@ -9940,6 +11035,266 @@ async def cmd_ping(message: Message, bot: Bot) -> None:
     await message.answer("🏓 pong")
 
 
+WELCOME_IMAGE_URL = "https://iili.io/o9YT4qX.md.png"
+TELEGRAM_CHAT_STARTGROUP_URL = "https://t.me/{bot}?startgroup=chat_earn&admin=manage_chat"
+
+
+def telegram_home_markup() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Заработать на чате", callback_data="tg_menu:earn", icon_custom_emoji_id="5472270097290634771", style="success")],
+        [InlineKeyboardButton(text="Профиль", callback_data="tg_menu:profile", icon_custom_emoji_id="5258011929993026890"), InlineKeyboardButton(text="Бонусы", callback_data="get_bonus", icon_custom_emoji_id="5307603391919204061")],
+        [InlineKeyboardButton(text="Топ", callback_data="tg_menu:top", icon_custom_emoji_id="5312462735097764089"), InlineKeyboardButton(text="Реф. программа", callback_data="tg_menu:referral", icon_custom_emoji_id="5258513401784573443")],
+        [InlineKeyboardButton(text="Хочу своё казино", callback_data="tg_menu:casino")],
+    ])
+
+
+def telegram_back_markup(callback: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Назад", callback_data=callback)]])
+
+
+def telegram_earn_markup() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Добавить в чат", url=TELEGRAM_CHAT_STARTGROUP_URL.format(bot=BOT_USERNAME), icon_custom_emoji_id="5471930335312747865", style="success")],
+        [InlineKeyboardButton(text="Назад", callback_data="tg_menu:home")],
+    ])
+
+
+def telegram_profile_markup(language: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Пополнить", callback_data="balance_topup", icon_custom_emoji_id="4988289890769699938", style="success"), InlineKeyboardButton(text="Вывести", callback_data="balance_withdraw", icon_custom_emoji_id="4983748881977181112", style="success")],
+        [InlineKeyboardButton(text="Транзакции", callback_data="tg_menu:transactions", icon_custom_emoji_id="5258260149037965799")],
+        [InlineKeyboardButton(text="Настройки", callback_data="tg_menu:settings", icon_custom_emoji_id="5258096772776991776")],
+        [InlineKeyboardButton(text="Русский", callback_data="tg_language:ru", icon_custom_emoji_id="5449408995691341691", style="success" if language == "ru" else "primary"), InlineKeyboardButton(text="English", callback_data="tg_language:en", icon_custom_emoji_id="5202021044105257611", style="success" if language == "en" else "primary")],
+        [InlineKeyboardButton(text="Назад", callback_data="tg_menu:home")],
+    ])
+
+
+def telegram_settings_markup(mode: str, has_nickname: bool) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Имя Telegram", callback_data="tg_privacy:username", style="success" if mode == "username" else "primary"), InlineKeyboardButton(text="Анонимность", callback_data="tg_privacy:hidden", style="success" if mode == "hidden" else "primary")],
+        [InlineKeyboardButton(text="Никнейм", callback_data="tg_privacy:nickname", style="success" if mode == "nickname" else "primary"), InlineKeyboardButton(text="Добавить никнейм" if not has_nickname else "Изменить никнейм", callback_data="tg_settings:nickname")],
+        [InlineKeyboardButton(text="Назад", callback_data="tg_menu:profile")],
+    ])
+
+
+def telegram_transactions_markup(kind: str, page: int, total_pages: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Пополнения", callback_data="tg_tx:deposit:1", icon_custom_emoji_id="5327847754628609325", style="success" if kind == "deposit" else "primary"), InlineKeyboardButton(text="Выводы", callback_data="tg_tx:withdrawal:1", icon_custom_emoji_id="5330502087367212278", style="success" if kind == "withdrawal" else "primary")],
+        [InlineKeyboardButton(text="Все операции", callback_data="tg_tx:all:1", icon_custom_emoji_id="5427009714745517609", style="success" if kind == "all" else "primary")],
+        [InlineKeyboardButton(text=f"‹ {max(1, page - 1)}", callback_data=f"tg_tx:{kind}:{max(1, page - 1)}", icon_custom_emoji_id="5328091751720694986"), InlineKeyboardButton(text=f"{page}/{total_pages}", callback_data="tg_tx:noop"), InlineKeyboardButton(text=f"{min(total_pages, page + 1)} ›", callback_data=f"tg_tx:{kind}:{min(total_pages, page + 1)}", icon_custom_emoji_id="5328281486195964510")],
+        [InlineKeyboardButton(text="Назад", callback_data="tg_menu:profile")],
+    ])
+
+
+def _format_stars(value) -> str:
+    try:
+        number = float(value or 0)
+    except (TypeError, ValueError):
+        number = 0.0
+    return f"{number:.2f}".rstrip("0").rstrip(".")
+
+
+def _format_profile_date(value: str | None) -> str:
+    if not value:
+        return "неизвестна"
+    try:
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=MSK)
+        else:
+            parsed = parsed.astimezone(MSK)
+        return parsed.strftime("%d.%m.%Y")
+    except (TypeError, ValueError):
+        return "неизвестна"
+
+
+async def telegram_profile_overview(user_id: int) -> dict:
+    async with _db_lock:
+        conn = db()
+        async with conn.execute("SELECT name FROM sqlite_master WHERE type='table'") as cursor:
+            tables = {row[0] for row in await cursor.fetchall()}
+        async with conn.execute("SELECT amount,created_at FROM balances WHERE user_id=?", (user_id,)) as cursor:
+            balance_row = await cursor.fetchone()
+        turnover_cents = 0
+        if _wallet_backend is not None and hasattr(_wallet_backend, "leaderboard_events") and "webapp_rounds" in tables:
+            events, _names = await _wallet_backend.leaderboard_events(conn)
+            async with conn.execute("SELECT COALESCE(SUM(bet_cents),0) FROM (" + events + ") WHERE user_id=?", (user_id,)) as cursor:
+                turnover_cents = (await cursor.fetchone())[0]
+        else:
+            sources = []
+            for table in ("crash_games", "mines_history", "football_history", "basketball_history", "slot_history", "dice_history"):
+                if table in tables:
+                    sources.append(f"SELECT CAST(ROUND(bet*100) AS INTEGER) AS cents FROM {table} WHERE user_id=?")
+            if "webapp_rounds" in tables:
+                sources.append("SELECT bet_cents AS cents FROM webapp_rounds WHERE user_id=?")
+            if sources:
+                async with conn.execute("SELECT COALESCE(SUM(cents),0) FROM (" + " UNION ALL ".join(sources) + ")", [user_id] * len(sources)) as cursor:
+                    turnover_cents = (await cursor.fetchone())[0]
+        async def sum_query(sql, args):
+            async with conn.execute(sql, args) as cursor:
+                row = await cursor.fetchone()
+            return row[0] or 0
+        bonuses_cents = await sum_query("SELECT COALESCE(SUM(amount_cents),0) FROM webapp_wallet_events WHERE user_id=? AND kind='bonus'", (user_id,)) if "webapp_wallet_events" in tables else 0
+        deposits_cents = (await sum_query("SELECT COALESCE(SUM(amount),0)*100 FROM payments WHERE user_id=?", (user_id,)) if "payments" in tables else 0)
+        if "webapp_deposits" in tables:
+            # Stars orders also have a row in payments for Telegram charge
+            # reconciliation; count their webapp_deposits row only once.
+            deposits_cents = (await sum_query("SELECT COALESCE(SUM(amount),0)*100 FROM payments WHERE user_id=?", (user_id,)) if "payments" in tables else 0)
+            deposits_cents += await sum_query("SELECT COALESCE(SUM(stars_cents),0) FROM webapp_deposits WHERE user_id=? AND provider!='stars' AND status='paid'", (user_id,))
+        withdrawals_cents = (await sum_query("SELECT CAST(ROUND(COALESCE(SUM(amount),0)*100) AS INTEGER) FROM withdrawals WHERE user_id=? AND status='approved'", (user_id,)) if "withdrawals" in tables else 0)
+        if "webapp_star_withdrawals" in tables:
+            withdrawals_cents += await sum_query("SELECT COALESCE(SUM(quantity),0)*100 FROM webapp_star_withdrawals WHERE user_id=? AND state='completed'", (user_id,))
+    return {
+        "balance": float(balance_row[0]) if balance_row else 0.0,
+        "created_at": balance_row[1] if balance_row else None,
+        "turnover": turnover_cents / 100,
+        "bonuses": bonuses_cents / 100,
+        "deposits": deposits_cents / 100,
+        "withdrawals": withdrawals_cents / 100,
+    }
+
+
+def telegram_profile_text(user, stats: dict) -> str:
+    username = "@" + user.username if getattr(user, "username", None) else "нет"
+    star = '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>'
+    return (
+        '<tg-emoji emoji-id="5316727448644103237">👤</tg-emoji> <b>Профиль</b>\n\n'
+        f'<tg-emoji emoji-id="5316727448644103237">👤</tg-emoji> Имя: {user_link(user)} · {html_escape(username)}\n'
+        f'<tg-emoji emoji-id="5258503720928288433">🆔</tg-emoji> ID: <code>{user.id}</code>\n'
+        f'<tg-emoji emoji-id="5258258882022612173">📅</tg-emoji> Дата регистрации: {_format_profile_date(stats["created_at"])}\n'
+        f'<tg-emoji emoji-id="5258204546391351475">💰</tg-emoji> Баланс: <b>{_format_stars(stats["balance"])}{star}</b>\n'
+        f'<tg-emoji emoji-id="5258330865674494479">📈</tg-emoji> Оборот: {_format_stars(stats["turnover"])}{star}\n'
+        f'<tg-emoji emoji-id="5834781387365818180">🎁</tg-emoji> Выданные бонусы: {_format_stars(stats["bonuses"])}{star}\n'
+        f'<tg-emoji emoji-id="5258336354642697821">📥</tg-emoji> Пополнения: {_format_stars(stats["deposits"])}{star}\n'
+        f'<tg-emoji emoji-id="5258043150110301407">📤</tg-emoji> Выводы: {_format_stars(stats["withdrawals"])}{star}'
+    )
+
+
+async def get_telegram_transactions(user_id: int, kind: str, page: int, page_size: int = 5) -> tuple[list[dict], int]:
+    async with _db_lock:
+        conn = db()
+        async with conn.execute("SELECT name FROM sqlite_master WHERE type='table'") as cursor:
+            tables = {row[0] for row in await cursor.fetchall()}
+        sources = []
+        if "payments" in tables:
+            linked_payment_filter = " AND charge_id NOT IN (SELECT provider_id FROM webapp_deposits WHERE provider_id IS NOT NULL)" if "webapp_deposits" in tables else ""
+            sources.append("SELECT 'deposit' AS kind,CAST(amount*100 AS INTEGER) AS amount_cents,created_at,'telegram:'||charge_id AS source FROM payments WHERE user_id=?" + linked_payment_filter)
+        if "webapp_deposits" in tables:
+            async with conn.execute("PRAGMA table_info(webapp_deposits)") as cursor:
+                columns = {row[1] for row in await cursor.fetchall()}
+            created = "COALESCE(paid_at,created_at)" if "paid_at" in columns else "created_at"
+            sources.append(f"SELECT 'deposit',stars_cents,{created},'webapp:'||id FROM webapp_deposits WHERE user_id=? AND status='paid'")
+        if "withdrawals" in tables:
+            sources.append("SELECT 'withdrawal',CAST(ROUND(amount*100) AS INTEGER),created_at,'withdrawal:'||id FROM withdrawals WHERE user_id=? AND status='approved'")
+        if "webapp_star_withdrawals" in tables:
+            sources.append("SELECT 'withdrawal',quantity*100,updated_at,'star_withdrawal:'||id FROM webapp_star_withdrawals WHERE user_id=? AND state='completed'")
+        if not sources:
+            return [], 1
+        union = " UNION ALL ".join(sources)
+        where = "" if kind == "all" else " WHERE kind=?"
+        args = [user_id] * len(sources) + ([] if kind == "all" else [kind])
+        async with conn.execute("SELECT COUNT(*) FROM (" + union + ")" + where, args) as cursor:
+            total = (await cursor.fetchone())[0]
+        pages = max(1, (total + page_size - 1) // page_size)
+        page = max(1, min(page, pages))
+        sql = "SELECT kind,amount_cents,created_at,source FROM (" + union + ")" + where + " ORDER BY julianday(created_at) DESC,source DESC LIMIT ? OFFSET ?"
+        async with conn.execute(sql, args + [page_size, (page - 1) * page_size]) as cursor:
+            rows = await cursor.fetchall()
+    return ([{"kind": row[0], "amount_cents": row[1], "created_at": row[2], "source": row[3]} for row in rows], pages)
+
+
+def _format_transaction_date(value: str) -> str:
+    try:
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=MSK)
+        else:
+            parsed = parsed.astimezone(MSK)
+        return parsed.strftime("%d.%m.%Y %H:%M")
+    except (TypeError, ValueError):
+        return "—"
+
+
+def telegram_transactions_text(records: list[dict], kind: str, page: int, total_pages: int) -> str:
+    text = '<tg-emoji emoji-id="5444856076954520455">🧾</tg-emoji> <b>Транзакции</b>\n\n'
+    if not records:
+        text += "Нет операций для выбранного фильтра."
+    else:
+        for record in records:
+            is_deposit = record["kind"] == "deposit"
+            icon = "5327847754628609325" if is_deposit else "5330502087367212278"
+            fallback = "📥" if is_deposit else "📤"
+            label = "Пополнение" if is_deposit else "Вывод"
+            sign = "+" if is_deposit else "−"
+            text += f'<tg-emoji emoji-id="{icon}">{fallback}</tg-emoji> {label}: <b>{sign}{_format_stars(record["amount_cents"] / 100)}<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji></b> · {_format_transaction_date(record["created_at"])}\n'
+    return text.rstrip()
+
+
+async def telegram_settings_data(user_id: int, user=None) -> dict:
+    async with _db_lock:
+        conn = db()
+        row = await conn.execute("INSERT OR IGNORE INTO webapp_privacy(user_id,game_uid) VALUES (?,?)", (user_id, secrets.token_hex(6).upper()))
+        await conn.commit()
+        async with conn.execute("SELECT mode,nickname,hidden,clickable,game_uid FROM webapp_privacy WHERE user_id=?", (user_id,)) as cursor:
+            values = await cursor.fetchone()
+        if user is not None:
+            name = " ".join(part for part in (getattr(user, "first_name", ""), getattr(user, "last_name", "")) if part)
+            await conn.execute("INSERT INTO usernames(user_id,username,full_name,updated_at) VALUES (?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET username=excluded.username,full_name=excluded.full_name,updated_at=excluded.updated_at WHERE usernames.username IS NOT excluded.username OR usernames.full_name != excluded.full_name", (user_id, getattr(user, "username", None), name, now_msk().isoformat()))
+            await conn.commit()
+            TELEGRAM_NAMES[user_id] = getattr(user, "username", None)
+    mode, nickname, hidden, clickable, game_uid = values
+    PRIVACY_CACHE[user_id] = (mode, nickname, hidden, clickable, game_uid)
+    return {"mode": mode, "nickname": nickname, "hidden": bool(hidden), "clickable": bool(clickable), "game_uid": game_uid}
+
+
+async def update_telegram_display_mode(user_id: int, user, mode: str) -> None:
+    if mode not in {"username", "hidden", "nickname"}:
+        raise ValueError("Unknown display mode")
+    async with _db_lock:
+        conn = db()
+        await conn.execute("INSERT OR IGNORE INTO webapp_privacy(user_id,game_uid) VALUES (?,?)", (user_id, secrets.token_hex(6).upper()))
+        if mode == "nickname":
+            async with conn.execute("SELECT nickname FROM webapp_privacy WHERE user_id=?", (user_id,)) as cursor:
+                row = await cursor.fetchone()
+            if not row or not row[0]:
+                raise ValueError("nickname_required")
+        await conn.execute("UPDATE webapp_privacy SET mode=? WHERE user_id=?", (mode, user_id))
+        await conn.commit()
+        async with conn.execute("SELECT mode,nickname,hidden,clickable,game_uid FROM webapp_privacy WHERE user_id=?", (user_id,)) as cursor:
+            state = await cursor.fetchone()
+    PRIVACY_CACHE[user_id] = tuple(state)
+    TELEGRAM_NAMES[user_id] = getattr(user, "username", None)
+
+
+async def save_telegram_nickname(user_id: int, user, nickname: str) -> None:
+    async with _db_lock:
+        conn = db()
+        await conn.execute("INSERT OR IGNORE INTO webapp_privacy(user_id,game_uid) VALUES (?,?)", (user_id, secrets.token_hex(6).upper()))
+        await conn.execute("UPDATE webapp_privacy SET nickname=?,mode='nickname' WHERE user_id=?", (nickname, user_id))
+        await conn.commit()
+        async with conn.execute("SELECT mode,nickname,hidden,clickable,game_uid FROM webapp_privacy WHERE user_id=?", (user_id,)) as cursor:
+            state = await cursor.fetchone()
+    PRIVACY_CACHE[user_id] = tuple(state)
+    TELEGRAM_NAMES[user_id] = getattr(user, "username", None)
+
+
+async def send_telegram_welcome(message: Message, user) -> None:
+    language = await get_telegram_language(user.id)
+    fallback_name = "friend" if language == "en" else "друг"
+    first_name = html_escape(getattr(user, "first_name", "") or getattr(user, "username", None) or fallback_name)
+    hello = f'<tg-emoji emoji-id="5424972470023104089">🔥</tg-emoji> <b>Привет, <a href="tg://user?id={user.id}">{first_name}</a>!</b>'
+    await message.answer_photo(photo=WELCOME_IMAGE_URL, caption=translate_telegram_text(hello, language))
+    announcement = (
+        '<tg-emoji emoji-id="5096289879969498182">✨</tg-emoji> '
+        '<b>Канал обновлений: <a href="https://t.me/mjrstars">t.me/mjrstars</a></b>\n\n'
+        '<tg-emoji emoji-id="5012808218385058363">🎮</tg-emoji> '
+        '<b>Мы обновили MajorStars!</b> Теперь в боте удобнее следить за профилем, балансом и операциями.\n\n'
+        '<blockquote><tg-emoji emoji-id="5021646904597939582">💫</tg-emoji> '
+        '«Большие победы начинаются с одного шага».</blockquote>'
+    )
+    await message.answer(translate_telegram_text(announcement, language), reply_markup=telegram_home_markup())
+
+
 @router.message(CommandStart(), F.chat.type == ChatType.PRIVATE)
 async def cmd_start(message: Message, bot: Bot, state: FSMContext) -> None:
     await state.clear()
@@ -10007,7 +11362,12 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext) -> None:
         return
 
     await add_balance(message.from_user.id, 0.0)
-    spawn(start_animation(message)).add_done_callback(generic_task_done)
+    await save_username(
+        message.from_user.id,
+        message.from_user.username,
+        " ".join(part for part in (message.from_user.first_name, message.from_user.last_name) if part),
+    )
+    await send_telegram_welcome(message, message.from_user)
 
 
 @router.callback_query(F.data == "check_sub")
@@ -10038,6 +11398,210 @@ async def on_check_sub(call: CallbackQuery, bot: Bot) -> None:
     )
     await call.message.delete()
     await call.answer()
+    await save_username(
+        call.from_user.id,
+        call.from_user.username,
+        " ".join(part for part in (call.from_user.first_name, call.from_user.last_name) if part),
+    )
+    await send_telegram_welcome(call.message, call.from_user)
+
+
+@router.message(F.new_chat_members, F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
+async def telegram_group_new_members(message: Message, bot: Bot) -> None:
+    members = message.new_chat_members or []
+    if members:
+        await record_telegram_group_members(bot, message.chat.id, message.chat.title or "", members)
+
+
+@router.chat_member()
+async def telegram_chat_member_update(event, bot: Bot) -> None:
+    if event.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
+        return
+    member = event.new_chat_member
+    if member.status in {ChatMemberStatus.LEFT, ChatMemberStatus.KICKED}:
+        return
+    user = member.user
+    if getattr(user, "is_bot", False):
+        return
+    await record_telegram_group_members(bot, event.chat.id, event.chat.title or "", [user])
+
+
+@router.my_chat_member()
+async def telegram_bot_chat_membership_update(event, bot: Bot) -> None:
+    if event.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
+        return
+    status = event.new_chat_member.status
+    if status in {ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR}:
+        await refresh_telegram_group_owner(bot, event.chat.id, event.chat.title or "")
+
+
+def telegram_earn_text() -> str:
+    return (
+        '<tg-emoji emoji-id="5472270097290634771">💬</tg-emoji> <b>Заработок на чате</b>\n\n'
+        'Добавьте бота администратором. Участники, вступившие в чат, автоматически связываются с его владельцем. '
+        'Владелец получает 50% чистых проигрышей по ставкам, сделанным именно в этом чате.'
+    )
+
+
+def telegram_settings_text(settings: dict) -> str:
+    current = {"username": "Имя Telegram", "hidden": "Анонимность", "nickname": "Никнейм"}.get(settings["mode"], "Имя Telegram")
+    return (
+        '<tg-emoji emoji-id="5258096772776991776">⚙️</tg-emoji> <b>Настройки</b>\n\n'
+        f'Отображаемое имя в топе: <b>{current}</b>.\n'
+        'По умолчанию используется имя Telegram. Режим «Анонимность» показывает в рейтинге имя «Аноним».'
+    )
+
+
+async def show_telegram_profile(message: Message, user) -> None:
+    await save_username(user.id, user.username, " ".join(part for part in (user.first_name, user.last_name) if part))
+    await telegram_settings_data(user.id, user)
+    stats = await telegram_profile_overview(user.id)
+    language = await get_telegram_language(user.id)
+    await message.edit_text(translate_telegram_text(telegram_profile_text(user, stats), language), reply_markup=telegram_profile_markup(language))
+
+
+async def show_telegram_settings(message: Message, user) -> None:
+    settings = await telegram_settings_data(user.id, user)
+    language = await get_telegram_language(user.id)
+    text = translate_telegram_text(telegram_settings_text(settings), language)
+    await message.edit_text(text, reply_markup=telegram_settings_markup(settings["mode"], bool(settings["nickname"])))
+
+
+async def show_telegram_transactions(message: Message, user, kind: str = "all", page: int = 1) -> None:
+    if kind not in {"all", "deposit", "withdrawal"}:
+        kind = "all"
+    records, pages = await get_telegram_transactions(user.id, kind, page)
+    page = max(1, min(page, pages))
+    language = await get_telegram_language(user.id)
+    text = translate_telegram_text(telegram_transactions_text(records, kind, page, pages), language)
+    await message.edit_text(text, reply_markup=telegram_transactions_markup(kind, page, pages))
+
+
+@router.callback_query(F.data == "tg_menu:home")
+async def telegram_home_callback(call: CallbackQuery) -> None:
+    await call.answer()
+    await call.message.edit_text('<b>Выберите раздел MajorStars:</b>', reply_markup=telegram_home_markup())
+
+
+@router.callback_query(F.data == "tg_menu:earn")
+async def telegram_earn_callback(call: CallbackQuery) -> None:
+    await call.answer()
+    language = await get_telegram_language(call.from_user.id)
+    await call.message.edit_text(translate_telegram_text(telegram_earn_text(), language), reply_markup=telegram_earn_markup())
+
+
+@router.callback_query(F.data == "tg_menu:profile")
+async def telegram_profile_callback(call: CallbackQuery) -> None:
+    await call.answer()
+    await show_telegram_profile(call.message, call.from_user)
+
+
+@router.callback_query(F.data == "tg_menu:referral")
+async def telegram_referral_callback(call: CallbackQuery) -> None:
+    user_id = call.from_user.id
+    data = await get_ref_data(user_id)
+    active = not await is_ref_frozen(user_id)
+    markup = ref_markup(user_id)
+    markup = markup.model_copy(update={"inline_keyboard": [*markup.inline_keyboard, [InlineKeyboardButton(text="Назад", callback_data="tg_menu:home")]]})
+    await answer_referral(call.message, referral_text(user_id, data, active), markup)
+    await call.answer()
+
+
+@router.callback_query(F.data == "tg_menu:settings")
+async def telegram_settings_callback(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await call.answer()
+    await show_telegram_settings(call.message, call.from_user)
+
+
+@router.callback_query(F.data == "tg_menu:transactions")
+async def telegram_transactions_callback(call: CallbackQuery) -> None:
+    await call.answer()
+    await show_telegram_transactions(call.message, call.from_user)
+
+
+@router.callback_query(F.data.startswith("tg_tx:"))
+async def telegram_transactions_page_callback(call: CallbackQuery) -> None:
+    parts = call.data.split(":")
+    if len(parts) != 3:
+        await call.answer()
+        return
+    if parts[1] == "noop":
+        await call.answer()
+        return
+    try:
+        page = int(parts[2])
+    except ValueError:
+        await call.answer()
+        return
+    if page < 1 or page > 1_000_000:
+        await call.answer()
+        return
+    await call.answer()
+    await show_telegram_transactions(call.message, call.from_user, parts[1], page)
+
+
+@router.callback_query(F.data.startswith("tg_language:"))
+async def telegram_language_callback(call: CallbackQuery) -> None:
+    language = call.data.partition(":")[2]
+    if language not in {"ru", "en"}:
+        await call.answer()
+        return
+    await set_telegram_language(call.from_user.id, language)
+    await call.answer()
+    await show_telegram_profile(call.message, call.from_user)
+
+
+@router.callback_query(F.data.startswith("tg_privacy:"))
+async def telegram_privacy_callback(call: CallbackQuery, state: FSMContext) -> None:
+    mode = call.data.partition(":")[2]
+    if mode not in {"username", "hidden", "nickname"}:
+        await call.answer()
+        return
+    try:
+        await update_telegram_display_mode(call.from_user.id, call.from_user, mode)
+    except ValueError as error:
+        if str(error) == "nickname_required":
+            await state.set_state(TelegramProfileStates.waiting_nickname)
+            language = await get_telegram_language(call.from_user.id)
+            prompt = translate_telegram_text("Сначала добавьте никнейм.", language) + " " + translate_telegram_text("Отправьте новый псевдоним одним сообщением. Для отмены нажмите «Назад».", language)
+            await call.answer()
+            await call.message.answer(prompt, reply_markup=telegram_back_markup("tg_menu:settings"))
+            return
+        raise
+    await call.answer()
+    await show_telegram_settings(call.message, call.from_user)
+
+
+@router.callback_query(F.data == "tg_settings:nickname")
+async def telegram_add_nickname_callback(call: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(TelegramProfileStates.waiting_nickname)
+    language = await get_telegram_language(call.from_user.id)
+    prompt = translate_telegram_text("Отправьте новый псевдоним одним сообщением. Для отмены нажмите «Назад».", language)
+    await call.answer()
+    await call.message.answer(prompt, reply_markup=telegram_back_markup("tg_menu:settings"))
+
+
+@router.message(TelegramProfileStates.waiting_nickname, F.chat.type == ChatType.PRIVATE, F.text)
+async def telegram_nickname_message(message: Message, state: FSMContext) -> None:
+    nickname = (message.text or "").strip()
+    language = await get_telegram_language(message.from_user.id)
+    if not re.fullmatch(r"[\w]{3,20}", nickname, flags=re.UNICODE):
+        text = translate_telegram_text("Псевдоним должен содержать от 3 до 20 букв, цифр или знаков подчёркивания.", language)
+        await message.answer(text, reply_markup=telegram_back_markup("tg_menu:settings"))
+        return
+    await save_telegram_nickname(message.from_user.id, message.from_user, nickname)
+    await state.clear()
+    settings = await telegram_settings_data(message.from_user.id, message.from_user)
+    text = translate_telegram_text("Псевдоним сохранён.", language) + "\n\n" + translate_telegram_text(telegram_settings_text(settings), language)
+    await message.answer(text, reply_markup=telegram_settings_markup(settings["mode"], bool(settings["nickname"])))
+
+
+@router.callback_query(F.data.in_({"tg_menu:top", "tg_menu:casino"}))
+async def telegram_unimplemented_menu_callback(call: CallbackQuery) -> None:
+    # Reuse the existing generic "soon" response instead of inventing new actions.
+    await call.answer()
+    await call.message.answer(soon_text(), reply_markup=soon_markup())
 
 
 @router.message(
@@ -10108,7 +11672,7 @@ async def on_startup(bot: Bot) -> None:
     await bot.set_webhook(
         url=webhook_url,
         secret_token=WEBHOOK_SECRET,
-        allowed_updates=["message", "callback_query", "pre_checkout_query", "inline_query"],
+        allowed_updates=["message", "callback_query", "pre_checkout_query", "inline_query", "chat_member", "my_chat_member"],
         drop_pending_updates=False,
     )
 
@@ -10296,7 +11860,8 @@ async def webapp_referral(request: web.Request) -> web.Response:
             "ok": True,
             "link": f"https://t.me/{BOT_USERNAME}?start=ref_{user.id}",
             "count": count,
-            "earnings": referral["signup_earned"] + referral["deposit_earned"],
+            "earnings": referral["signup_earned"] + referral["deposit_earned"] + referral.get("group_earned", 0.0),
+            "groupEarnings": referral.get("group_earned", 0.0),
         },
         headers={"Cache-Control": "no-store"},
     )
@@ -10368,9 +11933,11 @@ def main() -> None:
             token=BOT_TOKEN,
             default=DefaultBotProperties(parse_mode=ParseMode.HTML),
         )
+    bot.session.middleware.register(TelegramLocaleRequestMiddleware())
     dp = Dispatcher()
     dp.include_router(router)
 
+    dp.update.outer_middleware(TelegramLocaleContextMiddleware())
     dp.update.outer_middleware(UpdateLogMiddleware())
     dp.errors.register(on_error)
 
