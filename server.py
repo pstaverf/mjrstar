@@ -3995,6 +3995,8 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InlineQuery,
     InlineKeyboardButton,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
     LabeledPrice,
     PreCheckoutQuery,
     CopyTextButton,
@@ -5286,6 +5288,27 @@ class TelegramProfileStates(StatesGroup):
 router = Router()
 
 
+@router.message(
+    F.chat.type == ChatType.PRIVATE,
+    F.text.regexp(r"(?i)^(баланс|balance|играть|play|меню|menu)$"),
+)
+async def telegram_reply_menu_action(message: Message, state: FSMContext, bot: Bot) -> None:
+    """Route persistent reply-keyboard labels before any active FSM text handler."""
+    action = (message.text or "").strip().casefold()
+    if action in {"баланс", "balance"}:
+        await cmd_balance(message, bot, state)
+        return
+    if action in {"играть", "play"}:
+        await cmd_games(message, state)
+        return
+    await state.clear()
+    language = await get_telegram_language(message.from_user.id)
+    await message.answer(
+        translate_telegram_text('<b>Выберите раздел MajorStars:</b>', language),
+        reply_markup=telegram_home_markup(language),
+    )
+
+
 def db() -> aiosqlite.Connection:
     if _db_conn is None:
         raise RuntimeError("DB is not initialized")
@@ -5592,6 +5615,8 @@ async def init_db() -> None:
         await conn.execute("CREATE TABLE IF NOT EXISTS telegram_group_owners(chat_id INTEGER PRIMARY KEY,owner_id INTEGER NOT NULL,chat_title TEXT NOT NULL DEFAULT '',updated_at TEXT NOT NULL)")
         await conn.execute("CREATE TABLE IF NOT EXISTS telegram_group_referrals(chat_id INTEGER NOT NULL,user_id INTEGER NOT NULL,referrer_id INTEGER NOT NULL,joined_at TEXT NOT NULL,PRIMARY KEY(chat_id,user_id))")
         await conn.execute("CREATE TABLE IF NOT EXISTS telegram_group_loss_rewards(source TEXT PRIMARY KEY,chat_id INTEGER NOT NULL,user_id INTEGER NOT NULL,owner_id INTEGER NOT NULL,loss_cents INTEGER NOT NULL,share_cents INTEGER NOT NULL,created_at TEXT NOT NULL)")
+        await conn.execute("CREATE TABLE IF NOT EXISTS telegram_group_game_events(source TEXT PRIMARY KEY,chat_id INTEGER NOT NULL,user_id INTEGER NOT NULL,bet_cents INTEGER NOT NULL,created_at TEXT NOT NULL)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_telegram_group_game_events_chat_created ON telegram_group_game_events(chat_id,created_at)")
         await conn.execute("CREATE TABLE IF NOT EXISTS webapp_privacy(user_id INTEGER PRIMARY KEY,mode TEXT NOT NULL DEFAULT 'username',nickname TEXT NOT NULL DEFAULT '',hidden INTEGER NOT NULL DEFAULT 0,clickable INTEGER NOT NULL DEFAULT 1,game_uid TEXT NOT NULL UNIQUE)")
         await conn.execute(
             "CREATE TABLE IF NOT EXISTS bonus ("
@@ -6469,6 +6494,20 @@ async def record_telegram_group_members(bot: Bot, chat_id: int, chat_title: str,
         await conn.commit()
 
 
+async def record_telegram_group_game(connection, chat_id: int | None, user_id: int, bet, source: str, created_at: str | None = None) -> bool:
+    """Record group turnover once so chat leaderboards include wins and losses."""
+    if type(chat_id) is not int or chat_id >= 0 or not isinstance(source, str) or not source:
+        return False
+    bet_cents = amount_to_stars_cents(bet)
+    if bet_cents <= 0:
+        return False
+    cursor = await connection.execute(
+        "INSERT OR IGNORE INTO telegram_group_game_events(source,chat_id,user_id,bet_cents,created_at) VALUES (?,?,?,?,?)",
+        (source, chat_id, user_id, bet_cents, created_at or now_msk().isoformat()),
+    )
+    return cursor.rowcount == 1
+
+
 async def credit_telegram_group_loss(connection, chat_id: int | None, user_id: int, bet, payout, source: str, created_at: str | None = None) -> int:
     """Credit half of a settled net loss to the chat's referral balance once."""
     if type(chat_id) is not int or chat_id >= 0 or not isinstance(source, str) or not source:
@@ -6535,7 +6574,9 @@ async def save_crash_game(
                 (user_id, server_seed, client_seed, nonce, crash_point, raw_crash_point, bet, multiplier, int(won), stamp),
             )
             payout = round(bet * multiplier, 2) if won else 0.0
-            await credit_telegram_group_loss(conn, chat_id, user_id, bet, payout, f"bot:crash:{idempotency_key}" if idempotency_key else f"bot:crash:{cursor.lastrowid}", stamp)
+            source = f"bot:crash:{idempotency_key}" if idempotency_key else f"bot:crash:{cursor.lastrowid}"
+            await record_telegram_group_game(conn, chat_id, user_id, bet, source, stamp)
+            await credit_telegram_group_loss(conn, chat_id, user_id, bet, payout, source, stamp)
             await conn.commit()
         except BaseException:
             await conn.rollback()
@@ -6561,7 +6602,9 @@ async def save_mines_game(
                 "INSERT INTO mines_history (user_id, bet, mines_count, opened, multiplier, win_amount, won, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (user_id, bet, mines_count, opened, multiplier, win_amount, int(won), stamp),
             )
-            await credit_telegram_group_loss(conn, chat_id, user_id, bet, win_amount, f"bot:mines:{idempotency_key}" if idempotency_key else f"bot:mines:{cursor.lastrowid}", stamp)
+            source = f"bot:mines:{idempotency_key}" if idempotency_key else f"bot:mines:{cursor.lastrowid}"
+            await record_telegram_group_game(conn, chat_id, user_id, bet, source, stamp)
+            await credit_telegram_group_loss(conn, chat_id, user_id, bet, win_amount, source, stamp)
             await conn.commit()
         except BaseException:
             await conn.rollback()
@@ -6587,7 +6630,9 @@ async def save_football_game(
                 "INSERT INTO football_history (user_id, bet, player_range, landed_range, multiplier, win_amount, won, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (user_id, bet, player_range, landed_range, multiplier, win_amount, int(won), stamp),
             )
-            await credit_telegram_group_loss(conn, chat_id, user_id, bet, win_amount, f"bot:football:{idempotency_key}" if idempotency_key else f"bot:football:{cursor.lastrowid}", stamp)
+            source = f"bot:football:{idempotency_key}" if idempotency_key else f"bot:football:{cursor.lastrowid}"
+            await record_telegram_group_game(conn, chat_id, user_id, bet, source, stamp)
+            await credit_telegram_group_loss(conn, chat_id, user_id, bet, win_amount, source, stamp)
             await conn.commit()
         except BaseException:
             await conn.rollback()
@@ -6613,7 +6658,9 @@ async def save_basketball_game(
                 "INSERT INTO basketball_history (user_id, bet, player_range, landed_range, multiplier, win_amount, won, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (user_id, bet, player_range, landed_range, multiplier, win_amount, int(won), stamp),
             )
-            await credit_telegram_group_loss(conn, chat_id, user_id, bet, win_amount, f"bot:basketball:{idempotency_key}" if idempotency_key else f"bot:basketball:{cursor.lastrowid}", stamp)
+            source = f"bot:basketball:{idempotency_key}" if idempotency_key else f"bot:basketball:{cursor.lastrowid}"
+            await record_telegram_group_game(conn, chat_id, user_id, bet, source, stamp)
+            await credit_telegram_group_loss(conn, chat_id, user_id, bet, win_amount, source, stamp)
             await conn.commit()
         except BaseException:
             await conn.rollback()
@@ -6638,7 +6685,9 @@ async def save_slot_game(
                 "INSERT INTO slot_history (user_id, bet, dice_value, multiplier, win_amount, won, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (user_id, bet, dice_value, multiplier, win_amount, int(won), stamp),
             )
-            await credit_telegram_group_loss(conn, chat_id, user_id, bet, win_amount, f"bot:slot:{idempotency_key}" if idempotency_key else f"bot:slot:{cursor.lastrowid}", stamp)
+            source = f"bot:slot:{idempotency_key}" if idempotency_key else f"bot:slot:{cursor.lastrowid}"
+            await record_telegram_group_game(conn, chat_id, user_id, bet, source, stamp)
+            await credit_telegram_group_loss(conn, chat_id, user_id, bet, win_amount, source, stamp)
             await conn.commit()
         except BaseException:
             await conn.rollback()
@@ -10215,7 +10264,9 @@ async def save_dice_game(
                 "INSERT INTO dice_history (game, user_id, bet, player_range, dice_value, multiplier, win_amount, won, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (game, user_id, bet, player_range, dice_value, multiplier, win_amount, int(won), stamp),
             )
-            await credit_telegram_group_loss(conn, chat_id, user_id, bet, win_amount, f"bot:dice:{idempotency_key}" if idempotency_key else f"bot:dice:{cursor.lastrowid}", stamp)
+            source = f"bot:dice:{idempotency_key}" if idempotency_key else f"bot:dice:{cursor.lastrowid}"
+            await record_telegram_group_game(conn, chat_id, user_id, bet, source, stamp)
+            await credit_telegram_group_loss(conn, chat_id, user_id, bet, win_amount, source, stamp)
             await conn.commit()
         except BaseException:
             await conn.rollback()
@@ -11035,54 +11086,342 @@ async def cmd_ping(message: Message, bot: Bot) -> None:
     await message.answer("🏓 pong")
 
 
+TELEGRAM_TOP_CACHE: dict[tuple[str, str, int], tuple[float, dict]] = {}
+TELEGRAM_TOP_CACHE_TTL = 5 * 60
+TELEGRAM_TOP_LIMIT = 10
+
+
+def telegram_top_period_bounds(period: str, now: datetime | None = None) -> tuple[str | None, str | None]:
+    if period not in {"all", "today", "yesterday", "week", "month"}:
+        raise ValueError("Unknown Telegram leaderboard period")
+    if period == "all":
+        return None, None
+    current = now or datetime.now(timezone.utc)
+    current = current.replace(tzinfo=timezone.utc) if current.tzinfo is None else current.astimezone(timezone.utc)
+    today = current.date()
+    if period == "today":
+        first, end = today, today + timedelta(days=1)
+    elif period == "yesterday":
+        first, end = today - timedelta(days=1), today
+    elif period == "week":
+        first, end = today - timedelta(days=today.weekday()), today + timedelta(days=1)
+    else:
+        first, end = today.replace(day=1), today + timedelta(days=1)
+    return (
+        datetime.combine(first, datetime.min.time(), timezone.utc).isoformat(),
+        datetime.combine(end, datetime.min.time(), timezone.utc).isoformat(),
+    )
+
+
+async def telegram_top_data(kind: str, period: str, user_id: int | None = None) -> dict:
+    if kind not in {"players", "chats"}:
+        raise ValueError("Unknown Telegram leaderboard category")
+    first, end = telegram_top_period_bounds(period)
+    cache_user_id = user_id if kind == "players" and type(user_id) is int else 0
+    cache_key = (kind, period, cache_user_id)
+    now = time.monotonic()
+    cached = TELEGRAM_TOP_CACHE.get(cache_key)
+    if cached and now - cached[0] < TELEGRAM_TOP_CACHE_TTL:
+        return cached[1]
+
+    async with _db_lock:
+        connection = db()
+        if kind == "players":
+            if _wallet_backend is not None and hasattr(_wallet_backend, "leaderboard_events"):
+                events, _names = await _wallet_backend.leaderboard_events(connection)
+            else:
+                async with connection.execute("SELECT name FROM sqlite_master WHERE type='table'") as cursor:
+                    tables = {row[0] for row in await cursor.fetchall()}
+                sources = []
+                if "webapp_rounds" in tables:
+                    sources.append("SELECT user_id,username,bet_cents,created_at FROM webapp_rounds")
+                for table in ("mines_history", "football_history", "basketball_history", "slot_history", "dice_history"):
+                    if table in tables:
+                        sources.append(f"SELECT user_id,'' AS username,CAST(ROUND(bet*100) AS INTEGER) AS bet_cents,created_at FROM {table}")
+                if "crash_games" in tables:
+                    sources.append("SELECT user_id,'' AS username,CAST(ROUND(bet*100) AS INTEGER) AS bet_cents,created_at FROM crash_games")
+                events = " UNION ALL ".join(sources) if sources else "SELECT NULL AS user_id,NULL AS username,0 AS bet_cents,NULL AS created_at WHERE 0"
+
+            time_filter, values = "", []
+            if first is not None:
+                time_filter = " WHERE julianday(created_at)>=julianday(?) AND julianday(created_at)<julianday(?)"
+                values = [first, end]
+            query = (
+                "WITH events AS (" + events + "),scores AS ("
+                "SELECT user_id,SUM(bet_cents) AS score FROM events" + time_filter + " GROUP BY user_id HAVING SUM(bet_cents)>0"
+                "),visible_scores AS (SELECT s.* FROM scores s WHERE NOT EXISTS ("
+                "SELECT 1 FROM webapp_privacy p WHERE p.user_id=s.user_id AND p.hidden=1)),"
+                "ranked AS (SELECT user_id,score,ROW_NUMBER() OVER(ORDER BY score DESC,user_id ASC) AS place FROM visible_scores) "
+                "SELECT r.user_id,COALESCE(NULLIF(u.full_name,''),NULLIF(u.username,''),"
+                "NULLIF((SELECT e.username FROM events e WHERE e.user_id=r.user_id AND e.username!='' ORDER BY e.created_at DESC LIMIT 1),''),"
+                "CAST(r.user_id AS TEXT)),r.score,r.place FROM ranked r LEFT JOIN usernames u ON u.user_id=r.user_id "
+                "WHERE r.place<=? OR r.user_id=? ORDER BY r.place"
+            )
+            async with connection.execute(query, values + [TELEGRAM_TOP_LIMIT, cache_user_id]) as cursor:
+                records = await cursor.fetchall()
+            rows, my_rank, my_score = [], None, 0
+            for record_user_id, fallback_name, score_cents, place in records:
+                if record_user_id == cache_user_id:
+                    my_rank, my_score = int(place), int(score_cents)
+                if place <= TELEGRAM_TOP_LIMIT:
+                    rows.append({
+                        "user_id": int(record_user_id),
+                        "name_fallback": fallback_name or str(record_user_id),
+                        "score_cents": int(score_cents),
+                        "rank": int(place),
+                    })
+            result = {"rows": rows, "my_score_cents": my_score, "my_rank": my_rank}
+        else:
+            time_filter, values = "", []
+            if first is not None:
+                time_filter = "WHERE julianday(e.created_at)>=julianday(?) AND julianday(e.created_at)<julianday(?)"
+                values = [first, end]
+            query = (
+                "WITH scores AS (SELECT e.chat_id,COALESCE(NULLIF(MAX(o.chat_title),''),'') AS title,"
+                "SUM(e.bet_cents) AS score FROM telegram_group_game_events e "
+                "LEFT JOIN telegram_group_owners o ON o.chat_id=e.chat_id " + time_filter + " "
+                "GROUP BY e.chat_id HAVING SUM(e.bet_cents)>0),"
+                "ranked AS (SELECT chat_id,title,score,ROW_NUMBER() OVER(ORDER BY score DESC,chat_id ASC) AS place FROM scores) "
+                "SELECT chat_id,title,score,place FROM ranked WHERE place<=? ORDER BY place"
+            )
+            async with connection.execute(query, values + [TELEGRAM_TOP_LIMIT]) as cursor:
+                records = await cursor.fetchall()
+            result = {
+                "rows": [
+                    {"chat_id": int(chat_id), "title": title or "", "score_cents": int(score), "rank": int(place)}
+                    for chat_id, title, score, place in records
+                ]
+            }
+
+    if len(TELEGRAM_TOP_CACHE) > 1000:
+        for key, value in list(TELEGRAM_TOP_CACHE.items()):
+            if now - value[0] >= TELEGRAM_TOP_CACHE_TTL:
+                TELEGRAM_TOP_CACHE.pop(key, None)
+    TELEGRAM_TOP_CACHE[cache_key] = (now, result)
+    return result
+
+
 WELCOME_IMAGE_URL = "https://iili.io/o9YT4qX.md.png"
 TELEGRAM_CHAT_STARTGROUP_URL = "https://t.me/{bot}?startgroup=chat_earn&admin=manage_chat"
 
 
-def telegram_home_markup() -> InlineKeyboardMarkup:
+def telegram_label(language: str, russian: str, english: str) -> str:
+    return english if language == "en" else russian
+
+
+def telegram_main_reply_keyboard(language: str) -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[
+            KeyboardButton(
+                text=telegram_label(language, "Баланс", "Balance"),
+                icon_custom_emoji_id="5258204546391351475",
+            ),
+            KeyboardButton(
+                text=telegram_label(language, "Играть", "Play"),
+                icon_custom_emoji_id="5258508428212445001",
+            ),
+            KeyboardButton(
+                text=telegram_label(language, "Меню", "Menu"),
+                icon_custom_emoji_id="5257965174979042426",
+            ),
+        ]],
+        is_persistent=True,
+        resize_keyboard=True,
+        one_time_keyboard=False,
+    )
+
+
+async def send_telegram_main_reply_keyboard(message: Message, user_id: int) -> None:
+    language = await get_telegram_language(user_id)
+    text = telegram_label(
+        language,
+        "Основные действия доступны в постоянной клавиатуре ниже.",
+        "Use the persistent keyboard below for the main actions.",
+    )
+    await message.answer(text, reply_markup=telegram_main_reply_keyboard(language))
+
+
+def telegram_top_category_text(language: str) -> str:
+    title = "Choose a leaderboard category" if language == "en" else "Выберите категорию топа"
+    return f'<tg-emoji emoji-id="5280769763398671636">🏆</tg-emoji> {title}'
+
+
+def telegram_top_category_markup(language: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Заработать на чате", callback_data="tg_menu:earn", icon_custom_emoji_id="5472270097290634771", style="success")],
-        [InlineKeyboardButton(text="Профиль", callback_data="tg_menu:profile", icon_custom_emoji_id="5258011929993026890"), InlineKeyboardButton(text="Бонусы", callback_data="get_bonus", icon_custom_emoji_id="5307603391919204061")],
-        [InlineKeyboardButton(text="Топ", callback_data="tg_menu:top", icon_custom_emoji_id="5312462735097764089"), InlineKeyboardButton(text="Реф. программа", callback_data="tg_menu:referral", icon_custom_emoji_id="5258513401784573443")],
-        [InlineKeyboardButton(text="Хочу своё казино", callback_data="tg_menu:casino")],
+        [
+            InlineKeyboardButton(text=telegram_label(language, "Топ игроков", "Top players"), callback_data="tg_top:players:all", icon_custom_emoji_id="5098271397491246244"),
+            InlineKeyboardButton(text=telegram_label(language, "Топ чатов", "Top chats"), callback_data="tg_top:chats:all", icon_custom_emoji_id="5891169510483823323"),
+        ],
+        [InlineKeyboardButton(text=telegram_label(language, "Назад", "Back"), callback_data="tg_menu:home")],
     ])
 
 
-def telegram_back_markup(callback: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Назад", callback_data=callback)]])
+TELEGRAM_TOP_PERIODS = ("all", "today", "yesterday", "week", "month")
+TELEGRAM_TOP_RANK_EMOJIS = {
+    1: ("5451986538709686533", "1️⃣"),
+    2: ("5449386124990521137", "2️⃣"),
+    3: ("5449571362635026759", "3️⃣"),
+    4: ("5449392902448910479", "4️⃣"),
+    5: ("5452140302833849826", "5️⃣"),
+    6: ("5449633566646378590", "6️⃣"),
+    7: ("5449598833245853428", "7️⃣"),
+    8: ("5452112742028709369", "8️⃣"),
+    9: ("5451760455926189696", "9️⃣"),
+}
 
 
-def telegram_earn_markup() -> InlineKeyboardMarkup:
+def telegram_top_rank_emoji(rank: int) -> str:
+    if rank == 10:
+        return '<tg-emoji emoji-id="5451986538709686533">1️⃣</tg-emoji><tg-emoji emoji-id="5449672981561251968">0️⃣</tg-emoji>'
+    emoji_id, fallback = TELEGRAM_TOP_RANK_EMOJIS[rank]
+    return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
+
+
+def telegram_top_markup(kind: str, period: str, language: str) -> InlineKeyboardMarkup:
+    if kind not in {"players", "chats"} or period not in TELEGRAM_TOP_PERIODS:
+        raise ValueError("Invalid Telegram leaderboard selection")
+    category_buttons = [
+        InlineKeyboardButton(
+            text=telegram_label(language, "Топ игроков", "Top players"),
+            callback_data=f"tg_top:players:{period}",
+            icon_custom_emoji_id="5098271397491246244",
+            style="primary" if kind == "players" else None,
+        ),
+        InlineKeyboardButton(
+            text=telegram_label(language, "Топ чатов", "Top chats"),
+            callback_data=f"tg_top:chats:{period}",
+            icon_custom_emoji_id="5891169510483823323",
+            style="primary" if kind == "chats" else None,
+        ),
+    ]
+    period_text = {
+        "all": ("За всё время", "All time"),
+        "today": ("За сегодня", "Today"),
+        "yesterday": ("Вчера", "Yesterday"),
+        "week": ("Неделя", "Week"),
+        "month": ("Месяц", "Month"),
+    }
+    period_button = lambda value: InlineKeyboardButton(
+        text=("• " if value == period else "") + telegram_label(language, *period_text[value]) + (" •" if value == period else ""),
+        callback_data=f"tg_top:{kind}:{value}",
+    )
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Добавить в чат", url=TELEGRAM_CHAT_STARTGROUP_URL.format(bot=BOT_USERNAME), icon_custom_emoji_id="5471930335312747865", style="success")],
-        [InlineKeyboardButton(text="Назад", callback_data="tg_menu:home")],
+        category_buttons,
+        [period_button("all"), period_button("today")],
+        [period_button("yesterday"), period_button("week"), period_button("month")],
+        [InlineKeyboardButton(text=telegram_label(language, "Назад", "Back"), callback_data="tg_menu:home")],
+    ])
+
+
+def telegram_top_player_name(user_id: int, fallback: str, language: str) -> str:
+    state = PRIVACY_CACHE.get(user_id)
+    mode = state[0] if state else "username"
+    if mode == "hidden":
+        return "Anonymous" if language == "en" else "Аноним"
+    if mode == "blank":
+        return "Player" if language == "en" else "Игрок"
+    if mode == "game_id":
+        game_uid = state[4] if len(state) > 4 else str(user_id)
+        return f"Player #{game_uid}" if language == "en" else f"Игрок #{game_uid}"
+    display_name, _clickable = player_identity(user_id, fallback)
+    display_name = display_name or ("Player" if language == "en" else "Игрок")
+    if display_name.isdecimal():
+        display_name = f"{'Player' if language == 'en' else 'Игрок'} {display_name}"
+    return display_name
+
+
+def telegram_top_text(kind: str, period: str, data: dict, language: str) -> str:
+    is_english = language == "en"
+    kind_title = (
+        ("Top players", "Топ игроков") if kind == "players" else ("Top chats", "Топ чатов")
+    )[0 if is_english else 1]
+    period_title = {
+        "all": ("all time", "всё время"),
+        "today": ("today", "сегодня"),
+        "yesterday": ("yesterday", "вчера"),
+        "week": ("this week", "неделю"),
+        "month": ("this month", "месяц"),
+    }[period][0 if is_english else 1]
+    category_emoji_id = "5098271397491246244" if kind == "players" else "5891169510483823323"
+    category_emoji = "🧩" if kind == "players" else "👥"
+    update_text = "Updated every 5 minutes. UTC+0" if is_english else "Обновление каждые 5 минут. UTC +0"
+    parts = [
+        f'<blockquote><tg-emoji emoji-id="{category_emoji_id}">{category_emoji}</tg-emoji> <i>{kind_title} by turnover for “{period_title}”</i></blockquote>'
+        if is_english else
+        f'<blockquote><tg-emoji emoji-id="{category_emoji_id}">{category_emoji}</tg-emoji> <i>{kind_title} по обороту за «{period_title}»</i></blockquote>',
+        f'<blockquote><i>{update_text}</i></blockquote>',
+    ]
+    star = '<tg-emoji emoji-id="5954135079662916434">⭐️</tg-emoji>'
+    rows = []
+    for row in data.get("rows", []):
+        if kind == "players":
+            name = telegram_top_player_name(row["user_id"], row["name_fallback"], language)
+        else:
+            name = row["title"] or f"{'Chat' if is_english else 'Чат'} {row['chat_id']}"
+        rows.append(
+            f'{telegram_top_rank_emoji(row["rank"])} <b>{html_escape(str(name))}</b>: '
+            f'{_format_stars(row["score_cents"] / 100)}{star}'
+        )
+    if rows:
+        parts.append("\n".join(rows))
+    else:
+        parts.append("No leaderboard entries yet." if is_english else "Пока нет данных для топа.")
+    if kind == "players":
+        score = _format_stars(data.get("my_score_cents", 0) / 100)
+        rank = data.get("my_rank") or "—"
+        footer = (
+            f'<tg-emoji emoji-id="5415594207068822547">🤑</tg-emoji> Your turnover: <b>{score}</b>{star}, rank: <b>{rank}</b>'
+            if is_english else
+            f'<tg-emoji emoji-id="5415594207068822547">🤑</tg-emoji> Ваш оборот: <b>{score}</b>{star}, место в топе: <b>{rank}</b>'
+        )
+        parts.append(footer)
+    return "\n\n".join(parts)
+
+
+def telegram_home_markup(language: str = "ru") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=telegram_label(language, "Заработать на чате", "Earn with your chat"), callback_data="tg_menu:earn", icon_custom_emoji_id="5472270097290634771", style="success")],
+        [InlineKeyboardButton(text=telegram_label(language, "Профиль", "Profile"), callback_data="tg_menu:profile", icon_custom_emoji_id="5258011929993026890"), InlineKeyboardButton(text=telegram_label(language, "Бонусы", "Bonuses"), callback_data="get_bonus", icon_custom_emoji_id="5307603391919204061")],
+        [InlineKeyboardButton(text=telegram_label(language, "Топ", "Top"), callback_data="tg_menu:top", icon_custom_emoji_id="5312462735097764089"), InlineKeyboardButton(text=telegram_label(language, "Реф. программа", "Referral program"), callback_data="tg_menu:referral", icon_custom_emoji_id="5258513401784573443")],
+        [InlineKeyboardButton(text=telegram_label(language, "Хочу своё казино", "I want my own casino"), callback_data="tg_menu:casino")],
+    ])
+
+
+def telegram_back_markup(callback: str, language: str = "ru") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=telegram_label(language, "Назад", "Back"), callback_data=callback)]])
+
+
+def telegram_earn_markup(language: str = "ru") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=telegram_label(language, "Добавить в чат", "Add to chat"), url=TELEGRAM_CHAT_STARTGROUP_URL.format(bot=BOT_USERNAME), icon_custom_emoji_id="5471930335312747865", style="success")],
+        [InlineKeyboardButton(text=telegram_label(language, "Назад", "Back"), callback_data="tg_menu:home")],
     ])
 
 
 def telegram_profile_markup(language: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Пополнить", callback_data="balance_topup", icon_custom_emoji_id="4988289890769699938", style="success"), InlineKeyboardButton(text="Вывести", callback_data="balance_withdraw", icon_custom_emoji_id="4983748881977181112", style="success")],
-        [InlineKeyboardButton(text="Транзакции", callback_data="tg_menu:transactions", icon_custom_emoji_id="5258260149037965799")],
-        [InlineKeyboardButton(text="Настройки", callback_data="tg_menu:settings", icon_custom_emoji_id="5258096772776991776")],
-        [InlineKeyboardButton(text="Русский", callback_data="tg_language:ru", icon_custom_emoji_id="5449408995691341691", style="success" if language == "ru" else "primary"), InlineKeyboardButton(text="English", callback_data="tg_language:en", icon_custom_emoji_id="5202021044105257611", style="success" if language == "en" else "primary")],
-        [InlineKeyboardButton(text="Назад", callback_data="tg_menu:home")],
+        [InlineKeyboardButton(text=telegram_label(language, "Пополнить", "Deposit"), callback_data="balance_topup", icon_custom_emoji_id="4988289890769699938"), InlineKeyboardButton(text=telegram_label(language, "Вывести", "Withdraw"), callback_data="balance_withdraw", icon_custom_emoji_id="4983748881977181112")],
+        [InlineKeyboardButton(text=telegram_label(language, "Транзакции", "Transactions"), callback_data="tg_menu:transactions", icon_custom_emoji_id="5258260149037965799")],
+        [InlineKeyboardButton(text=telegram_label(language, "Настройки", "Settings"), callback_data="tg_menu:settings", icon_custom_emoji_id="5258096772776991776")],
+        [InlineKeyboardButton(text=telegram_label(language, "Русский", "Russian"), callback_data="tg_language:ru", icon_custom_emoji_id="5449408995691341691", style="primary" if language == "ru" else None), InlineKeyboardButton(text="English", callback_data="tg_language:en", icon_custom_emoji_id="5202021044105257611", style="primary" if language == "en" else None)],
+        [InlineKeyboardButton(text=telegram_label(language, "Назад", "Back"), callback_data="tg_menu:home")],
     ])
 
 
-def telegram_settings_markup(mode: str, has_nickname: bool) -> InlineKeyboardMarkup:
+def telegram_settings_markup(mode: str, has_nickname: bool, language: str = "ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Имя Telegram", callback_data="tg_privacy:username", style="success" if mode == "username" else "primary"), InlineKeyboardButton(text="Анонимность", callback_data="tg_privacy:hidden", style="success" if mode == "hidden" else "primary")],
-        [InlineKeyboardButton(text="Никнейм", callback_data="tg_privacy:nickname", style="success" if mode == "nickname" else "primary"), InlineKeyboardButton(text="Добавить никнейм" if not has_nickname else "Изменить никнейм", callback_data="tg_settings:nickname")],
-        [InlineKeyboardButton(text="Назад", callback_data="tg_menu:profile")],
+        [InlineKeyboardButton(text=telegram_label(language, "Имя Telegram", "Telegram name"), callback_data="tg_privacy:username", style="primary" if mode == "username" else None), InlineKeyboardButton(text=telegram_label(language, "Анонимность", "Anonymous"), callback_data="tg_privacy:hidden", style="primary" if mode == "hidden" else None)],
+        [InlineKeyboardButton(text=telegram_label(language, "Никнейм", "Nickname"), callback_data="tg_privacy:nickname", style="primary" if mode == "nickname" else None), InlineKeyboardButton(text=telegram_label(language, "Изменить никнейм" if has_nickname else "Добавить никнейм", "Change nickname" if has_nickname else "Add nickname"), callback_data="tg_settings:nickname")],
+        [InlineKeyboardButton(text=telegram_label(language, "Назад", "Back"), callback_data="tg_menu:profile")],
     ])
 
 
-def telegram_transactions_markup(kind: str, page: int, total_pages: int) -> InlineKeyboardMarkup:
+def telegram_transactions_markup(kind: str, page: int, total_pages: int, language: str = "ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Пополнения", callback_data="tg_tx:deposit:1", icon_custom_emoji_id="5327847754628609325", style="success" if kind == "deposit" else "primary"), InlineKeyboardButton(text="Выводы", callback_data="tg_tx:withdrawal:1", icon_custom_emoji_id="5330502087367212278", style="success" if kind == "withdrawal" else "primary")],
-        [InlineKeyboardButton(text="Все операции", callback_data="tg_tx:all:1", icon_custom_emoji_id="5427009714745517609", style="success" if kind == "all" else "primary")],
+        [InlineKeyboardButton(text=telegram_label(language, "Пополнения", "Deposits"), callback_data="tg_tx:deposit:1", icon_custom_emoji_id="5327847754628609325", style="primary" if kind == "deposit" else None), InlineKeyboardButton(text=telegram_label(language, "Выводы", "Withdrawals"), callback_data="tg_tx:withdrawal:1", icon_custom_emoji_id="5330502087367212278", style="primary" if kind == "withdrawal" else None)],
+        [InlineKeyboardButton(text=telegram_label(language, "Все операции", "All transactions"), callback_data="tg_tx:all:1", icon_custom_emoji_id="5427009714745517609", style="primary" if kind == "all" else None)],
         [InlineKeyboardButton(text=f"‹ {max(1, page - 1)}", callback_data=f"tg_tx:{kind}:{max(1, page - 1)}", icon_custom_emoji_id="5328091751720694986"), InlineKeyboardButton(text=f"{page}/{total_pages}", callback_data="tg_tx:noop"), InlineKeyboardButton(text=f"{min(total_pages, page + 1)} ›", callback_data=f"tg_tx:{kind}:{min(total_pages, page + 1)}", icon_custom_emoji_id="5328281486195964510")],
-        [InlineKeyboardButton(text="Назад", callback_data="tg_menu:profile")],
+        [InlineKeyboardButton(text=telegram_label(language, "Назад", "Back"), callback_data="tg_menu:profile")],
     ])
 
 
@@ -11283,7 +11622,11 @@ async def send_telegram_welcome(message: Message, user) -> None:
     fallback_name = "friend" if language == "en" else "друг"
     first_name = html_escape(getattr(user, "first_name", "") or getattr(user, "username", None) or fallback_name)
     hello = f'<tg-emoji emoji-id="5424972470023104089">🔥</tg-emoji> <b>Привет, <a href="tg://user?id={user.id}">{first_name}</a>!</b>'
-    await message.answer_photo(photo=WELCOME_IMAGE_URL, caption=translate_telegram_text(hello, language))
+    await message.answer_photo(
+        photo=WELCOME_IMAGE_URL,
+        caption=translate_telegram_text(hello, language),
+        reply_markup=telegram_main_reply_keyboard(language),
+    )
     announcement = (
         '<tg-emoji emoji-id="5096289879969498182">✨</tg-emoji> '
         '<b>Канал обновлений: <a href="https://t.me/mjrstars">t.me/mjrstars</a></b>\n\n'
@@ -11292,7 +11635,7 @@ async def send_telegram_welcome(message: Message, user) -> None:
         '<blockquote><tg-emoji emoji-id="5021646904597939582">💫</tg-emoji> '
         '«Большие победы начинаются с одного шага».</blockquote>'
     )
-    await message.answer(translate_telegram_text(announcement, language), reply_markup=telegram_home_markup())
+    await message.answer(translate_telegram_text(announcement, language), reply_markup=telegram_home_markup(language))
 
 
 @router.message(CommandStart(), F.chat.type == ChatType.PRIVATE)
@@ -11324,6 +11667,7 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext) -> None:
             f'<b>{user_link(message.from_user)}, вы не подписаны на обязательные каналы!</b>',
             reply_markup=check_markup(),
         )
+        await send_telegram_main_reply_keyboard(message, message.from_user.id)
         return
 
     pending_referrer = await get_pending_referral(message.from_user.id)
@@ -11348,6 +11692,7 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext) -> None:
             '<tg-emoji emoji-id="5030538831225422917">⬆️</tg-emoji></i>',
             reply_markup=topup_markup(),
         )
+        await send_telegram_main_reply_keyboard(message, message.from_user.id)
         return
 
     if args == "withdraw":
@@ -11359,6 +11704,7 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext) -> None:
             await state.set_state(WithdrawStates.waiting_amount)
         else:
             await state.clear()
+        await send_telegram_main_reply_keyboard(message, message.from_user.id)
         return
 
     await add_balance(message.from_user.id, 0.0)
@@ -11464,7 +11810,7 @@ async def show_telegram_settings(message: Message, user) -> None:
     settings = await telegram_settings_data(user.id, user)
     language = await get_telegram_language(user.id)
     text = translate_telegram_text(telegram_settings_text(settings), language)
-    await message.edit_text(text, reply_markup=telegram_settings_markup(settings["mode"], bool(settings["nickname"])))
+    await message.edit_text(text, reply_markup=telegram_settings_markup(settings["mode"], bool(settings["nickname"]), language))
 
 
 async def show_telegram_transactions(message: Message, user, kind: str = "all", page: int = 1) -> None:
@@ -11474,20 +11820,22 @@ async def show_telegram_transactions(message: Message, user, kind: str = "all", 
     page = max(1, min(page, pages))
     language = await get_telegram_language(user.id)
     text = translate_telegram_text(telegram_transactions_text(records, kind, page, pages), language)
-    await message.edit_text(text, reply_markup=telegram_transactions_markup(kind, page, pages))
+    await message.edit_text(text, reply_markup=telegram_transactions_markup(kind, page, pages, language))
 
 
 @router.callback_query(F.data == "tg_menu:home")
 async def telegram_home_callback(call: CallbackQuery) -> None:
     await call.answer()
-    await call.message.edit_text('<b>Выберите раздел MajorStars:</b>', reply_markup=telegram_home_markup())
+    language = await get_telegram_language(call.from_user.id)
+    text = translate_telegram_text('<b>Выберите раздел MajorStars:</b>', language)
+    await call.message.edit_text(text, reply_markup=telegram_home_markup(language))
 
 
 @router.callback_query(F.data == "tg_menu:earn")
 async def telegram_earn_callback(call: CallbackQuery) -> None:
     await call.answer()
     language = await get_telegram_language(call.from_user.id)
-    await call.message.edit_text(translate_telegram_text(telegram_earn_text(), language), reply_markup=telegram_earn_markup())
+    await call.message.edit_text(translate_telegram_text(telegram_earn_text(), language), reply_markup=telegram_earn_markup(language))
 
 
 @router.callback_query(F.data == "tg_menu:profile")
@@ -11566,7 +11914,7 @@ async def telegram_privacy_callback(call: CallbackQuery, state: FSMContext) -> N
             language = await get_telegram_language(call.from_user.id)
             prompt = translate_telegram_text("Сначала добавьте никнейм.", language) + " " + translate_telegram_text("Отправьте новый псевдоним одним сообщением. Для отмены нажмите «Назад».", language)
             await call.answer()
-            await call.message.answer(prompt, reply_markup=telegram_back_markup("tg_menu:settings"))
+            await call.message.answer(prompt, reply_markup=telegram_back_markup("tg_menu:settings", language))
             return
         raise
     await call.answer()
@@ -11579,7 +11927,7 @@ async def telegram_add_nickname_callback(call: CallbackQuery, state: FSMContext)
     language = await get_telegram_language(call.from_user.id)
     prompt = translate_telegram_text("Отправьте новый псевдоним одним сообщением. Для отмены нажмите «Назад».", language)
     await call.answer()
-    await call.message.answer(prompt, reply_markup=telegram_back_markup("tg_menu:settings"))
+    await call.message.answer(prompt, reply_markup=telegram_back_markup("tg_menu:settings", language))
 
 
 @router.message(TelegramProfileStates.waiting_nickname, F.chat.type == ChatType.PRIVATE, F.text)
@@ -11588,18 +11936,44 @@ async def telegram_nickname_message(message: Message, state: FSMContext) -> None
     language = await get_telegram_language(message.from_user.id)
     if not re.fullmatch(r"[\w]{3,20}", nickname, flags=re.UNICODE):
         text = translate_telegram_text("Псевдоним должен содержать от 3 до 20 букв, цифр или знаков подчёркивания.", language)
-        await message.answer(text, reply_markup=telegram_back_markup("tg_menu:settings"))
+        await message.answer(text, reply_markup=telegram_back_markup("tg_menu:settings", language))
         return
     await save_telegram_nickname(message.from_user.id, message.from_user, nickname)
     await state.clear()
     settings = await telegram_settings_data(message.from_user.id, message.from_user)
     text = translate_telegram_text("Псевдоним сохранён.", language) + "\n\n" + translate_telegram_text(telegram_settings_text(settings), language)
-    await message.answer(text, reply_markup=telegram_settings_markup(settings["mode"], bool(settings["nickname"])))
+    await message.answer(text, reply_markup=telegram_settings_markup(settings["mode"], bool(settings["nickname"]), language))
 
 
-@router.callback_query(F.data.in_({"tg_menu:top", "tg_menu:casino"}))
-async def telegram_unimplemented_menu_callback(call: CallbackQuery) -> None:
-    # Reuse the existing generic "soon" response instead of inventing new actions.
+@router.callback_query(F.data == "tg_menu:top")
+async def telegram_top_category_callback(call: CallbackQuery) -> None:
+    language = await get_telegram_language(call.from_user.id)
+    await call.answer()
+    await call.message.edit_text(
+        telegram_top_category_text(language),
+        reply_markup=telegram_top_category_markup(language),
+    )
+
+
+@router.callback_query(F.data.startswith("tg_top:"))
+async def telegram_top_page_callback(call: CallbackQuery) -> None:
+    parts = call.data.split(":")
+    if len(parts) != 3 or parts[1] not in {"players", "chats"} or parts[2] not in TELEGRAM_TOP_PERIODS:
+        await call.answer()
+        return
+    kind, period = parts[1], parts[2]
+    language = await get_telegram_language(call.from_user.id)
+    await call.answer()
+    data = await telegram_top_data(kind, period, call.from_user.id)
+    await call.message.edit_text(
+        telegram_top_text(kind, period, data, language),
+        reply_markup=telegram_top_markup(kind, period, language),
+    )
+
+
+@router.callback_query(F.data == "tg_menu:casino")
+async def telegram_casino_callback(call: CallbackQuery) -> None:
+    # Reuse the existing generic "soon" response for the still-unimplemented casino action.
     await call.answer()
     await call.message.answer(soon_text(), reply_markup=soon_markup())
 

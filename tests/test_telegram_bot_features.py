@@ -7,7 +7,7 @@ import unittest
 
 from aiogram.enums import ChatType
 from aiogram.methods import SendMessage
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from complete_games import CompleteGamesBackend
 import test_games_backend as fixtures
 
@@ -142,6 +142,121 @@ class TelegramBotFeatureTests(unittest.IsolatedAsyncioTestCase):
             "SELECT group_earned FROM ref_balance WHERE user_id=99"
         ) as cursor:
             self.assertEqual((await cursor.fetchone())[0], 2)
+
+    def test_profile_and_leaderboard_buttons_are_fully_localized(self):
+        profile = self.runtime.telegram_profile_markup("en")
+        self.assertEqual(
+            [button.text for button in profile.inline_keyboard[0]],
+            ["Deposit", "Withdraw"],
+        )
+        self.assertTrue(all(button.style is None for button in profile.inline_keyboard[0]))
+        self.assertEqual(
+            [button.text for button in profile.inline_keyboard[3]],
+            ["Russian", "English"],
+        )
+        self.assertEqual(profile.inline_keyboard[3][1].style, "primary")
+        self.assertIsNone(profile.inline_keyboard[3][0].style)
+
+        localized_markups = (
+            self.runtime.telegram_home_markup("en"),
+            self.runtime.telegram_earn_markup("en"),
+            self.runtime.telegram_settings_markup("nickname", True, "en"),
+            self.runtime.telegram_transactions_markup("withdrawal", 1, 2, "en"),
+        )
+        for markup in localized_markups:
+            for row in markup.inline_keyboard:
+                for button in row:
+                    self.assertNotRegex(button.text, r"[А-Яа-яЁё]")
+
+        chooser = self.runtime.telegram_top_category_markup("en")
+        self.assertEqual(
+            [button.text for button in chooser.inline_keyboard[0]],
+            ["Top players", "Top chats"],
+        )
+        self.assertEqual(
+            [button.icon_custom_emoji_id for button in chooser.inline_keyboard[0]],
+            ["5098271397491246244", "5891169510483823323"],
+        )
+        self.assertEqual(chooser.inline_keyboard[0][0].callback_data, "tg_top:players:all")
+        self.assertEqual(chooser.inline_keyboard[0][1].callback_data, "tg_top:chats:all")
+        self.assertEqual(chooser.inline_keyboard[1][0].text, "Back")
+
+        page = self.runtime.telegram_top_markup("players", "yesterday", "en")
+        self.assertEqual(page.inline_keyboard[0][0].style, "primary")
+        self.assertIsNone(page.inline_keyboard[0][1].style)
+        self.assertEqual(page.inline_keyboard[0][0].callback_data, "tg_top:players:yesterday")
+        self.assertEqual(page.inline_keyboard[0][1].callback_data, "tg_top:chats:yesterday")
+        self.assertEqual(
+            [button.text for button in page.inline_keyboard[1]],
+            ["All time", "Today"],
+        )
+        self.assertEqual(
+            [button.text for button in page.inline_keyboard[2]],
+            ["• Yesterday •", "Week", "Month"],
+        )
+        self.assertTrue(
+            all(button.style is None for row in page.inline_keyboard[1:3] for button in row)
+        )
+        self.assertNotIn("success", [button.style for row in page.inline_keyboard for button in row])
+
+    async def test_telegram_leaderboards_use_turnover_and_deduplicate_group_events(self):
+        self.runtime._wallet_backend = self.backend
+        self.runtime.TELEGRAM_TOP_CACHE.clear()
+        connection = self.runtime.db()
+        stamp = self.runtime.now_msk().isoformat()
+        async with self.runtime._db_lock:
+            await connection.execute(
+                "INSERT INTO telegram_group_owners(chat_id,owner_id,chat_title,updated_at) VALUES (?,?,?,?)",
+                (-1001001, 99, "Alpha & <Club>", stamp),
+            )
+            await connection.execute(
+                "INSERT INTO usernames(user_id,username,full_name,updated_at) VALUES (?,?,?,?)",
+                (42, "alice", "Alice & One", stamp),
+            )
+            await connection.commit()
+
+        await self.runtime.save_football_game(
+            42,
+            10,
+            "центр",
+            "мимо",
+            0,
+            0,
+            False,
+            chat_id=-1001001,
+            idempotency_key="-1001001:900",
+        )
+        async with self.runtime._db_lock:
+            duplicate = await self.runtime.record_telegram_group_game(
+                connection,
+                -1001001,
+                42,
+                200,
+                "bot:football:-1001001:900",
+                stamp,
+            )
+            await connection.commit()
+        self.assertFalse(duplicate)
+
+        players = await self.runtime.telegram_top_data("players", "all", 42)
+        chats = await self.runtime.telegram_top_data("chats", "all", 42)
+        self.assertEqual(players["rows"][0]["score_cents"], 1000)
+        self.assertEqual(players["rows"][0]["name_fallback"], "Alice & One")
+        self.assertEqual(players["my_score_cents"], 1000)
+        self.assertEqual(players["my_rank"], 1)
+        self.assertEqual(chats["rows"][0]["score_cents"], 1000)
+        self.assertEqual(chats["rows"][0]["title"], "Alpha & <Club>")
+
+        player_text = self.runtime.telegram_top_text("players", "all", players, "en")
+        self.assertIn("Top players by turnover for “all time”", player_text)
+        self.assertIn("<b>Alice &amp; One</b>: 10", player_text)
+        self.assertIn("Your turnover: <b>10</b>", player_text)
+        self.assertIn("rank: <b>1</b>", player_text)
+        self.assertIn("5451986538709686533", player_text)
+        chat_text = self.runtime.telegram_top_text("chats", "all", chats, "en")
+        self.assertIn("Top chats by turnover for “all time”", chat_text)
+        self.assertIn("<b>Alpha &amp; &lt;Club&gt;</b>: 10", chat_text)
+        self.assertNotIn("Your turnover", chat_text)
 
     def test_known_user_facing_fallback_phrases_are_natural_english(self):
         examples = {
@@ -313,6 +428,120 @@ class TelegramBotFeatureTests(unittest.IsolatedAsyncioTestCase):
             localized.reply_markup.inline_keyboard[0][0].text, "Profile"
         )
 
+    def test_main_reply_keyboard_is_persistent_localized_and_uses_custom_emojis(self):
+        expected_ids = [
+            "5258204546391351475",
+            "5258508428212445001",
+            "5257965174979042426",
+        ]
+        for language, labels in (
+            ("ru", ["Баланс", "Играть", "Меню"]),
+            ("en", ["Balance", "Play", "Menu"]),
+        ):
+            with self.subTest(language=language):
+                markup = self.runtime.telegram_main_reply_keyboard(language)
+                self.assertIsInstance(markup, ReplyKeyboardMarkup)
+                self.assertTrue(markup.is_persistent)
+                self.assertTrue(markup.resize_keyboard)
+                self.assertFalse(markup.one_time_keyboard)
+                self.assertEqual([[button.text for button in row] for row in markup.keyboard], [labels])
+                self.assertEqual(
+                    [button.icon_custom_emoji_id for button in markup.keyboard[0]],
+                    expected_ids,
+                )
+
+    async def test_reply_keyboard_text_routes_to_balance_games_and_main_menu(self):
+        user = SimpleNamespace(id=42)
+        bot = AsyncMock()
+        state = SimpleNamespace(clear=AsyncMock())
+        route = next(
+            handler for handler in self.runtime.router.message.handlers
+            if handler.callback is self.runtime.telegram_reply_menu_action
+        )
+
+        for label in ("Баланс", "Balance"):
+            message = SimpleNamespace(
+                text=label,
+                chat=SimpleNamespace(type=ChatType.PRIVATE),
+                from_user=user,
+                answer=AsyncMock(),
+            )
+            self.assertTrue((await route.check(message))[0])
+            with patch.object(self.runtime, "cmd_balance", new=AsyncMock()) as action:
+                await self.runtime.telegram_reply_menu_action(message, state, bot)
+            action.assert_awaited_once_with(message, bot, state)
+
+        for label in ("Играть", "Play"):
+            message = SimpleNamespace(
+                text=label,
+                chat=SimpleNamespace(type=ChatType.PRIVATE),
+                from_user=user,
+                answer=AsyncMock(),
+            )
+            self.assertTrue((await route.check(message))[0])
+            with patch.object(self.runtime, "cmd_games", new=AsyncMock()) as action:
+                await self.runtime.telegram_reply_menu_action(message, state, bot)
+            action.assert_awaited_once_with(message, state)
+
+        group_message = SimpleNamespace(
+            text="Menu", chat=SimpleNamespace(type=ChatType.GROUP)
+        )
+        self.assertFalse((await route.check(group_message))[0])
+
+        await self.runtime.set_telegram_language(user.id, "en")
+        message = SimpleNamespace(
+            text="Menu",
+            chat=SimpleNamespace(type=ChatType.PRIVATE),
+            from_user=user,
+            answer=AsyncMock(),
+        )
+        self.assertTrue((await route.check(message))[0])
+        await self.runtime.telegram_reply_menu_action(message, state, bot)
+        state.clear.assert_awaited_once_with()
+        message.answer.assert_awaited_once()
+        self.assertEqual(message.answer.await_args.args[0], "<b>Choose a MajorStars section:</b>")
+        menu = message.answer.await_args.kwargs["reply_markup"]
+        self.assertEqual(menu.inline_keyboard[0][0].callback_data, "tg_menu:earn")
+        self.assertEqual(menu.inline_keyboard[0][0].text, "Earn with your chat")
+
+    async def test_start_deep_link_branches_also_install_main_reply_keyboard(self):
+        user = SimpleNamespace(
+            id=42,
+            first_name="Test",
+            last_name="User",
+            username="test_user",
+            is_premium=False,
+            full_name="Test User",
+        )
+        bot = AsyncMock()
+        with (
+            patch.object(self.runtime, "is_subscribed", new=AsyncMock(return_value=True)),
+            patch.object(self.runtime, "get_pending_referral", new=AsyncMock(return_value=None)),
+            patch.object(self.runtime, "try_pay_referral_signup", new=AsyncMock()),
+            patch.object(self.runtime, "show_withdraw_menu", new=AsyncMock(return_value=True)),
+        ):
+            for argument in ("toreplenish", "withdraw"):
+                with self.subTest(argument=argument):
+                    message = SimpleNamespace(
+                        text=f"/start {argument}",
+                        chat=SimpleNamespace(type=ChatType.PRIVATE, id=42),
+                        from_user=user,
+                        answer=AsyncMock(),
+                        answer_photo=AsyncMock(),
+                    )
+                    state = SimpleNamespace(clear=AsyncMock(), set_state=AsyncMock())
+                    await self.runtime.cmd_start(message, bot, state)
+                    keyboard_calls = [
+                        call for call in message.answer.await_args_list
+                        if isinstance(call.kwargs.get("reply_markup"), ReplyKeyboardMarkup)
+                    ]
+                    self.assertEqual(len(keyboard_calls), 1)
+                    self.assertEqual(
+                        [button.text for button in keyboard_calls[0].kwargs["reply_markup"].keyboard[0]],
+                        ["Баланс", "Играть", "Меню"],
+                    )
+                    message.answer_photo.assert_not_awaited()
+
     async def test_start_keeps_subscription_gate_and_sends_two_part_welcome(self):
         user = SimpleNamespace(
             id=42,
@@ -336,8 +565,16 @@ class TelegramBotFeatureTests(unittest.IsolatedAsyncioTestCase):
             patch.object(self.runtime, "get_pending_referral", new=AsyncMock(return_value=None)),
         ):
             await self.runtime.cmd_start(message, bot, state)
-        message.answer.assert_awaited_once()
-        self.assertIn("вы не подписаны на обязательные каналы", message.answer.await_args.args[0])
+        self.assertEqual(message.answer.await_count, 2)
+        gate_call, keyboard_call = message.answer.await_args_list
+        self.assertIn("вы не подписаны на обязательные каналы", gate_call.args[0])
+        self.assertEqual(gate_call.kwargs["reply_markup"].inline_keyboard[0][1].callback_data, "check_sub")
+        gate_keyboard = keyboard_call.kwargs["reply_markup"]
+        self.assertIsInstance(gate_keyboard, ReplyKeyboardMarkup)
+        self.assertEqual(
+            [button.text for button in gate_keyboard.keyboard[0]],
+            ["Баланс", "Играть", "Меню"],
+        )
         message.answer_photo.assert_not_awaited()
 
         message.answer.reset_mock()
@@ -357,6 +594,13 @@ class TelegramBotFeatureTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("5424972470023104089", photo_call.kwargs["caption"])
         self.assertIn("Hello,", photo_call.kwargs["caption"])
         self.assertIn("&lt;Test &amp; User&gt;", photo_call.kwargs["caption"])
+        welcome_keyboard = photo_call.kwargs["reply_markup"]
+        self.assertIsInstance(welcome_keyboard, ReplyKeyboardMarkup)
+        self.assertTrue(welcome_keyboard.is_persistent)
+        self.assertEqual(
+            [button.text for button in welcome_keyboard.keyboard[0]],
+            ["Balance", "Play", "Menu"],
+        )
         message.answer.assert_awaited_once()
         announcement, markup = message.answer.await_args.args[0], message.answer.await_args.kwargs["reply_markup"]
         self.assertIn("Updates channel", announcement)
